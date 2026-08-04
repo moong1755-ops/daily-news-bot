@@ -40,7 +40,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
           PYTHONUNBUFFERED: "1"
-        run: python -m src.bot
+        run: python src/bot.py
 
       - name: Commit seen files and slack archive
         run: |
