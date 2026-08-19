@@ -207,7 +207,24 @@ ALL_WATCHLISTS = [
     "삼성전자", "SK하이닉스",
 ]
 
+OFFICIAL_INSIGHTS_CATEGORY = next(
+    category for category in CATEGORIES if category.startswith("👔")
+)
+
+# Official-domain supplements for firms without a stable public RSS endpoint.
+# Each query is limited to the firm's own insights or publications pages.
+OFFICIAL_INSIGHTS_FEEDS = {
+    "McKinsey Official Insights": "https://news.google.com/rss/search?q=site%3Amckinsey.com%2Finsights+when%3A7d&hl=en-US&gl=US&ceid=US%3Aen",
+    "BCG Official Insights": "https://news.google.com/rss/search?q=site%3Abcg.com%2Fpublications+OR+site%3Abcg.com%2Ffeatured-insights+when%3A7d&hl=en-US&gl=US&ceid=US%3Aen",
+    "Bain Official Insights": "https://news.google.com/rss/search?q=site%3Abain.com%2Finsights+when%3A7d&hl=en-US&gl=US&ceid=US%3Aen",
+    "Deloitte Official Insights": "https://news.google.com/rss/search?q=site%3Adeloitte.com%2Finsights+when%3A7d&hl=en-US&gl=US&ceid=US%3Aen",
+    "PwC Official Insights": "https://news.google.com/rss/search?q=site%3Apwc.com+%28insights+OR+strategy%2Bbusiness%29+when%3A7d&hl=en-US&gl=US&ceid=US%3Aen",
+    "EY Official Insights": "https://news.google.com/rss/search?q=site%3Aey.com+%28insights+OR+publications%29+when%3A7d&hl=en-US&gl=US&ceid=US%3Aen",
+    "KPMG Official Insights": "https://news.google.com/rss/search?q=site%3Akpmg.com+%28insights+OR+research%29+when%3A7d&hl=en-US&gl=US&ceid=US%3Aen",
+}
+
 GOOGLE_NEWS_FEEDS = {
+    **OFFICIAL_INSIGHTS_FEEDS,
     "국내 VC/스타트업": "https://news.google.com/rss/search?q=(%ED%88%AC%EC%9E%90%EC%9C%A0%EC%B9%98+OR+%ED%8E%80%EB%94%A9+OR+M%26A+OR+%EC%8B%9C%EB%A6%AC%EC%A6%88A+OR+%EC%8B%9C%EB%A6%AC%EC%A6%88B+OR+%EB%B2%A4%EC%B2%98%ED%8E%80%EB%93%9C)+when:3d&hl=ko&gl=KR&ceid=KR:ko",
     "글로벌 VC/PE": "https://news.google.com/rss/search?q=(venture+capital+OR+private+equity+OR+funding+round+OR+dry+powder+OR+startup+raising)+when:3d&hl=en-US&gl=US&ceid=US:en",
     "미국 통화정책/금리": "https://news.google.com/rss/search?q=(FOMC+OR+%EC%97%B0%EC%A4%80+OR+%EA%B8%B0%EC%A4%80%EA%B8%88%EB%A6%AC+OR+%ED%8C%8C%EC%9B%94+OR+inflation+OR+treasury+yield)+when:3d&hl=ko&gl=KR&ceid=KR:ko",
@@ -223,6 +240,10 @@ GOOGLE_NEWS_FEEDS = {
 #   summarizer 가 article['feed'] 를 이 표에서 먼저 조회 → 있으면 그 카테고리로 확정.
 # ---------------------------------------------------------------------------
 FEED_CATEGORY_OVERRIDE = {
+    **{
+        feed_name: OFFICIAL_INSIGHTS_CATEGORY
+        for feed_name in OFFICIAL_INSIGHTS_FEEDS
+    },
     "국내 VC/스타트업": "💼 대체투자",
     "글로벌 VC/PE": "💼 대체투자",
     "미국 통화정책/금리": "🌐 거시·정책·지정학",
