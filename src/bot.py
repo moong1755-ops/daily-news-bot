@@ -502,7 +502,6 @@ def main():
     try:
         from .utils.file_handler import SEEN_TEXTS_FILE
         # cap at 2000 lines to avoid unbounded growth
-        from .utils.file_handler import save_lines
         save_lines(SEEN_TEXTS_FILE, seen_texts, cap=2000)
     except Exception as _e:
         print(f"⚠️ seen_texts 저장 실패: {_e}")
