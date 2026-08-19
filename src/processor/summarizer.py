@@ -6,6 +6,13 @@ from ..config import (
     ALL_WATCHLISTS,
     RSS_SOURCE_METADATA,      # 🚀 메타데이터 임포트
     FEED_CATEGORY_OVERRIDE,   # ✅ Google News 피드 → 카테고리 강제 매핑
+    DEAL_PRIORITY_SIGNALS,
+    DEAL_EARLY_STAGE_SIGNALS,
+    DEAL_EXCLUSION_KEYWORDS,
+    IMPACT_EARLY_STAGE_SIGNALS,
+    EDITORIAL_PRIORITY_SIGNALS,
+    EDITORIAL_PRIORITY_WEIGHT,
+    EDITORIAL_EXCLUSION_KEYWORDS,
 )
 
 def keyword_hit(keyword: str, text: str) -> bool:
@@ -15,6 +22,10 @@ def keyword_hit(keyword: str, text: str) -> bool:
         return bool(re.search(pattern, text))
     else:
         return kw_lower in text
+
+
+def _has_any(keywords: list, text: str) -> bool:
+    return any(keyword_hit(keyword, text) for keyword in keywords)
 
 def summarize(article: dict):
     errors = []
@@ -76,8 +87,21 @@ def summarize(article: dict):
         if keyword_hit(p_kw, text):
             base_score -= 1.0
 
+    editorial_score = sum(EDITORIAL_PRIORITY_WEIGHT for keywords in EDITORIAL_PRIORITY_SIGNALS.values() if _has_any(keywords, text))
+    deal_score = sum(EDITORIAL_PRIORITY_WEIGHT for keywords in DEAL_PRIORITY_SIGNALS.values() if _has_any(keywords, text))
+    early_stage = _has_any(DEAL_EARLY_STAGE_SIGNALS, text)
+    impact_exception = assigned_category.startswith("🌱") and _has_any(IMPACT_EARLY_STAGE_SIGNALS, text)
+    if early_stage and not (deal_score or impact_exception):
+        deal_score -= EDITORIAL_PRIORITY_WEIGHT
+    excluded = _has_any(DEAL_EXCLUSION_KEYWORDS + EDITORIAL_EXCLUSION_KEYWORDS, text)
+    base_score += editorial_score + deal_score
+
     # 최종 적용
     article["category"] = assigned_category
     article["relevance"] = max(0.0, base_score)  # 점수 마이너스 방지
 
+    article["deal_score"] = deal_score
+    article["editorial_excluded"] = excluded
+    if excluded:
+        article["relevance"] = 0.0
     return article, errors
