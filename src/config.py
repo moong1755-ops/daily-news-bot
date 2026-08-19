@@ -108,6 +108,28 @@ TRANSLATE_TITLES = True     # 발송 기사 제목 한글 번역(영문만, 실�
 
 SIMILARITY_THRESHOLD = 0.72
 WATCHLIST_WEIGHT = 2.5       # 관심기업 존재감 극대화
+
+# VC editor signals: market-moving events receive a higher score than routine
+# coverage. The processor uses these settings so editorial policy stays here.
+EDITORIAL_PRIORITY_SIGNALS = {
+    "investment_or_ma": [
+        "funding", "fundraise", "raises", "raised", "investment", "acquisition",
+        "merger", "m&a", "buyout", "ipo", "series a", "series b", "series c",
+    ],
+    "policy_or_regulation": [
+        "regulation", "regulatory", "policy", "legislation", "tariff", "sanction",
+        "antitrust", "federal reserve", "interest rate",
+    ],
+    "market_or_industry_shift": [
+        "outlook", "forecast", "report", "global trends", "industry trends",
+        "market share", "supply chain", "restructuring",
+    ],
+    "major_contract_or_technology": [
+        "contract", "partnership", "agreement", "launches", "breakthrough",
+        "commercial deployment", "data center",
+    ],
+}
+EDITORIAL_PRIORITY_WEIGHT = 2.0
 SOFT_PENALTY_KEYWORDS = [
     "특징주", "목표가", "상한가", "하한가", "종목추천", "리딩", "주가전망"
 ]
@@ -128,6 +150,38 @@ NON_NEWS_KEYWORDS = [
     "컨퍼런스", "시상", "수상자 발표", "공모전", "설명회",
     # 부고/인사
     "obituary", "부고", "인사발령", "동정",
+]
+
+EDITORIAL_EXCLUSION_KEYWORDS = NON_NEWS_KEYWORDS + [
+    "interview", "podcast", "webinar", "sponsored", "press release",
+    "product announcement", "awards", "event",
+]
+
+# Alternative-investment deal policy. Amount is a signal, never an automatic
+# cutoff: strategic, undisclosed, and impact-sector early-stage deals remain
+# eligible when they satisfy the exception signals below.
+DEAL_PRIORITY_SIGNALS = {
+    "transaction": [
+        "acquisition", "acquires", "acquired", "merger", "buyout", "take-private",
+        "ipo", "secondary sale", "stake sale", "continuation fund",
+    ],
+    "financing": [
+        "series b", "series c", "series d", "growth round", "bridge financing",
+        "follow-on", "private credit", "credit facility", "project finance",
+        "infrastructure financing", "fund close", "fundraising",
+    ],
+    "exception": [
+        "strategic investment", "undisclosed", "government contract", "public procurement",
+        "valuation", "unicorn", "commercial deployment",
+    ],
+}
+DEAL_EARLY_STAGE_SIGNALS = ["seed", "pre-seed", "series a"]
+DEAL_EXCLUSION_KEYWORDS = [
+    "investment seminar", "investment briefing", "startup support program",
+    "small business support", "grant application", "pitch competition", "memorandum of understanding",
+]
+IMPACT_EARLY_STAGE_SIGNALS = [
+    "climate", "healthcare", "care", "education", "circular economy", "social venture",
 ]
 
 BLACKLIST_KEYWORDS = [
