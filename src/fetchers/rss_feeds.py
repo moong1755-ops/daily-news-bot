@@ -137,7 +137,8 @@ def _discover_feed_url(original_url: str) -> str:
     return None
 
 
-def _gnews_site_fallback_url(original_url: str, source_name: str) -> str:    """✅ 3단계 안전망: 원본 RSS 사망 시 해당 '도메인 한정' 구글뉴스 검색으로 우회.
+def _gnews_site_fallback_url(original_url: str, source_name: str) -> str:
+    """✅ 3단계 안전망: 원본 RSS 사망 시 해당 '도메인 한정' 구글뉴스 검색으로 우회.
     (매체명 검색은 '그 매체에 관한 기사'가 섞이므로 site: 을 사용)"""
     domain = urlsplit(original_url).netloc.replace("www.", "")
     if source_region(source_name) == "korea":
