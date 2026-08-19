@@ -191,6 +191,14 @@ def _selection_score(article: dict, category: str) -> float:
     return score
 
 
+def _is_sendable(article: dict) -> bool:
+    if article.get("editorial_excluded", False):
+        return False
+
+    llm_score = article.get("llm_score")
+    return llm_score is None or float(llm_score) >= LLM_SEND_MIN_SCORE
+
+
 def send_aggregated_slack_news(articles) -> bool:
     slack_webhook_url = os.environ.get("SLACK_WEBHOOK_URL")
     if not slack_webhook_url:
@@ -199,6 +207,8 @@ def send_aggregated_slack_news(articles) -> bool:
 
     buckets = {cat: [] for cat in CATEGORY_ORDER}
     for a in articles:
+        if not _is_sendable(a):
+            continue
         cat = a.get("category", CATEGORY_ORDER[-1])
         if cat not in buckets:
             cat = CATEGORY_ORDER[-1]
@@ -218,8 +228,6 @@ def send_aggregated_slack_news(articles) -> bool:
                 if nvidia >= 2:
                     continue
                 nvidia += 1
-            if a.get("llm_score") is not None and a["llm_score"] < LLM_SEND_MIN_SCORE:
-                continue
             selected.append(a)
             if len(selected) >= max_limit:
                 break
