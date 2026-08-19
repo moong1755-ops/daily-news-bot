@@ -237,9 +237,58 @@ FEED_CATEGORY_OVERRIDE = {
 #      FOMC·트럼프·국내외 VC·MBB/Big4 Google News 쿼리가 전부 수집된다.
 #      (반드시 GOOGLE_NEWS_FEEDS 정의 '이후'에 위치해야 함)
 # ---------------------------------------------------------------------------
+# Only feeds verified as RSS/XML endpoints are eligible for primary ingestion.
+# Google News remains in GOOGLE_NEWS_FEEDS and is merged only after this list.
+VERIFIED_RSS_SOURCE_NAMES = frozenset({
+    "Impact Alpha",
+    "NextBillion",
+    "SSIR",
+    "Pioneers Post",
+    "Carbon Brief",
+    "Responsible Investor",
+    "TechCrunch AI",
+    "MIT Tech Review (AI)",
+    "SemiAnalysis",
+    "PE Hub",
+    "Crunchbase News",
+    "TechCrunch Venture",
+    "Sifted",
+    "The Economist",
+    "Foreign Affairs",
+    "McKinsey Insights",
+})
+
+# ImpactOn is the single domestic supplement retained for the impact category.
+# Use its direct RSS endpoint instead of routing this RSS source through Google News.
+RSS_SOURCE_METADATA = {
+    source_name: (
+        {**metadata, "url": "https://www.impacton.net/rss/allArticle.xml"}
+        if source_name.startswith("ImpactOn")
+        else metadata
+    )
+    for source_name, metadata in RSS_SOURCE_METADATA.items()
+    if source_name in VERIFIED_RSS_SOURCE_NAMES or source_name.startswith("ImpactOn")
+}
+
+# A category/tier registry is derived from the source metadata. Adding a source
+# requires only one config entry; it will be collected in category priority order.
+CATEGORY_RSS_SOURCES = {
+    category: {
+        tier: {
+            source_name: metadata
+            for source_name, metadata in RSS_SOURCE_METADATA.items()
+            if metadata["category"] == category and metadata["tier"] == tier
+        }
+        for tier in ("primary", "supplemental")
+    }
+    for category in CATEGORIES
+}
+
 RSS_FEEDS = {
-    name: meta["url"]
-    for name, meta in RSS_SOURCE_METADATA.items()
+    source_name: metadata["url"]
+    for category in CATEGORIES
+    for tier in ("primary", "supplemental")
+    for source_name, metadata in CATEGORY_RSS_SOURCES[category][tier].items()
 }
 
 ALL_FEEDS = {
