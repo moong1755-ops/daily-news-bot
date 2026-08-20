@@ -43,12 +43,12 @@ class EditorGateTestCase(unittest.TestCase):
 
     def test_kept_article_gets_category_and_score(self):
         articles = [_article("Rillet raises $100M Series C")]
-        verdict = {"id": 1, "keep": True, "category": "💼 대체투자", "score": 9, "reason": "funding"}
+        verdict = {"id": 1, "keep": True, "category": "📈 대체투자", "score": 9, "reason": "funding"}
         with _llm({"verdicts": [verdict]}):
             kept, _ = editor.review(articles)
 
         self.assertEqual(len(kept), 1)
-        self.assertEqual(kept[0]["category"], "💼 대체투자")
+        self.assertEqual(kept[0]["category"], "📈 대체투자")
         self.assertEqual(kept[0]["category_reason"], "editor")
         self.assertEqual(kept[0]["editor_score"], 9.0)
         self.assertEqual(kept[0]["relevance"], 9.0)

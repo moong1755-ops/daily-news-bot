@@ -113,7 +113,7 @@ HN_KEYWORDS = [
 CATEGORIES = {
     "🌱 임팩트": IMPACT_KW,
     "🤖 AI": AI_KW,
-    "💼 대체투자": ALT_KW,
+    "📈 대체투자": ALT_KW,
     "🌐 거시·정책·지정학": MACRO_KW,
     "👔 MBB·Big4 인사이트": INSIGHTS_KW,
 }
@@ -121,7 +121,7 @@ CATEGORIES = {
 MAX_PER_CATEGORY_DICT = {
     "🌱 임팩트": 3,
     "🤖 AI": 3,
-    "💼 대체투자": 3,
+    "📈 대체투자": 3,
     "🌐 거시·정책·지정학": 3,
     "👔 MBB·Big4 인사이트": 3,
 }
@@ -131,7 +131,7 @@ ALTERNATIVE_MAJOR_DEAL_MAX = 6
 LLM_CANDIDATES_PER_CATEGORY = 12
 IMPACT_CANDIDATES_PER_THEME = 3
 
-OVERSEAS_PREFERRED_DOMAINS = ["🌱 임팩트", "🤖 AI", "💼 대체투자", "👔 MBB·Big4 인사이트"]
+OVERSEAS_PREFERRED_DOMAINS = ["🌱 임팩트", "🤖 AI", "📈 대체투자", "👔 MBB·Big4 인사이트"]
 REGION_WEIGHT = {"global": 1.35, "korea": 1.0}
 LLM_SEND_MIN_SCORE = 0
 
@@ -314,14 +314,14 @@ RSS_SOURCE_METADATA = {
     "The Verge AI": {"url": "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml", "category": "🤖 AI", "tier": "supplemental", "priority": 3},
     "Ars Technica": {"url": "https://feeds.arstechnica.com/arstechnica/index", "category": "🤖 AI", "tier": "supplemental", "priority": 3},
 
-    # 💼 대체투자 (딜소싱 및 펀드 운용)
-    "PE Hub": {"url": "https://www.pehub.com/feed/", "category": "💼 대체투자", "tier": "primary", "priority": 5},
-    "Crunchbase News": {"url": "https://news.crunchbase.com/feed/", "category": "💼 대체투자", "tier": "primary", "priority": 5},
-    "TechCrunch Venture": {"url": "https://techcrunch.com/category/venture/feed/", "category": "💼 대체투자", "tier": "primary", "priority": 5},
-    "VCJ": {"url": "https://venturecapitaljournal.com/feed/", "category": "💼 대체투자", "tier": "primary", "priority": 5},
-    "Sifted": {"url": "https://sifted.eu/feed", "category": "💼 대체투자", "tier": "supplemental", "priority": 4},
-    "VentureSquare (벤처스퀘어)": {"url": "https://www.venturesquare.net/feed", "category": "💼 대체투자", "tier": "supplemental", "priority": 3},
-    "Platum (플랫텀)": {"url": "https://platum.kr/feed", "category": "💼 대체투자", "tier": "supplemental", "priority": 3},
+    # 📈 대체투자 (딜소싱 및 펀드 운용)
+    "PE Hub": {"url": "https://www.pehub.com/feed/", "category": "📈 대체투자", "tier": "primary", "priority": 5},
+    "Crunchbase News": {"url": "https://news.crunchbase.com/feed/", "category": "📈 대체투자", "tier": "primary", "priority": 5},
+    "TechCrunch Venture": {"url": "https://techcrunch.com/category/venture/feed/", "category": "📈 대체투자", "tier": "primary", "priority": 5},
+    "VCJ": {"url": "https://venturecapitaljournal.com/feed/", "category": "📈 대체투자", "tier": "primary", "priority": 5},
+    "Sifted": {"url": "https://sifted.eu/feed", "category": "📈 대체투자", "tier": "supplemental", "priority": 4},
+    "VentureSquare (벤처스퀘어)": {"url": "https://www.venturesquare.net/feed", "category": "📈 대체투자", "tier": "supplemental", "priority": 3},
+    "Platum (플랫텀)": {"url": "https://platum.kr/feed", "category": "📈 대체투자", "tier": "supplemental", "priority": 3},
     "한경 Geeks (벤처/VC)": {"url": "https://rss.hankyung.com/feed/geeks.xml", "category": "🌐 거시·정책·지정학", "tier": "supplemental", "priority": 3},
 
     # 🌐 거시경제·정책·지정학
@@ -446,8 +446,8 @@ FEED_CATEGORY_OVERRIDE = {
         feed_name: OFFICIAL_INSIGHTS_CATEGORY
         for feed_name in OFFICIAL_INSIGHTS_FEEDS
     },
-    "국내 VC/스타트업": "💼 대체투자",
-    "글로벌 VC/PE": "💼 대체투자",
+    "국내 VC/스타트업": "📈 대체투자",
+    "글로벌 VC/PE": "📈 대체투자",
     "미국 통화정책/금리": "🌐 거시·정책·지정학",
     "글로벌 거시/지정학": "🌐 거시·정책·지정학",
 }

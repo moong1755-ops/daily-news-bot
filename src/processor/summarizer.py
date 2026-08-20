@@ -138,7 +138,7 @@ def summarize(article: dict):
 
     impact_category = _category_by_prefix("🌱")
     ai_category = _category_by_prefix("🤖")
-    alternative_category = _category_by_prefix("💼")
+    alternative_category = _category_by_prefix("📈")
     macro_category = _category_by_prefix("🌐")
     insights_category = _category_by_prefix("👔")
 

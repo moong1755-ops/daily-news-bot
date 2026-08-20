@@ -62,7 +62,7 @@ except ImportError:
 from .utils.file_handler import load_lines, save_lines, SEEN_FILE, SEEN_TITLES_FILE
 CATEGORY_ORDER = list(CATEGORIES.keys())
 IMPACT_CATEGORY = next(category for category in CATEGORY_ORDER if category.startswith("🌱"))
-ALTERNATIVE_CATEGORY = next(category for category in CATEGORY_ORDER if category.startswith("💼"))
+ALTERNATIVE_CATEGORY = next(category for category in CATEGORY_ORDER if category.startswith("📈"))
 TRACKING_QUERY_KEYS = {"fbclid", "gclid", "mc_cid", "mc_eid", "ref", "referrer"}
 
 

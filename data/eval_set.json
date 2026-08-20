@@ -1,5 +1,5 @@
 {
-  "note": "실제 발송 이력(data/slack_archive.jsonl)에서 추출한 편집 판정 평가셋. label 은 발송 여부, expected_category 는 keep 인 경우의 올바른 카테고리. review=needs_review 인 항목은 사람이 확인해야 함.",
+  "note": "실제 발송 이력(data/slack_archive.jsonl)에서 추출한 편집 판정 평가셋. label 은 발송 여부, expected_category 는 keep 인 경우의 올바른 카테고리. 분류 방침: AI 기업에 대한 투자·M&A 는 🤖 AI, 그 외 주요 딜·펀드·PE/VC 흐름은 📈 대체투자. review=needs_review 인 항목은 사람이 확인해야 함.",
   "articles": [
     {
       "id": 1,
@@ -84,21 +84,22 @@
       "title": "Rillet raises $100M Series C at $1B valuation — 2 years after emerging from stealth",
       "source": "TechCrunch Venture",
       "url": "https://techcrunch.com/2026/08/19/rillet-raises-100m-series-c-at-1b-valuation-2-years-after-emerging-from-stealth/",
-      "sent_category": "💼 대체투자",
+      "sent_category": "📈 대체투자",
       "label": "keep",
       "reason": "news",
-      "expected_category": "💼 대체투자",
-      "review": "confident"
+      "expected_category": "🤖 AI",
+      "review": "confident",
+      "note": "AI 기업 대상 투자 → AI 로 분류(운영자 방침)"
     },
     {
       "id": 9,
       "title": "Asian School Chain Founder Seeks $300 Million for PE Buyout Fund",
       "source": "Bloomberg.com",
       "url": "https://news.google.com/rss/articles/CBMitAFBVV95cUxNd1V3Vnl6Sm1uNE1KWk90eVpNdVlFZHJ6Unl3V203bm1ZM0xLS01UV1R0WU9ackVHdFZTcVFHTllNZnpxZFFSYi1kXzRSX0lqQ3NOVnZFWjBNNTB0Sk1BM0xGY0FhRVYyQVJNcVFpNUUwQzRXa0tJRFpicF9QakJBSGhvNEJjWDB6NDY5NlJtbGJFNlJzU2hJYVpwclRQNjJuWEpVYkE0ZDRaVE5faUdvSUN1VDQ?oc=5",
-      "sent_category": "💼 대체투자",
+      "sent_category": "📈 대체투자",
       "label": "keep",
       "reason": "news",
-      "expected_category": "💼 대체투자",
+      "expected_category": "📈 대체투자",
       "review": "confident"
     },
     {
@@ -106,21 +107,22 @@
       "title": "VCs Pour Billions Into Physical AI As The Next Wave Of AI Investing Takes Shape",
       "source": "Crunchbase News",
       "url": "https://news.crunchbase.com/venture/physical-ai-funding-startups-robotics-aerospace-h1-2026/",
-      "sent_category": "💼 대체투자",
+      "sent_category": "📈 대체투자",
       "label": "keep",
       "reason": "news",
-      "expected_category": "💼 대체투자",
-      "review": "confident"
+      "expected_category": "🤖 AI",
+      "review": "confident",
+      "note": "AI 기업 대상 투자 → AI 로 분류(운영자 방침)"
     },
     {
       "id": 11,
       "title": "Vistria-backed Risepoint acquires healthcare edtech firm Keypath’s North American operations",
       "source": "PE Hub",
       "url": "https://www.pehub.com/vistria-backed-risepoint-acquires-healthcare-edtech-firm-keypaths-north-american-operations/",
-      "sent_category": "💼 대체투자",
+      "sent_category": "📈 대체투자",
       "label": "keep",
       "reason": "news",
-      "expected_category": "💼 대체투자",
+      "expected_category": "📈 대체투자",
       "review": "confident"
     },
     {
@@ -128,7 +130,7 @@
       "title": "Liana Zavo Launches “Shark Tank on Steroids” Fundraising Roadshow in New York and Global Markets",
       "source": "markets.businessinsider.com",
       "url": "https://news.google.com/rss/articles/CBMi7gFBVV95cUxOcEVOeUp6NkFaNnpUNzJwVUN4akJwQlQyNVB6SVBWZVlibFlacWZFeGtQYjBTcW5CX0pvVmEwX3NjbVBoVFFiRkpxektkY3ZSbEU3TlpQZXhXX2tac3NkamYxX2JYWGlLYnFpN0dTM2s5UC16NGVNOGhGeVNBS19qWVNCV2xVQkh1Q0NMNUNhMGVQT3AzTkhUQS12Zmd6SzFkTEpXVFhNeFNsZWk3Uzl3cTl6RkE4S19OTjhhbmtFdVhUcnd3bHFVNHJqMi1remtuYjZwRHgzVk9UTmhtbzJfXzRrcnd4V29TUHRsNzVB?oc=5",
-      "sent_category": "💼 대체투자",
+      "sent_category": "📈 대체투자",
       "label": "reject",
       "reason": "pr_promo",
       "expected_category": null,
@@ -140,10 +142,10 @@
       "title": "Osapiens Acquires Nasdaq’s Sustainability Reporting Platform",
       "source": "ESG Today",
       "url": "https://news.google.com/rss/articles/CBMilwFBVV95cUxQMmNMM1FtY0Q0bDVYdUkxQ2NsNDVXbEZaaDZVcWszX2NrRGlnLS1LZVQ0dnA2bk1zX1BLOXZtQTJqb2lxaFVseUUxWElvT1U1eWp6OGU4VldHOU0yNXM2aDlGVmNfcUxvZUlJWHdEMy10amJYNDdfX2FZeFQ0YmIwWnJ5c2dYdm1pNkszbmhaTU9jRmJzb1NN?oc=5",
-      "sent_category": "💼 대체투자",
+      "sent_category": "📈 대체투자",
       "label": "keep",
       "reason": "news",
-      "expected_category": "💼 대체투자",
+      "expected_category": "📈 대체투자",
       "review": "needs_review"
     },
     {
@@ -291,21 +293,22 @@
       "title": "Gravis Robotics hits $1bn valuation with $200m investment from SoftBank",
       "source": "Sifted",
       "url": "https://sifted.eu/articles/gravis-robotics-1bn-valuation-200m-softbank/",
-      "sent_category": "💼 대체투자",
+      "sent_category": "📈 대체투자",
       "label": "keep",
       "reason": "news",
-      "expected_category": "💼 대체투자",
-      "review": "confident"
+      "expected_category": "🤖 AI",
+      "review": "confident",
+      "note": "AI 기업 대상 투자 → AI 로 분류(운영자 방침)"
     },
     {
       "id": 27,
       "title": "Exclusive: TJC to launch sale of Dental365 in 2027, sources say",
       "source": "PE Hub",
       "url": "https://www.pehub.com/exclusive-tjc-to-launch-sale-of-dental365-in-2027-sources-say/",
-      "sent_category": "💼 대체투자",
+      "sent_category": "📈 대체투자",
       "label": "keep",
       "reason": "news",
-      "expected_category": "💼 대체투자",
+      "expected_category": "📈 대체투자",
       "review": "confident"
     },
     {
@@ -313,10 +316,10 @@
       "title": "Reach Capital raises $265M Fund V to back AI founders building to ‘expand human potential’",
       "source": "TechCrunch Venture",
       "url": "https://techcrunch.com/2026/08/18/reach-capital-raises-265m-fund-v-to-back-ai-founders-building-to-expand-human-potential/",
-      "sent_category": "💼 대체투자",
+      "sent_category": "📈 대체투자",
       "label": "keep",
       "reason": "news",
-      "expected_category": "💼 대체투자",
+      "expected_category": "📈 대체투자",
       "review": "confident"
     },
     {
@@ -324,10 +327,10 @@
       "title": "Francisco Partners to acquire Weave for $650m; Bain, River Associates and Kainos lead PE’s return to household products",
       "source": "PE Hub",
       "url": "https://www.pehub.com/francisco-partners-to-acquire-weave-for-650m-bain-river-associates-and-kainos-lead-pes-return-to-household-products/",
-      "sent_category": "💼 대체투자",
+      "sent_category": "📈 대체투자",
       "label": "keep",
       "reason": "news",
-      "expected_category": "💼 대체투자",
+      "expected_category": "📈 대체투자",
       "review": "confident"
     },
     {

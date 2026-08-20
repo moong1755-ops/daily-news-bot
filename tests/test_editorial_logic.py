@@ -55,7 +55,7 @@ def _category(prefix):
 
 IMPACT = _category("🌱")
 AI = _category("🤖")
-ALTERNATIVE = _category("💼")
+ALTERNATIVE = _category("📈")
 INSIGHTS = _category("👔")
 CATEGORY_ORDER = list(CATEGORIES)
 

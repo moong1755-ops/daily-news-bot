@@ -264,7 +264,7 @@ def _finalize_llm_selection(payload: dict, candidates: dict, category_order: lis
     add_ids(
         payload.get("major_deals", []),
         "gemini_major_deal",
-        category_prefix="💼",
+        category_prefix="📈",
         total_cap=ALTERNATIVE_MAJOR_DEAL_MAX,
     )
     return final_articles
@@ -389,7 +389,7 @@ def _fallback_rule_based(buckets: dict, category_order: list) -> list:
             for article in must_read:
                 if article not in selected and len(selected) < IMPACT_MUST_READ_MAX:
                     selected.append(article)
-        elif cat.startswith("💼"):
+        elif cat.startswith("📈"):
             major_deals = [article for article in ranked if article.get("major_deal")]
             for article in major_deals:
                 if article not in selected and len(selected) < ALTERNATIVE_MAJOR_DEAL_MAX:
