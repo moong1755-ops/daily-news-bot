@@ -39,6 +39,26 @@ _SKIP_LINK_TEXTS = {
     "subscribe", "unsubscribe", "manage preferences", "privacy policy",
     "terms of use", "facebook", "instagram", "linkedin", "x", "twitter",
 }
+
+# 정확히 일치하는 문구만 걸러내면 매체마다 표현이 달라 계속 새는데, 실제로
+# Bloomberg 의 "Read in browser" 가 기사 제목으로 발송된 적이 있다. 문구 대신
+# 뉴스레터 상용구에 공통으로 나타나는 조각으로 판단한다.
+_SKIP_LINK_FRAGMENTS = (
+    "in browser", "view online", "web version", "read online",
+    "unsubscribe", "manage preference", "email preference", "privacy",
+    "advertise", "sponsor", "download the app", "follow us", "contact us",
+    "브라우저에서", "구독 취소", "수신 거부",
+)
+
+
+def _is_boilerplate_anchor(anchor_text: str) -> bool:
+    """뉴스레터 상용구 링크인지 판단한다(기사 제목이 아닌 것)."""
+    normalized = re.sub(r"\s+", " ", anchor_text or "").strip().lower()
+    if not normalized or len(normalized) < 8:
+        return True
+    if normalized in _SKIP_LINK_TEXTS:
+        return True
+    return any(fragment in normalized for fragment in _SKIP_LINK_FRAGMENTS)
 _IMAGE_SUFFIXES = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg")
 
 
@@ -89,7 +109,7 @@ def _extract_link_candidates(html_text: str, plain_text: str) -> List[Tuple[str,
         if url in seen_urls or not _is_usable_article_url(url):
             continue
         anchor_text = _clean_text(anchor_html)
-        if anchor_text.lower() in _SKIP_LINK_TEXTS or len(anchor_text) < 8:
+        if _is_boilerplate_anchor(anchor_text):
             continue
         candidates.append((url, anchor_text))
         seen_urls.add(url)

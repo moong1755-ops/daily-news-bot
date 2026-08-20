@@ -37,6 +37,7 @@ REJECT_REASONS = (
     "stock_tip",         # 종목 추천·주가 전망
     "off_topic",         # 투자와 무관
     "opinion",           # 칼럼·오피니언
+    "newsletter_chrome",  # 뉴스레터 상용구 링크(Read in browser 등)
 )
 
 _INSTRUCTIONS = """너는 임팩트 투자·벤처캐피탈 전문 뉴스 브리핑의 편집장이다.
@@ -49,7 +50,11 @@ _INSTRUCTIONS = """너는 임팩트 투자·벤처캐피탈 전문 뉴스 브리
   예: "insights - Bain & Company", "Life Sciences | Sector Trends | EY"
 - 행사·웨비나·시상 안내, 참가 신청
 - 홍보성 보도자료, 광고, 스폰서 콘텐츠
-- 인물 인터뷰·프로필 기사. 예: "Coffee with Suzano CEO"
+- 인물 인터뷰·대담·프로필 기사. 제목에 'a conversation with', 'in conversation',
+  'Q&A with', '와의 대화', '인터뷰' 가 들어가면 대개 여기 해당한다.
+  예: "Coffee with Suzano CEO", "A conversation with Astellas Pharma CEO"
+- 뉴스레터 상용구 링크. 기사 제목이 아니라 안내 문구인 것.
+  예: "Read in browser", "View online", "Manage preferences"
 - 지자체 지원사업·업무협약(MOU)
 - 종목 추천·주가 전망
 - 투자와 무관한 소비자·생활·게임 기사
