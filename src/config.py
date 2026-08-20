@@ -16,14 +16,44 @@ os.environ["GEMINI_MODEL"] = GEMINI_MODEL
 # ---------------------------------------------------------------------------
 # 1. 관심 키워드 (🚀 최신 AI 모델명, VC 펀딩 단계, 매크로 지표 완벽 확장!)
 # ---------------------------------------------------------------------------
-IMPACT_KW = [
-    "impact investing", "climate tech", "carbon neutral", "net zero",
-    "energy transition", "renewable energy", "esg", "sustainability",
-    "green fund", "climate fund", "cleantech", "decarbonization", "ev infrastructure",
-    "임팩트투자", "기후테크", "탄소중립", "넷제로", "에너지전환",
-    "재생에너지", "지속가능", "녹색기금", "기후펀드", "사회적기업",
-    "소셜벤처", "그린뉴딜", "클린테크", "순환경제", "이차전지"
-]
+IMPACT_THEME_KEYWORDS = {
+    "climate_energy": [
+        "impact investing", "climate tech", "carbon neutral", "net zero",
+        "energy transition", "renewable energy", "green fund", "climate fund",
+        "cleantech", "decarbonization", "ev infrastructure", "climate adaptation",
+        "climate resilience", "just transition", "임팩트투자", "기후테크",
+        "탄소중립", "넷제로", "에너지전환", "재생에너지", "녹색기금",
+        "기후펀드", "그린뉴딜", "클린테크", "기후적응", "기후회복력", "공정전환",
+    ],
+    "circular_nature_food": [
+        "circular economy", "biodiversity", "natural capital", "nature-based solutions",
+        "water access", "clean water", "food security", "sustainable agriculture",
+        "waste reduction", "순환경제", "생물다양성", "자연자본", "수자원",
+        "식량안보", "지속가능농업", "폐기물 감축", "이차전지",
+    ],
+    "care_health": [
+        "care economy", "elder care", "long-term care", "healthcare", "digital health",
+        "healthtech", "health equity", "healthcare access", "affordable healthcare",
+        "mental health", "돌봄", "돌봄경제", "노인돌봄", "장기요양", "헬스케어",
+        "디지털헬스", "헬스테크", "건강형평성", "의료접근성", "정신건강", "사회서비스",
+    ],
+    "education_access": [
+        "education", "education access", "education equity", "learning outcomes", "edtech",
+        "digital accessibility", "disability inclusion", "교육격차", "교육접근성",
+        "교육", "학습성과", "에듀테크", "디지털 접근성", "장애인 접근성",
+    ],
+    "social_inclusion": [
+        "social economy", "social enterprise", "social venture", "financial inclusion",
+        "inclusive finance", "affordable housing", "workforce development", "quality jobs",
+        "esg", "sustainability", "사회적경제", "사회적기업", "소셜벤처",
+        "금융포용", "포용금융", "주거복지", "직업역량", "좋은 일자리", "지속가능",
+    ],
+}
+IMPACT_KW = sorted({
+    keyword
+    for keywords in IMPACT_THEME_KEYWORDS.values()
+    for keyword in keywords
+})
 
 AI_KW = [
     "artificial intelligence", "generative ai", "llm", "large language model",
@@ -88,13 +118,17 @@ CATEGORIES = {
 }
 
 MAX_PER_CATEGORY_DICT = {
-    "🌱 임팩트": 5,
-    "🤖 AI": 5,
-    "💼 대체투자": 5,
-    "🌐 거시·정책·지정학": 5,
-    "👔 MBB·Big4 인사이트": 5,
+    "🌱 임팩트": 3,
+    "🤖 AI": 3,
+    "💼 대체투자": 3,
+    "🌐 거시·정책·지정학": 3,
+    "👔 MBB·Big4 인사이트": 3,
 }
-MAX_PER_CATEGORY = 5
+MAX_PER_CATEGORY = 3
+IMPACT_MUST_READ_MAX = 5
+ALTERNATIVE_MAJOR_DEAL_MAX = 6
+LLM_CANDIDATES_PER_CATEGORY = 12
+IMPACT_CANDIDATES_PER_THEME = 3
 
 OVERSEAS_PREFERRED_DOMAINS = ["🌱 임팩트", "🤖 AI", "💼 대체투자", "👔 MBB·Big4 인사이트"]
 REGION_WEIGHT = {"global": 1.35, "korea": 1.0}
@@ -103,7 +137,7 @@ LLM_SEND_MIN_SCORE = 0
 # ── 운영 노브(팀 운영자가 조정하는 값) ──
 SLACK_MAX_LENGTH = 3900     # 슬랙 자동분할(~4000자) 방지 상한
 SLACK_HEADER = ""           # 예: "📰 *ISQ Daily News | {date}*"  (빈 문자열이면 헤더 없음)
-MIN_CATEGORY_NEWS = 3       # 카테고리 최소 노출 목표(미달 시 규칙랭킹으로 보충)
+MIN_CATEGORY_NEWS = 0       # 최소 개수 없음: 부족분을 낮은 품질 기사로 강제 보충하지 않음
 TRANSLATE_TITLES = True     # 발송 기사 제목 한글 번역(영문만, 실패 시 원문 유지)
 
 SIMILARITY_THRESHOLD = 0.72
@@ -128,6 +162,18 @@ EDITORIAL_PRIORITY_SIGNALS = {
         "contract", "partnership", "agreement", "launches", "breakthrough",
         "commercial deployment", "data center",
     ],
+    "enterprise_risk": [
+        "fraud", "embezzlement", "lawsuit", "bankruptcy", "insolvency",
+        "layoffs", "strike", "data breach", "contract termination",
+        "배임", "횡령", "소송", "파산", "부도", "구조조정", "대규모 해고",
+        "파업", "개인정보 유출", "계약 해지", "투자 철회",
+    ],
+    "impact_evidence": [
+        "emissions reduction", "verified impact", "health outcomes", "learning outcomes",
+        "public procurement", "clinical validation", "impact measurement",
+        "탄소 감축", "임팩트 측정", "의료접근성 개선", "학습성과", "공공조달",
+        "임상 검증", "실증 결과",
+    ],
 }
 EDITORIAL_PRIORITY_WEIGHT = 2.0
 SOFT_PENALTY_KEYWORDS = [
@@ -135,10 +181,10 @@ SOFT_PENALTY_KEYWORDS = [
 ]
 
 # ---------------------------------------------------------------------------
-# 3. 블랙리스트 (지자체·소상공인·가십 철저 차단)
+# 3. 제외 정책 (명백한 비기사·소비성 콘텐츠·지원사업 신청 안내 차단)
 # ---------------------------------------------------------------------------
 # ✅ 비-뉴스(채용공고·행사·수상·부고 등) 하드 차단 — is_relevant 에서 사용
-NON_NEWS_KEYWORDS = [
+HARD_EXCLUSION_KEYWORDS = [
     # 채용 페이지/지원 안내. 단순한 "채용", "공고", "모집"은 기업 확장이나
     # 정책 공고까지 지울 수 있으므로 단독 키워드로 사용하지 않는다.
     "we're hiring", "we are hiring", "now hiring", "job opening", "job opportunity",
@@ -170,10 +216,34 @@ NON_NEWS_KEYWORDS = [
     "obituary", "부고", "인사발령", "동정",
 ]
 
-EDITORIAL_EXCLUSION_KEYWORDS = NON_NEWS_KEYWORDS + [
+OPINION_FORMAT_KEYWORDS = [
+    "opinion", "op-ed", "editorial", "guest essay", "commentary", "viewpoint",
+    "columnist", "사설", "오피니언", "기고", "기고문", "칼럼", "시론", "논단",
+    "기자수첩", "데스크칼럼",
+]
+OPINION_URL_PATTERNS = ["/opinion/", "/editorial/", "/column/", "/commentary/"]
+
+# 중요 사건이면 다른 신뢰도 높은 보도를 찾을 수 있도록 구제 검토하는 형식.
+# 다음 bot.py 단계에서 제목·URL·설명을 구분해 적용한다.
+SOFT_EDITORIAL_EXCLUSION_KEYWORDS = [
     "interview", "podcast", "webinar", "sponsored", "press release",
     "product announcement", "awards", "event registration",
 ]
+
+RESCUE_EVENT_SIGNALS = [
+    "acquisition", "merger", "buyout", "ipo", "series b", "series c", "series d",
+    "growth round", "fund close", "private credit", "project finance",
+    "regulation", "legislation", "government contract", "public procurement",
+    "bankruptcy", "fraud", "data breach", "인수", "합병", "상장", "시리즈b",
+    "시리즈c", "시리즈d", "펀드 결성", "사모대출", "프로젝트 파이낸싱",
+    "규제", "법안", "정부 계약", "공공조달", "파산", "횡령", "개인정보 유출",
+]
+
+RISK_EVENT_SIGNALS = EDITORIAL_PRIORITY_SIGNALS["enterprise_risk"]
+
+# 기존 모듈 호환용 이름. 위치별 판정은 다음 bot.py 단계에서 새 목록을 직접 사용한다.
+NON_NEWS_KEYWORDS = HARD_EXCLUSION_KEYWORDS
+EDITORIAL_EXCLUSION_KEYWORDS = HARD_EXCLUSION_KEYWORDS + SOFT_EDITORIAL_EXCLUSION_KEYWORDS
 
 # Alternative-investment deal policy. Amount is a signal, never an automatic
 # cutoff: strategic, undisclosed, and impact-sector early-stage deals remain
@@ -196,10 +266,12 @@ DEAL_PRIORITY_SIGNALS = {
 DEAL_EARLY_STAGE_SIGNALS = ["seed", "pre-seed", "series a"]
 DEAL_EXCLUSION_KEYWORDS = [
     "investment seminar", "investment briefing", "startup support program",
-    "small business support", "grant application", "pitch competition", "memorandum of understanding",
+    "small business support", "grant application", "pitch competition",
 ]
 IMPACT_EARLY_STAGE_SIGNALS = [
-    "climate", "healthcare", "care", "education", "circular economy", "social venture",
+    "climate", "healthcare", "care economy", "education access", "circular economy",
+    "social venture", "financial inclusion", "기후", "돌봄", "의료접근성",
+    "교육격차", "순환경제", "소셜벤처", "금융포용",
 ]
 
 BLACKLIST_KEYWORDS = [
@@ -212,11 +284,9 @@ BLACKLIST_KEYWORDS = [
     "why shares are down", "why stock is up", "why stock is down",
     "technical analysis", "dividend stock", "crypto price prediction", "airdrop",
     "hands-on review", "buying guide", "gift guide", "where to buy",
-    "배임", "횡령", "파업",
-    "중기자금", "소상공인", "지역화폐", "테크노파크", "지자체",
-    "인천시", "서울시", "경기도", "부산시", "대구시", "광주시", "대전시", "울산시",
-    "경남도", "경북도", "전남도", "전북도", "충남도", "충북도", "강원도", "제주도",
-    "특례보증", "육성자금", "이차보전", "도청", "시청"
+    "중기자금", "소상공인", "지역화폐", "테크노파크",
+    "특례보증", "육성자금", "이차보전", "지원사업 신청", "지원금 신청",
+    "사업 참여기업 모집"
 ]
 
 # ---------------------------------------------------------------------------
