@@ -151,7 +151,18 @@ def _is_curated_primary_source(article: dict) -> bool:
     )
 
 
-def is_relevant(article: dict) -> bool:
+def is_relevant(article: dict, require_topic_match: bool = True) -> bool:
+    """수집 기사를 통과시킬지 판정한다.
+
+    require_topic_match=False 는 편집 게이트가 뒤에서 판단할 때 쓴다. 관심
+    키워드에 걸리는지를 통과 조건으로 두면, 목록에 없는 표현을 쓴 기사가
+    게이트에 닿지도 못하고 죽는다. 실제 실행에서 이 조건으로 탈락한 56건에
+    규제 변화(일본 AI 학습데이터 공개 의무화)와 M&A(SpaceX의 Cognition 인수
+    시도) 같은 최우선 기사가 들어 있었다.
+
+    이 경우에도 블랙리스트·하드 제외·오피니언 URL 같은 값싸고 명확한 차단은
+    그대로 적용해 게이트에 보낼 양을 줄인다.
+    """
     article.pop("filter_reason", None)
     article.pop("rescue_signal", None)
     article.pop("relevance_signal", None)
@@ -179,9 +190,16 @@ def is_relevant(article: dict) -> bool:
     soft_exclusion_hit = _first_keyword_hit(SOFT_EDITORIAL_EXCLUSION_KEYWORDS, text)
     if soft_exclusion_hit:
         if not event_hit:
-            article["filter_reason"] = f"soft_exclusion:{soft_exclusion_hit}"
-            return False
-        article["rescue_signal"] = f"{soft_exclusion_hit}:{event_hit}"
+            # 게이트가 뒤에 있으면 애매한 제외는 게이트가 문맥까지 보고 판단한다.
+            if require_topic_match:
+                article["filter_reason"] = f"soft_exclusion:{soft_exclusion_hit}"
+                return False
+        else:
+            article["rescue_signal"] = f"{soft_exclusion_hit}:{event_hit}"
+
+    if not require_topic_match:
+        article["relevance_signal"] = "deferred_to_editor"
+        return True
 
     if _is_curated_primary_source(article):
         article["relevance_signal"] = "curated_primary_source"
@@ -537,6 +555,10 @@ def main():
 
     filtered = []
     rejected = []          # 탈락 사유와 함께 판정 로그에 남긴다
+    # 게이트가 뒤에서 판단하면 앞단은 값싼 차단만 하고 주제 판정은 넘긴다.
+    gate_will_judge = editor_gate_enabled() and editor.is_enabled()
+    if gate_will_judge:
+        print("🧑‍⚖️ 주제 적합성 판정을 편집 게이트로 넘깁니다(키워드 사전 차단 최소화).")
     for art in all_articles:
         link = get_primary_link(art)
         normalized_link = normalize_url(link)
@@ -549,7 +571,7 @@ def main():
         # 날짜 넘는 중복(어제까지 발송)
         if any(is_same_news_issue(title, old) for old in seen_titles[-800:]):
             continue
-        if not is_relevant(art):
+        if not is_relevant(art, require_topic_match=not gate_will_judge):
             rejected.append(art)      # is_relevant 가 filter_reason 을 붙여 둔다
             continue
 
