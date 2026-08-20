@@ -9,9 +9,12 @@ on:
         type: boolean
         default: false
       editor_gate:
+        # 기본 켜짐. cron-job.org 처럼 입력 없이 부르는 호출도 이 값을 쓴다.
+        # 게이트가 실패하면 코드가 알아서 기존 키워드 경로로 폴백하므로,
+        # 되돌리려면 이 default 를 false 로 내리면 된다.
         description: "LLM 편집 게이트 사용"
         type: boolean
-        default: false
+        default: true
       as_of_date:
         description: "과거 날짜 재현 (YYYY-MM-DD, 비우면 오늘). Google News 만 완전 재현됨"
         type: string
