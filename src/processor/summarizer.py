@@ -14,7 +14,27 @@ from ..config import (
     EDITORIAL_PRIORITY_WEIGHT,
     EDITORIAL_EXCLUSION_KEYWORDS,
     IMPACT_THEME_KEYWORDS,
+    OFFICIAL_INSIGHTS_SOURCE_ALIASES,
 )
+
+
+# 단독으로는 임팩트 투자 기사라는 근거가 부족한 넓은 산업 용어.
+# 전문 임팩트 출처이거나 접근성·형평성·성과 같은 목적 신호가 함께 있어야 한다.
+_BROAD_IMPACT_KEYWORDS = {
+    "healthcare", "digital health", "healthtech", "mental health",
+    "education", "edtech", "esg", "sustainability",
+    "헬스케어", "디지털헬스", "헬스테크", "정신건강",
+    "교육", "에듀테크", "지속가능",
+}
+
+_IMPACT_PURPOSE_SIGNALS = [
+    "impact investing", "social impact", "measurable impact", "underserved",
+    "low-income", "vulnerable communities", "public benefit", "patient outcomes",
+    "learning outcomes", "emissions reduction", "reduces emissions", "health access",
+    "임팩트투자", "사회적 가치",
+    "취약계층", "저소득", "공공성",
+    "의료접근성", "교육격차", "학습성과", "탄소 감축",
+]
 
 def keyword_hit(keyword: str, text: str) -> bool:
     kw_lower = keyword.lower()
@@ -47,6 +67,48 @@ def _matched_impact_themes(text: str) -> list:
         for theme, keywords in IMPACT_THEME_KEYWORDS.items()
         if _has_any(keywords, text)
     ]
+
+
+def _has_specific_impact_theme(text: str) -> bool:
+    """Return True when impact evidence is stronger than a broad sector word."""
+    for keywords in IMPACT_THEME_KEYWORDS.values():
+        specific_keywords = [
+            keyword
+            for keyword in keywords
+            if keyword.lower() not in _BROAD_IMPACT_KEYWORDS
+        ]
+        if _has_any(specific_keywords, text):
+            return True
+    return False
+
+
+def _official_aliases_for_feed(feed_name: str) -> tuple:
+    """Find official publisher aliases for both direct and Google News feeds."""
+    if feed_name in OFFICIAL_INSIGHTS_SOURCE_ALIASES:
+        return OFFICIAL_INSIGHTS_SOURCE_ALIASES[feed_name]
+
+    for official_feed, aliases in OFFICIAL_INSIGHTS_SOURCE_ALIASES.items():
+        brand = official_feed.removesuffix(" Official Insights")
+        if keyword_hit(brand, feed_name.lower()):
+            return aliases
+    return ()
+
+
+def _is_verified_official_insight(
+    feed_name: str,
+    source_name: str,
+    source_category: str,
+    insights_category: str,
+) -> bool:
+    """Reject third-party stories that merely mention a consulting firm."""
+    if source_category != insights_category or not source_name:
+        return False
+
+    aliases = _official_aliases_for_feed(feed_name)
+    return bool(aliases) and any(
+        keyword_hit(alias, source_name.lower())
+        for alias in aliases
+    )
 
 
 def summarize(article: dict):
@@ -85,13 +147,28 @@ def summarize(article: dict):
     deal_groups = _matched_groups(DEAL_PRIORITY_SIGNALS, text)
     early_stage = _has_any(DEAL_EARLY_STAGE_SIGNALS, text)
     deal_event = bool(deal_groups & {"transaction", "financing"}) or early_stage
-    official_insights = source_category == insights_category
+    official_insights = _is_verified_official_insight(
+        feed_name,
+        source_clean,
+        source_category,
+        insights_category,
+    )
+    verified_impact_source = source_category == impact_category
+    impact_content = bool(impact_themes) and (
+        verified_impact_source
+        or _has_specific_impact_theme(text)
+        or _has_any(_IMPACT_PURPOSE_SIGNALS, text)
+        or "impact_evidence" in editorial_groups
+    )
 
     # MBB·Big4 공식 발행물만 출처 고정. 나머지는 기사 내용을 우선한다.
     if official_insights:
         assigned_category = insights_category
         category_reason = "official_insights_source"
-    elif impact_themes:
+    elif verified_impact_source:
+        assigned_category = impact_category
+        category_reason = "verified_impact_source"
+    elif impact_content:
         assigned_category = impact_category
         category_reason = "impact_content"
     elif deal_event:
