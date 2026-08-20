@@ -1,0 +1,60 @@
+name: 편집 정확도 평가 📊
+
+# 저장소에 이미 등록된 GEMINI_API_KEY 시크릿을 그대로 쓴다.
+# Actions 탭에서 Run workflow 만 누르면 되고, 키를 따로 다룰 필요가 없다.
+on:
+  workflow_dispatch:
+    inputs:
+      use_llm:
+        description: "LLM 편집 게이트도 함께 채점 (Gemini 호출 1회)"
+        type: boolean
+        default: true
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run evaluation
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          PYTHONUNBUFFERED: "1"
+          PYTHONIOENCODING: "utf-8"
+        run: |
+          if [[ "${{ inputs.use_llm }}" == "true" ]]; then
+            python -m tools.run_eval --llm --verbose | tee eval_output.txt
+          else
+            python -m tools.run_eval --verbose | tee eval_output.txt
+          fi
+
+      - name: Publish result to run summary
+        if: always()
+        run: |
+          {
+            echo "## 편집 정확도 평가 결과"
+            echo
+            echo '```'
+            cat eval_output.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
