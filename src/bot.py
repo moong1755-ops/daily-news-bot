@@ -38,15 +38,18 @@ from .config import (
     MAX_PER_CATEGORY,
     OVERSEAS_PREFERRED_DOMAINS,
     REGION_WEIGHT,
+    HARD_EXCLUSION_KEYWORDS,
+    SOFT_EDITORIAL_EXCLUSION_KEYWORDS,
+    OPINION_FORMAT_KEYWORDS,
+    OPINION_URL_PATTERNS,
+    RESCUE_EVENT_SIGNALS,
+    RSS_SOURCE_METADATA,
+    FEED_CATEGORY_OVERRIDE,
 )
 try:
     from .config import LLM_SEND_MIN_SCORE
 except ImportError:
     LLM_SEND_MIN_SCORE = 0
-try:
-    from .config import NON_NEWS_KEYWORDS
-except ImportError:
-    NON_NEWS_KEYWORDS = []
 # ✅ 운영 노브(P1-7): config 에서 조정 가능, 없으면 기본값
 try:
     from .config import SLACK_MAX_LENGTH
@@ -113,18 +116,90 @@ def is_same_news_issue(title_a: str, title_b: str) -> bool:
     return (len(sa & sb) / min(len(sa), len(sb))) >= threshold
 
 
+def _text_value(value) -> str:
+    if isinstance(value, list):
+        return " ".join(str(item) for item in value if item)
+    return str(value or "")
+
+
+def _first_keyword_hit(keywords: list, text: str) -> str:
+    for keyword in keywords:
+        if keyword_hit(keyword, text):
+            return keyword
+    return ""
+
+
+def _opinion_marker(article: dict) -> str:
+    link = _text_value(article.get("link")).lower()
+    for pattern in OPINION_URL_PATTERNS:
+        if pattern.lower() in link:
+            return pattern
+
+    title_and_metadata = " ".join([
+        _text_value(article.get("title")),
+        _text_value(article.get("section")),
+        _text_value(article.get("type")),
+        _text_value(article.get("tags")),
+    ]).lower()
+    return _first_keyword_hit(OPINION_FORMAT_KEYWORDS, title_and_metadata)
+
+
+def _is_curated_primary_source(article: dict) -> bool:
+    source = _text_value(article.get("source")).strip()
+    feed = _text_value(article.get("feed")).strip()
+    source_meta = RSS_SOURCE_METADATA.get(source) or RSS_SOURCE_METADATA.get(feed)
+    return bool(
+        FEED_CATEGORY_OVERRIDE.get(feed)
+        or (source_meta and source_meta.get("tier") == "primary")
+    )
+
+
 def is_relevant(article: dict) -> bool:
-    text = (article.get("title", "") + " " + article.get("description", "")).lower()
-    for kw in BLACKLIST_KEYWORDS:
-        if keyword_hit(kw, text):
+    article.pop("filter_reason", None)
+    article.pop("rescue_signal", None)
+    article.pop("relevance_signal", None)
+
+    title = _text_value(article.get("title"))
+    description = _text_value(article.get("description") or article.get("summary"))
+    text = f"{title} {description}".lower()
+
+    blacklist_hit = _first_keyword_hit(BLACKLIST_KEYWORDS, text)
+    if blacklist_hit:
+        article["filter_reason"] = f"blacklist:{blacklist_hit}"
+        return False
+
+    opinion_hit = _opinion_marker(article)
+    if opinion_hit:
+        article["filter_reason"] = f"opinion:{opinion_hit}"
+        return False
+
+    hard_exclusion_hit = _first_keyword_hit(HARD_EXCLUSION_KEYWORDS, text)
+    if hard_exclusion_hit:
+        article["filter_reason"] = f"hard_exclusion:{hard_exclusion_hit}"
+        return False
+
+    event_hit = _first_keyword_hit(RESCUE_EVENT_SIGNALS, text)
+    soft_exclusion_hit = _first_keyword_hit(SOFT_EDITORIAL_EXCLUSION_KEYWORDS, text)
+    if soft_exclusion_hit:
+        if not event_hit:
+            article["filter_reason"] = f"soft_exclusion:{soft_exclusion_hit}"
             return False
-    # ✅ 비-뉴스(채용공고·행사·부고 등) 하드 차단
-    for kw in NON_NEWS_KEYWORDS:
-        if keyword_hit(kw, text):
-            return False
-    for kw in INTEREST_KEYWORDS:
-        if keyword_hit(kw, text):
-            return True
+        article["rescue_signal"] = f"{soft_exclusion_hit}:{event_hit}"
+
+    if _is_curated_primary_source(article):
+        article["relevance_signal"] = "curated_primary_source"
+        return True
+
+    interest_hit = _first_keyword_hit(INTEREST_KEYWORDS, text)
+    if interest_hit:
+        article["relevance_signal"] = f"keyword:{interest_hit}"
+        return True
+
+    if event_hit:
+        article["relevance_signal"] = f"event:{event_hit}"
+        return True
+
+    article["filter_reason"] = "no_relevant_signal"
     return False
 
 
