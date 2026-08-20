@@ -1,4 +1,5 @@
 import os
+from urllib.parse import quote_plus
 
 # ---------------------------------------------------------------------------
 # 🤖 제미나이 모델명 빈칸 자동 방어 로직
@@ -358,33 +359,91 @@ OFFICIAL_INSIGHTS_CATEGORY = next(
     category for category in CATEGORIES if category.startswith("👔")
 )
 
-# Official-domain supplements for firms without a stable public RSS endpoint.
-# Each query is limited to the firm's own insights or publications pages.
+def _google_news_url(query: str, language: str = "en-US", country: str = "US") -> str:
+    return (
+        "https://news.google.com/rss/search?"
+        f"q={quote_plus(query)}&hl={language}&gl={country}&ceid={country}:{language[:2]}"
+    )
+
+
+# MBB·Big4는 회사명이 언급된 외부 기사가 아니라 공식 도메인의 발행물만 수집한다.
+OFFICIAL_INSIGHTS_QUERIES = {
+    "McKinsey Official Insights": "site:mckinsey.com/insights when:8d",
+    "BCG Official Insights": "site:bcg.com/publications when:8d",
+    "Bain Official Insights": "site:bain.com/insights when:8d",
+    "Deloitte Official Insights": "site:deloitte.com/insights when:8d",
+    "PwC Official Insights": 'site:pwc.com (insights OR "strategy+business") when:8d',
+    "EY Official Insights": "site:ey.com (insights OR publications) when:8d",
+    "KPMG Official Insights": "site:kpmg.com (insights OR research) when:8d",
+}
 OFFICIAL_INSIGHTS_FEEDS = {
-    "McKinsey Official Insights": "https://news.google.com/rss/search?q=site%3Amckinsey.com%2Finsights+when%3A7d&hl=en-US&gl=US&ceid=US%3Aen",
-    "BCG Official Insights": "https://news.google.com/rss/search?q=site%3Abcg.com%2Fpublications+OR+site%3Abcg.com%2Ffeatured-insights+when%3A7d&hl=en-US&gl=US&ceid=US%3Aen",
-    "Bain Official Insights": "https://news.google.com/rss/search?q=site%3Abain.com%2Finsights+when%3A7d&hl=en-US&gl=US&ceid=US%3Aen",
-    "Deloitte Official Insights": "https://news.google.com/rss/search?q=site%3Adeloitte.com%2Finsights+when%3A7d&hl=en-US&gl=US&ceid=US%3Aen",
-    "PwC Official Insights": "https://news.google.com/rss/search?q=site%3Apwc.com+%28insights+OR+strategy%2Bbusiness%29+when%3A7d&hl=en-US&gl=US&ceid=US%3Aen",
-    "EY Official Insights": "https://news.google.com/rss/search?q=site%3Aey.com+%28insights+OR+publications%29+when%3A7d&hl=en-US&gl=US&ceid=US%3Aen",
-    "KPMG Official Insights": "https://news.google.com/rss/search?q=site%3Akpmg.com+%28insights+OR+research%29+when%3A7d&hl=en-US&gl=US&ceid=US%3Aen",
+    feed_name: _google_news_url(query)
+    for feed_name, query in OFFICIAL_INSIGHTS_QUERIES.items()
+}
+
+# 다음 summarizer 단계에서 Google News 결과의 실제 언론사가 공식 회사인지 검증한다.
+OFFICIAL_INSIGHTS_SOURCE_ALIASES = {
+    "McKinsey Official Insights": ("McKinsey", "McKinsey & Company"),
+    "BCG Official Insights": ("BCG", "Boston Consulting Group"),
+    "Bain Official Insights": ("Bain", "Bain & Company"),
+    "Deloitte Official Insights": ("Deloitte", "Deloitte Insights"),
+    "PwC Official Insights": ("PwC", "strategy+business"),
+    "EY Official Insights": ("EY", "Ernst & Young"),
+    "KPMG Official Insights": ("KPMG",),
+}
+
+SUPPLEMENTAL_NEWS_QUERIES = {
+    "글로벌 임팩트 주요 사건": (
+        '("impact investing" OR "climate tech" OR "social enterprise" OR '
+        '"financial inclusion" OR "care economy" OR "circular economy") '
+        "(funding OR raises OR acquisition OR policy OR regulation OR contract) when:3d"
+    ),
+    "국내 임팩트 주요 사건": (
+        "(임팩트투자 OR 기후테크 OR 소셜벤처 OR 돌봄 OR 의료접근성 OR "
+        "교육격차 OR 순환경제) (투자 OR 인수 OR 정책 OR 규제 OR 계약 OR 실증) when:3d"
+    ),
+    "Bloomberg Green": "site:bloomberg.com/green (climate OR energy OR carbon) when:3d",
+    "ESG Today": "site:esgtoday.com (investment OR regulation OR policy OR financing) when:3d",
+    "VentureBeat AI": "site:venturebeat.com/category/ai when:3d",
+    "Business Insider VC": (
+        'site:businessinsider.com ("venture capital" OR "private equity" OR '
+        '"AI funding" OR "climate tech") when:3d'
+    ),
+}
+SUPPLEMENTAL_NEWS_FEEDS = {
+    feed_name: _google_news_url(
+        query,
+        language="ko" if feed_name.startswith("국내") else "en-US",
+        country="KR" if feed_name.startswith("국내") else "US",
+    )
+    for feed_name, query in SUPPLEMENTAL_NEWS_QUERIES.items()
 }
 
 GOOGLE_NEWS_FEEDS = {
     **OFFICIAL_INSIGHTS_FEEDS,
-    "국내 VC/스타트업": "https://news.google.com/rss/search?q=(%ED%88%AC%EC%9E%90%EC%9C%A0%EC%B9%98+OR+%ED%8E%80%EB%94%A9+OR+M%26A+OR+%EC%8B%9C%EB%A6%AC%EC%A6%88A+OR+%EC%8B%9C%EB%A6%AC%EC%A6%88B+OR+%EB%B2%A4%EC%B2%98%ED%8E%80%EB%93%9C)+when:3d&hl=ko&gl=KR&ceid=KR:ko",
-    "글로벌 VC/PE": "https://news.google.com/rss/search?q=(venture+capital+OR+private+equity+OR+funding+round+OR+dry+powder+OR+startup+raising)+when:3d&hl=en-US&gl=US&ceid=US:en",
-    "미국 통화정책/금리": "https://news.google.com/rss/search?q=(FOMC+OR+%EC%97%B0%EC%A4%80+OR+%EA%B8%B0%EC%A4%80%EA%B8%88%EB%A6%AC+OR+%ED%8C%8C%EC%9B%94+OR+inflation+OR+treasury+yield)+when:3d&hl=ko&gl=KR&ceid=KR:ko",
-    "글로벌 거시/지정학": "https://news.google.com/rss/search?q=(interest+rate+OR+recession+OR+tariff+OR+geopolitics+OR+federal+reserve)+when:3d&hl=en-US&gl=US&ceid=US:en",
-    "MBB/Big4 인사이트": "https://news.google.com/rss/search?q=(McKinsey+OR+BCG+OR+Bain+OR+Deloitte)+(AI+OR+climate+OR+venture+OR+private+equity)+when:3d&hl=en-US&gl=US&ceid=US:en",
-    "임팩트 종합": "https://news.google.com/rss/search?q=(impact+investing+OR+climate+tech+OR+climate+OR+%22Bloomberg+Green%22+OR+site:impacton.net+OR+site:bloomberg.com)+when:3d&hl=ko&gl=KR&ceid=KR:ko"
+    **SUPPLEMENTAL_NEWS_FEEDS,
+    "국내 VC/스타트업": _google_news_url(
+        "(투자유치 OR 펀딩 OR M&A OR 시리즈A OR 시리즈B OR 벤처펀드) when:3d",
+        language="ko",
+        country="KR",
+    ),
+    "글로벌 VC/PE": _google_news_url(
+        '("venture capital" OR "private equity" OR "funding round" OR '
+        '"dry powder" OR "startup raising") when:3d'
+    ),
+    "미국 통화정책/금리": _google_news_url(
+        "(FOMC OR Federal Reserve OR interest rate OR inflation OR treasury yield) when:3d"
+    ),
+    "글로벌 거시/지정학": _google_news_url(
+        "(interest rate OR recession OR tariff OR geopolitics OR federal reserve) when:3d"
+    ),
 }
 
 # ---------------------------------------------------------------------------
 # 5-0. Google News 피드 → 카테고리 강제 매핑
 #   Google News 기사는 RSS_SOURCE_METADATA 에 category 가 없어 '키워드 분류'로 떨어진다.
-#   피드 자체가 카테고리를 규정하므로(예: 'MBB/Big4 인사이트' 쿼리) feed명으로 고정한다.
-#   summarizer 가 article['feed'] 를 이 표에서 먼저 조회 → 있으면 그 카테고리로 확정.
+#   공식 인사이트와 명확한 딜·거시 검색만 피드명으로 고정한다.
+#   임팩트 보완 검색은 잘못된 강제 분류를 막기 위해 내용 판정을 거친다.
 # ---------------------------------------------------------------------------
 FEED_CATEGORY_OVERRIDE = {
     **{
@@ -395,8 +454,6 @@ FEED_CATEGORY_OVERRIDE = {
     "글로벌 VC/PE": "💼 대체투자",
     "미국 통화정책/금리": "🌐 거시·정책·지정학",
     "글로벌 거시/지정학": "🌐 거시·정책·지정학",
-    "MBB/Big4 인사이트": "👔 MBB·Big4 인사이트",
-    "임팩트 종합": "🌱 임팩트",
 }
 
 # ---------------------------------------------------------------------------

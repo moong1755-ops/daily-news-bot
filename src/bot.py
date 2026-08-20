@@ -36,6 +36,8 @@ from .config import (
     CATEGORIES,
     MAX_PER_CATEGORY_DICT,
     MAX_PER_CATEGORY,
+    IMPACT_MUST_READ_MAX,
+    ALTERNATIVE_MAJOR_DEAL_MAX,
     OVERSEAS_PREFERRED_DOMAINS,
     REGION_WEIGHT,
     HARD_EXCLUSION_KEYWORDS,
@@ -45,27 +47,21 @@ from .config import (
     RESCUE_EVENT_SIGNALS,
     RSS_SOURCE_METADATA,
     FEED_CATEGORY_OVERRIDE,
+    SIMILARITY_THRESHOLD,
 )
 try:
     from .config import LLM_SEND_MIN_SCORE
 except ImportError:
     LLM_SEND_MIN_SCORE = 0
-# ✅ 운영 노브(P1-7): config 에서 조정 가능, 없으면 기본값
-try:
-    from .config import SLACK_MAX_LENGTH
-except ImportError:
-    SLACK_MAX_LENGTH = 3900
 try:
     from .config import SLACK_HEADER          # 예: "📰 ISQ Daily News | {date}" / "" 이면 헤더 없음
 except ImportError:
     SLACK_HEADER = ""
-try:
-    from .config import MIN_CATEGORY_NEWS
-except ImportError:
-    MIN_CATEGORY_NEWS = 3
 
 from .utils.file_handler import load_lines, save_lines, SEEN_FILE, SEEN_TITLES_FILE
 CATEGORY_ORDER = list(CATEGORIES.keys())
+IMPACT_CATEGORY = next(category for category in CATEGORY_ORDER if category.startswith("🌱"))
+ALTERNATIVE_CATEGORY = next(category for category in CATEGORY_ORDER if category.startswith("💼"))
 TRACKING_QUERY_KEYS = {"fbclid", "gclid", "mc_cid", "mc_eid", "ref", "referrer"}
 
 
@@ -274,7 +270,39 @@ def _is_sendable(article: dict) -> bool:
     return llm_score is None or float(llm_score) >= LLM_SEND_MIN_SCORE
 
 
-def send_aggregated_slack_news(articles) -> bool:
+def _select_category_articles(ranked: list, category: str) -> list:
+    """Keep normal caps while preserving tagged impact and major-deal overflow."""
+    base_limit = MAX_PER_CATEGORY_DICT.get(category, MAX_PER_CATEGORY)
+    overflow_flag = ""
+    final_limit = base_limit
+    if category == IMPACT_CATEGORY:
+        overflow_flag = "impact_must_read"
+        final_limit = max(base_limit, IMPACT_MUST_READ_MAX)
+    elif category == ALTERNATIVE_CATEGORY:
+        overflow_flag = "major_deal"
+        final_limit = max(base_limit, ALTERNATIVE_MAJOR_DEAL_MAX)
+
+    selected = []
+    nvidia = 0
+    for article in ranked:
+        if len(selected) >= base_limit and (
+            not overflow_flag
+            or not article.get(overflow_flag, False)
+            or len(selected) >= final_limit
+        ):
+            continue
+
+        title_lower = article.get("title", "").lower()
+        if "nvidia" in title_lower or "엔비디아" in title_lower:
+            if nvidia >= 2:
+                continue
+            nvidia += 1
+        selected.append(article)
+
+    return selected
+
+
+def send_aggregated_slack_news(articles) -> tuple:
     slack_webhook_url = os.environ.get("SLACK_WEBHOOK_URL")
     if not slack_webhook_url:
         print("SLACK_WEBHOOK_URL 이 설정되지 않았습니다.")
@@ -290,36 +318,13 @@ def send_aggregated_slack_news(articles) -> bool:
         buckets[cat].append(a)
 
     sent_articles = []          # ✅ 실제 슬랙에 나간 기사만 수집(seen 처리용)
-    category_lines = {}         # 카테고리별 라인(길이 가드용)
+    category_lines = {}
 
     for cat_name in CATEGORY_ORDER:
-        max_limit = MAX_PER_CATEGORY_DICT.get(cat_name, MAX_PER_CATEGORY)
         ranked = sorted(buckets[cat_name], key=lambda a: _selection_score(a, cat_name), reverse=True)
-        selected, nvidia = [], 0
-
-        for a in ranked:
-            tl = a.get("title", "").lower()
-            if "nvidia" in tl or "엔비디아" in tl:
-                if nvidia >= 2:
-                    continue
-                nvidia += 1
-            selected.append(a)
-            if len(selected) >= max_limit:
-                break
-
-        if len(selected) < MIN_CATEGORY_NEWS and cat_name != "👔 MBB·Big4 인사이트":
-            for a in ranked:
-                if a in selected:
-                    continue
-                tl = a.get("title", "").lower()
-                if ("nvidia" in tl or "엔비디아" in tl) and nvidia >= 2:
-                    continue
-                selected.append(a)
-                if len(selected) >= MIN_CATEGORY_NEWS:
-                    break
+        selected = _select_category_articles(ranked, cat_name)
 
         # ✅ 카테고리 헤더는 항상 표시. 비면 안내 문구.
-        #    (P0-1) 문자열 매칭 대신 기사 객체를 함께 저장 → 트림 시 정확히 제거
         lines = []
         if selected:
             sent_articles.extend(selected)   # ✅ 발송분만 기록
@@ -334,8 +339,6 @@ def send_aggregated_slack_news(articles) -> bool:
             lines.append({"text": "• 오늘 조건에 맞는 뉴스가 없습니다.", "article": None})
         category_lines[cat_name] = lines
 
-    # ✅ 슬랙은 약 4,000자 초과 시 메시지를 분할함 → SLACK_MAX_LENGTH 안으로 가드.
-    #    초과 시 기사 많은 카테고리 끝에서부터 한 건씩 덜어냄(안내 문구는 유지).
     def _build():
         parts = []
         if SLACK_HEADER:
@@ -348,28 +351,11 @@ def send_aggregated_slack_news(articles) -> bool:
         return "\n".join(parts).rstrip() + "\n"
 
     message_text = _build()
-    trimmed = 0
-    while len(message_text) > SLACK_MAX_LENGTH:
-        biggest = max(
-            (c for c in CATEGORY_ORDER
-             if len(category_lines.get(c, [])) > 1),
-            key=lambda c: len(category_lines[c]),
-            default=None,
-        )
-        if biggest is None:
-            break
-        dropped = category_lines[biggest].pop()
-        # ✅ (P0-1) 객체 동일성으로 seen 제외 → 미발송 기사가 내일 다시 후보가 됨
-        if dropped.get("article") is not None and dropped["article"] in sent_articles:
-            sent_articles.remove(dropped["article"])
-        trimmed += 1
-        message_text = _build()
-    if trimmed:
-        print(f"ℹ️ 길이 제한으로 {trimmed}건 생략(내일 재후보)")
+    print(f"ℹ️ Slack 메시지 {len(message_text):,}자, 선택 기사 {len(sent_articles)}건 전부 발송")
 
     # ✅ 메시지 아카이브: 발송 전 로컬 파일에 기록(append, JSONL)
     try:
-        archive_path = Path(__file__).parent.parent.parent / "data" / "slack_archive.jsonl"
+        archive_path = Path(__file__).parent.parent / "data" / "slack_archive.jsonl"
         archive_path.parent.mkdir(parents=True, exist_ok=True)
         with open(archive_path, "a", encoding="utf-8") as af:
             af.write(json.dumps({"ts": datetime.utcnow().isoformat(), "text": message_text}, ensure_ascii=False) + "\n")
@@ -458,7 +444,7 @@ def main():
         if EMBEDDING_AVAILABLE and text_for_embed:
             try:
                 emb = emb_model.encode([text_for_embed], convert_to_numpy=True)[0]
-                if find_similar(emb, threshold=float(__import__('..config', fromlist=['SIMILARITY_THRESHOLD']).SIMILARITY_THRESHOLD)):
+                if find_similar(emb, threshold=float(SIMILARITY_THRESHOLD)):
                     is_duplicate_via_store = True
                 else:
                     # keep embedding to persist later if article is sent
@@ -577,14 +563,6 @@ def main():
 
     save_lines(SEEN_FILE, seen_links)
     save_lines(SEEN_TITLES_FILE, seen_titles, cap=2000)
-    # persist semantic text traces (recent N)
-    try:
-        from .utils.file_handler import SEEN_TEXTS_FILE
-        # cap at 2000 lines to avoid unbounded growth
-        save_lines(SEEN_TEXTS_FILE, seen_texts, cap=2000)
-    except Exception as _e:
-        print(f"⚠️ seen_texts 저장 실패: {_e}")
-
     if all_errors:
         print(f"\n⚠️ 수집 오류 {len(all_errors)}건:")
         for e in all_errors:
