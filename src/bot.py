@@ -307,55 +307,59 @@ def is_dry_run() -> bool:
     return os.environ.get("DRY_RUN", "").strip() in ("1", "true", "True")
 
 
+def bucket_by_category(articles) -> dict:
+    """기사를 카테고리별로 묶는다. 모르는 카테고리는 마지막 카테고리로 보낸다."""
+    buckets = {cat: [] for cat in CATEGORY_ORDER}
+    for a in articles:
+        cat = a.get("category", CATEGORY_ORDER[-1])
+        if cat not in buckets:
+            cat = CATEGORY_ORDER[-1]
+        buckets[cat].append(a)
+    return buckets
+
+
+def _format_article_line(article: dict) -> str:
+    title = article.get("title", "제목 없음").strip()
+    url = get_primary_link(article) or "#"
+    source = clean_source_name(get_primary_source(article) or "출처미상")
+    date = fmt_date(article.get("date", ""))
+    return f"• <{url}|{title}> ({source}, {date})"
+
+
+def render_digest(articles_by_category: dict) -> str:
+    """슬랙·텔레그램 공용 다이제스트 본문. 카테고리 헤더는 비어 있어도 항상 표시한다."""
+    parts = []
+    if SLACK_HEADER:
+        parts.append(SLACK_HEADER.replace("{date}", datetime.now().strftime("%y.%m.%d")))
+        parts.append("")
+    for cat in CATEGORY_ORDER:
+        parts.append(f"*{cat}*")
+        selected = articles_by_category.get(cat) or []
+        if selected:
+            parts.extend(_format_article_line(a) for a in selected)
+        else:
+            parts.append("• 오늘 조건에 맞는 뉴스가 없습니다.")
+        parts.append("")
+    return "\n".join(parts).rstrip() + "\n"
+
+
 def send_aggregated_slack_news(articles) -> tuple:
     slack_webhook_url = os.environ.get("SLACK_WEBHOOK_URL")
     if not slack_webhook_url and not is_dry_run():
         print("SLACK_WEBHOOK_URL 이 설정되지 않았습니다.")
         return False, []
 
-    buckets = {cat: [] for cat in CATEGORY_ORDER}
-    for a in articles:
-        if not _is_sendable(a):
-            continue
-        cat = a.get("category", CATEGORY_ORDER[-1])
-        if cat not in buckets:
-            cat = CATEGORY_ORDER[-1]
-        buckets[cat].append(a)
+    buckets = bucket_by_category(a for a in articles if _is_sendable(a))
 
     sent_articles = []          # ✅ 실제 슬랙에 나간 기사만 수집(seen 처리용)
-    category_lines = {}
-
+    selected_by_category = {}
     for cat_name in CATEGORY_ORDER:
         ranked = sorted(buckets[cat_name], key=lambda a: _selection_score(a, cat_name), reverse=True)
         selected = _select_category_articles(ranked, cat_name)
+        selected_by_category[cat_name] = selected
+        sent_articles.extend(selected)
 
-        # ✅ 카테고리 헤더는 항상 표시. 비면 안내 문구.
-        lines = []
-        if selected:
-            sent_articles.extend(selected)   # ✅ 발송분만 기록
-            for a in selected:
-                title = a.get("title", "제목 없음").strip()
-                url = get_primary_link(a) or "#"
-                raw_source = get_primary_source(a) or "출처미상"
-                source = clean_source_name(raw_source)
-                date = fmt_date(a.get("date", ""))
-                lines.append({"text": f"• <{url}|{title}> ({source}, {date})", "article": a})
-        else:
-            lines.append({"text": "• 오늘 조건에 맞는 뉴스가 없습니다.", "article": None})
-        category_lines[cat_name] = lines
-
-    def _build():
-        parts = []
-        if SLACK_HEADER:
-            parts.append(SLACK_HEADER.replace("{date}", datetime.now().strftime("%y.%m.%d")))
-            parts.append("")
-        for cat in CATEGORY_ORDER:
-            parts.append(f"*{cat}*")
-            parts.extend(item["text"] for item in category_lines.get(cat, []))
-            parts.append("")
-        return "\n".join(parts).rstrip() + "\n"
-
-    message_text = _build()
+    message_text = render_digest(selected_by_category)
     print(f"ℹ️ Slack 메시지 {len(message_text):,}자, 선택 기사 {len(sent_articles)}건 전부 발송")
 
     # ✅ 메시지 아카이브: 발송 전 로컬 파일에 기록(append, JSONL)
@@ -430,10 +434,6 @@ def main():
         EMBEDDING_AVAILABLE = False
 
     filtered = []
-    # temporary container to keep embeddings for candidates to persist after send
-    candidate_embeddings = []
-    candidate_metas = []
-
     for art in all_articles:
         link = get_primary_link(art)
         normalized_link = normalize_url(link)
@@ -458,10 +458,8 @@ def main():
                 if find_similar(emb, threshold=float(SIMILARITY_THRESHOLD)):
                     is_duplicate_via_store = True
                 else:
-                    # keep embedding to persist later if article is sent
+                    # 발송이 확정된 뒤에만 저장하도록 기사에 임시로 붙여 둔다.
                     art["_embedding"] = emb
-                    candidate_embeddings.append(emb)
-                    candidate_metas.append(meta_for_article(art))
             except Exception as _e:
                 # model failure should not block pipeline
                 print(f"⚠️ 임베딩 검사 실패: {_e}")
@@ -470,7 +468,6 @@ def main():
 
         filtered.append(art)
 
-    # persist candidate_embeddings? only persist after successful send to avoid noise
     # 오늘 수집한 중복은 모두 전달해야 검증 출처와 원문을 대표 기사로 고를 수 있다.
     merged, dedup_errors = deduplicate_and_merge(filtered)
     all_errors.extend(dedup_errors)
@@ -524,7 +521,8 @@ def main():
                         new_embs.append(emb)
                         new_meta.append(meta_for_article(art))
                 if new_embs:
-                    add_embeddings(__import__('numpy').array(new_embs), new_meta)
+                    import numpy as np
+                    add_embeddings(np.array(new_embs), new_meta)
             except Exception as _e:
                 print(f"⚠️ 임베딩 저장 실패: {_e}")
 
@@ -532,36 +530,7 @@ def main():
             try:
                 from .utils import telegram_sender
                 if telegram_sender.is_configured():
-                    # Get the message that was sent to Slack (reconstruct from sent_articles)
-                    # Use the same formatting as Slack message
-                    from .config import MAX_PER_CATEGORY_DICT, MAX_PER_CATEGORY, SLACK_HEADER
-                    buckets = {cat: [] for cat in CATEGORY_ORDER}
-                    for a in sent_articles:
-                        cat = a.get("category", CATEGORY_ORDER[-1])
-                        if cat not in buckets:
-                            cat = CATEGORY_ORDER[-1]
-                        buckets[cat].append(a)
-                    
-                    parts = []
-                    if SLACK_HEADER:
-                        parts.append(SLACK_HEADER.replace("{date}", datetime.now().strftime("%y.%m.%d")))
-                        parts.append("")
-                    for cat in CATEGORY_ORDER:
-                        parts.append(f"*{cat}*")
-                        items = buckets.get(cat, [])
-                        if items:
-                            for a in items:
-                                title = a.get("title", "제목 없음").strip()
-                                url = get_primary_link(a) or "#"
-                                raw_source = get_primary_source(a) or "출처미상"
-                                source = clean_source_name(raw_source)
-                                date = fmt_date(a.get("date", ""))
-                                parts.append(f"• <{url}|{title}> ({source}, {date})")
-                        else:
-                            parts.append("• 오늘 조건에 맞는 뉴스가 없습니다.")
-                        parts.append("")
-                    message_text = "\n".join(parts).rstrip() + "\n"
-                    
+                    message_text = render_digest(bucket_by_category(sent_articles))
                     tg_success, tg_msg = telegram_sender.send_aggregated_news(message_text)
                     if tg_success:
                         print(f"✅ 텔레그램 전송 성공: {tg_msg}")

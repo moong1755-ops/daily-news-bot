@@ -7,7 +7,6 @@ from pathlib import Path
 DATA_DIR = Path(__file__).parent.parent.parent / "data"
 SEEN_FILE = DATA_DIR / "seen_news.txt"
 SEEN_TITLES_FILE = DATA_DIR / "seen_titles.txt"
-SEEN_TEXTS_FILE = DATA_DIR / "seen_texts.txt"  # title+description lines for semantic dedup
 
 
 def load_lines(path) -> list:

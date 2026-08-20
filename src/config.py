@@ -240,10 +240,6 @@ RESCUE_EVENT_SIGNALS = [
     "규제", "법안", "정부 계약", "공공조달", "파산", "횡령", "개인정보 유출",
 ]
 
-RISK_EVENT_SIGNALS = EDITORIAL_PRIORITY_SIGNALS["enterprise_risk"]
-
-# 기존 모듈 호환용 이름. 위치별 판정은 다음 bot.py 단계에서 새 목록을 직접 사용한다.
-NON_NEWS_KEYWORDS = HARD_EXCLUSION_KEYWORDS
 EDITORIAL_EXCLUSION_KEYWORDS = HARD_EXCLUSION_KEYWORDS + SOFT_EDITORIAL_EXCLUSION_KEYWORDS
 
 # Alternative-investment deal policy. Amount is a signal, never an automatic
@@ -546,11 +542,4 @@ KOREA_SOURCE_NAMES = frozenset(
 def source_region(source_name: str) -> str:
     """Return the configured region for a known feed source."""
     return "korea" if source_name in KOREA_SOURCE_NAMES else "global"
-
-# ---------------------------------------------------------------------------
-# (참고) 과거의 SOURCE_CATEGORY_OVERRIDE 는 summarizer 가 참조하지 않는 죽은 변수라 삭제함.
-#   현재 카테고리 배정은 RSS_SOURCE_METADATA['category'] 가 담당.
-#   ※ 단, Google News 5개 피드는 메타데이터에 category 가 없어 '키워드 분류'로 떨어짐.
-#     'MBB/Big4 인사이트' 구글뉴스가 👔 인사이트로 안 꽂히면, summarizer 에
-#     feed명→category 매핑을 추가해야 함(Step 4 대상).
 # ---------------------------------------------------------------------------
