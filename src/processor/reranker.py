@@ -3,6 +3,7 @@ import re
 import time
 import json
 import requests
+from ..utils import llm_cache
 from ..config import (
     MAX_PER_CATEGORY_DICT,
     MAX_PER_CATEGORY,
@@ -62,6 +63,12 @@ def _candidate_models():
 _TRANSIENT_CODES = {429, 500, 502, 503, 504}   # 일시 오류: 같은 모델로 잠깐 뒤 재시도
 
 def _post_generate(model: str, api_key: str, instruction: str, timeout: int = 12) -> str:
+    cached = llm_cache.lookup(model, instruction)
+    if cached is not None:
+        print(f"   ⚡ LLM 캐시 히트 ({model}) — 호출 생략")
+        return cached
+    llm_cache.guard_network(model)
+
     url = f"{_API_ROOT}/models/{model}:generateContent?key={api_key}"
     payload = {
         "contents": [{"parts": [{"text": instruction}]}],
@@ -78,7 +85,9 @@ def _post_generate(model: str, api_key: str, instruction: str, timeout: int = 12
             continue
         resp.raise_for_status()
         data = resp.json()
-        return data["candidates"][0]["content"]["parts"][0]["text"]
+        text = data["candidates"][0]["content"]["parts"][0]["text"]
+        llm_cache.store(model, instruction, text)
+        return text
     if last is not None:
         last.raise_for_status()               # 3회 모두 일시오류 → 예외로(다음 모델/폴백)
     raise RuntimeError("no response")
@@ -86,6 +95,8 @@ def _post_generate(model: str, api_key: str, instruction: str, timeout: int = 12
 
 def _discover_model(api_key: str, timeout: int = 8):
     """ListModels 로 실제 사용 가능한 flash 계열 generateContent 모델을 찾는다."""
+    # 캐시 전용 모드에서는 탐색도 네트워크를 쓰므로 시도하지 않는다.
+    llm_cache.guard_network("ListModels")
     url = f"{_API_ROOT}/models?key={api_key}&pageSize=100"
     resp = requests.get(url, timeout=timeout)
     resp.raise_for_status()

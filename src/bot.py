@@ -302,9 +302,14 @@ def _select_category_articles(ranked: list, category: str) -> list:
     return selected
 
 
+def is_dry_run() -> bool:
+    """DRY_RUN=1 이면 실제 발송·상태 저장 없이 결과만 출력한다(테스트용)."""
+    return os.environ.get("DRY_RUN", "").strip() in ("1", "true", "True")
+
+
 def send_aggregated_slack_news(articles) -> tuple:
     slack_webhook_url = os.environ.get("SLACK_WEBHOOK_URL")
-    if not slack_webhook_url:
+    if not slack_webhook_url and not is_dry_run():
         print("SLACK_WEBHOOK_URL 이 설정되지 않았습니다.")
         return False, []
 
@@ -362,6 +367,12 @@ def send_aggregated_slack_news(articles) -> tuple:
     except Exception as e:
         # 아카이브 실패는 발송 실패로 간주하지 않음
         print(f"⚠️ 슬랙 아카이브 저장 실패: {e}")
+
+    if is_dry_run():
+        print("\n===== DRY RUN — 실제 발송하지 않음 =====")
+        print(message_text)
+        print("===== DRY RUN 끝 =====\n")
+        return True, sent_articles
 
     # ✅ 링크 미리보기(unfurl) 끄기: 카드/썸네일이 딸려 나오지 않게 함
     resp = requests.post(
@@ -489,7 +500,7 @@ def main():
 
     if classified:
         success, sent_articles = send_aggregated_slack_news(classified)
-        if success:
+        if success and not is_dry_run():
             # ✅ 실제 발송된 기사만 seen 처리(미발송 기사가 유실되지 않게)
             for art in sent_articles:
                 links = art.get("link", [])
@@ -561,8 +572,11 @@ def main():
     else:
         print("전송할 새로운 기사가 없습니다.")
 
-    save_lines(SEEN_FILE, seen_links)
-    save_lines(SEEN_TITLES_FILE, seen_titles, cap=2000)
+    if is_dry_run():
+        print("ℹ️ DRY RUN — seen 상태를 저장하지 않았습니다(다음 실행에 영향 없음).")
+    else:
+        save_lines(SEEN_FILE, seen_links)
+        save_lines(SEEN_TITLES_FILE, seen_titles, cap=2000)
     if all_errors:
         print(f"\n⚠️ 수집 오류 {len(all_errors)}건:")
         for e in all_errors:

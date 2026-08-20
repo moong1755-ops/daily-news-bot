@@ -3,3 +3,6 @@ __pycache__/
 *.pyc
 *.pyo
 .DS_store
+
+# 로컬 테스트용 LLM 응답 캐시(LLM_MODE=cache). 커밋하지 않는다.
+data/llm_cache/
