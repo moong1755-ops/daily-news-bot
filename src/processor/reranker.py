@@ -128,7 +128,10 @@ def _call_llm(instruction: str, api_key: str):
         except requests.HTTPError as e:
             code = getattr(e.response, "status_code", None)
             if code == 404:
-                continue          # 이 모델 없음 → 다음 후보
+                # 이 키/프로젝트에 없는 모델. 조용히 넘기면 후보가 왜 소진됐는지
+                # 알 수 없어 장애 원인 추적이 막힌다.
+                print(f"ℹ️ Gemini {model}: 이 키에서 사용 불가(404) — 다음 후보로.")
+                continue
             print(f"⚠️ Gemini HTTP {code} ({model}) — 다음 후보로.")
             continue
         except Exception as e:
@@ -138,6 +141,10 @@ def _call_llm(instruction: str, api_key: str):
     # 후보 전부 실패 → ListModels 자동탐색
     try:
         disc = _discover_model(api_key)
+        if disc and disc in tried:
+            print(f"⚠️ ListModels 가 이미 시도한 모델({disc})만 반환 — 더 시도할 후보 없음.")
+        elif not disc:
+            print("⚠️ ListModels 에서 사용 가능한 flash 계열 모델을 찾지 못함.")
         if disc and disc not in tried:
             print(f"🔎 ListModels 로 사용 가능한 모델 탐색 → {disc}")
             text = _post_generate(disc, api_key, instruction)

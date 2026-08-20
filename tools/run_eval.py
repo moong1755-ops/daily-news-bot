@@ -89,11 +89,15 @@ def evaluate(entries: list) -> dict:
 
 
 def evaluate_llm_gate(entries: list) -> dict:
-    """LLM 편집 게이트를 같은 라벨로 채점한다. 호출 불가 시 None."""
+    """LLM 편집 게이트를 같은 라벨로 채점한다.
+
+    실패해도 사유를 함께 돌려준다. 게이트가 왜 안 돌았는지 알 수 없으면
+    프롬프트 문제인지 서비스 장애인지 구분할 수 없다.
+    """
     articles = [_as_article(e) for e in entries]
     kept, errors = editor.review(articles)
     if kept is None:
-        return None
+        return {"available": False, "errors": errors}
 
     kept_ids = {id(a) for a in kept}
     results = []
@@ -115,6 +119,7 @@ def evaluate_llm_gate(entries: list) -> dict:
     rejects = [r for r in results if r["entry"]["label"] == "reject"]
     judged = [r for r in results if r["category_correct"] is not None]
     return {
+        "available": True,
         "results": results,
         "total": len(results),
         "caught_rejects": sum(1 for r in rejects if not r["predicted_keep"]),
@@ -174,9 +179,13 @@ def main(argv=None) -> int:
 
     if args.llm:
         llm_summary = evaluate_llm_gate(entries)
-        if llm_summary is None:
-            print("\n⚠️ LLM 편집 게이트를 실행할 수 없습니다. "
-                  "GEMINI_API_KEY 를 설정하고 다시 시도하세요.")
+        if not llm_summary.get("available"):
+            print("\n⚠️ LLM 편집 게이트를 실행하지 못했습니다. 사유:")
+            for message in llm_summary["errors"]:
+                print(f"   • {message}")
+            print("   위 로그의 Gemini HTTP 응답을 함께 확인하세요. "
+                  "503/429 면 일시 과부하이므로 잠시 뒤 재실행하면 됩니다.")
+            return 1
         else:
             _print_summary("LLM 편집 게이트", llm_summary)
             if args.verbose:
