@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 from .fetchers import hackernews, rss_feeds
+from .fetchers.rss_feeds import as_of_date
 try:
     from .fetchers import newsletters
     HAS_NEWSLETTERS = True
@@ -339,6 +340,25 @@ def editor_gate_enabled() -> bool:
     return os.environ.get("EDITOR_GATE", "").strip() in ("1", "true", "True")
 
 
+def filter_to_as_of_date(articles: list) -> list:
+    """재현 모드에서 대상 날짜 기사만 남긴다.
+
+    날짜 창은 RSS 피드에서만 적용된다. 해커뉴스와 Gmail 뉴스레터는 각자
+    수집하므로, 실제로 월요일 재현에 목요일 기사 5건이 섞여 들어왔다.
+    출처마다 고치는 대신 수집이 끝난 지점에서 한 번에 거른다.
+    """
+    target = as_of_date()
+    if not target:
+        return articles
+
+    wanted = target.strftime("%Y-%m-%d")
+    kept = [a for a in articles if a.get("date") == wanted]
+    dropped = len(articles) - len(kept)
+    if dropped:
+        print(f"🕰 재현 모드: 대상일({wanted}) 외 기사 {dropped}건 제외")
+    return kept
+
+
 def select_for_briefing(classified: list) -> tuple:
     """편집 판정을 적용한 최종 후보와 (탈락 기사, 오류) 를 돌려준다.
 
@@ -543,6 +563,8 @@ def main():
     rss_articles, rss_errors = rss_feeds.fetch()
     all_errors.extend(rss_errors)
     all_articles.extend(rss_articles)
+
+    all_articles = filter_to_as_of_date(all_articles)
 
     # --- Prepare embedding model + store for cross-day semantic dedupe ---
     try:

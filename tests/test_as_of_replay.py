@@ -92,5 +92,47 @@ class ArticleDateFilterTestCase(unittest.TestCase):
         self.assertEqual(label, "Unknown date")
 
 
+
+class CentralDateFilterTestCase(unittest.TestCase):
+    """수집이 끝난 뒤 한 곳에서 거른다.
+
+    날짜 창은 RSS 피드에만 걸려 있어, 월요일 재현에 해커뉴스·Bloomberg
+    뉴스레터 기사 5건이 섞여 나왔다.
+    """
+
+    ARTICLES = [
+        {"title": "월요일 기사", "date": "2026-08-17", "source": "RSS"},
+        {"title": "해커뉴스 수요일", "date": "2026-08-19", "source": "Hacker News"},
+        {"title": "뉴스레터 목요일", "date": "2026-08-20", "source": "Bloomberg Green"},
+        {"title": "날짜 없음", "date": "Unknown date", "source": "X"},
+    ]
+
+    def test_only_target_day_survives(self):
+        from src.bot import filter_to_as_of_date
+
+        with mock.patch.dict(os.environ, {"AS_OF_DATE": "2026-08-17"}, clear=False):
+            kept = filter_to_as_of_date(self.ARTICLES)
+
+        self.assertEqual([a["title"] for a in kept], ["월요일 기사"])
+
+    def test_all_sources_are_covered_not_just_rss(self):
+        from src.bot import filter_to_as_of_date
+
+        with mock.patch.dict(os.environ, {"AS_OF_DATE": "2026-08-17"}, clear=False):
+            kept = filter_to_as_of_date(self.ARTICLES)
+
+        sources = {a["source"] for a in kept}
+        self.assertNotIn("Hacker News", sources)
+        self.assertNotIn("Bloomberg Green", sources)
+
+    def test_normal_mode_keeps_everything(self):
+        from src.bot import filter_to_as_of_date
+
+        with mock.patch.dict(os.environ, {"AS_OF_DATE": ""}, clear=False):
+            kept = filter_to_as_of_date(self.ARTICLES)
+
+        self.assertEqual(len(kept), len(self.ARTICLES))
+
+
 if __name__ == "__main__":
     unittest.main()
