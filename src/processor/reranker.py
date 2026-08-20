@@ -112,8 +112,12 @@ def _discover_model(api_key: str, timeout: int = 8):
     return flashes[0] if flashes else None
 
 
-def _call_llm(instruction: str, api_key: str):
-    """후보 체인 → 실패 시 ListModels 자동탐색. 성공 시 (text, used_model), 실패 시 (None, None)."""
+def _call_llm(instruction: str, api_key: str, timeout: int = 12):
+    """후보 체인 → 실패 시 ListModels 자동탐색. 성공 시 (text, used_model), 실패 시 (None, None).
+
+    timeout 은 응답 길이에 맞춰 호출부가 정한다. ID 몇 개만 받는 선별과, 기사마다
+    판정을 받아야 하는 편집 게이트는 생성 시간이 크게 다르다.
+    """
     global _RESOLVED_MODEL
     tried = []
     order = ([_RESOLVED_MODEL] if _RESOLVED_MODEL else []) + _candidate_models()
@@ -122,7 +126,7 @@ def _call_llm(instruction: str, api_key: str):
             continue
         tried.append(model)
         try:
-            text = _post_generate(model, api_key, instruction)
+            text = _post_generate(model, api_key, instruction, timeout=timeout)
             _RESOLVED_MODEL = model
             return text, model
         except requests.HTTPError as e:
@@ -147,7 +151,7 @@ def _call_llm(instruction: str, api_key: str):
             print("⚠️ ListModels 에서 사용 가능한 flash 계열 모델을 찾지 못함.")
         if disc and disc not in tried:
             print(f"🔎 ListModels 로 사용 가능한 모델 탐색 → {disc}")
-            text = _post_generate(disc, api_key, instruction)
+            text = _post_generate(disc, api_key, instruction, timeout=timeout)
             _RESOLVED_MODEL = disc
             return text, disc
     except Exception as e:

@@ -22,6 +22,10 @@ from .reranker import _call_llm
 
 BATCH_SIZE = 80
 
+# 기사마다 판정 한 줄씩을 생성해야 해서 응답이 길다. 리랭커의 기본 12초로는
+# 배치가 조금만 커져도 읽기 타임아웃이 난다.
+CALL_TIMEOUT = 120
+
 # 판정 이유 코드. LLM 에게 이 중에서 고르게 해 사후 집계가 가능하게 한다.
 REJECT_REASONS = (
     "job_posting",       # 채용공고·구인
@@ -180,7 +184,9 @@ def review(articles: list) -> tuple:
 
     for start in range(0, len(articles), BATCH_SIZE):
         batch = articles[start:start + BATCH_SIZE]
-        raw, used_model = _call_llm(_build_prompt(batch, start + 1), api_key)
+        raw, used_model = _call_llm(
+            _build_prompt(batch, start + 1), api_key, timeout=CALL_TIMEOUT
+        )
         if raw is None:
             errors.append(f"편집 게이트 호출 실패(기사 {start + 1}~{start + len(batch)})")
             continue

@@ -42,6 +42,9 @@ jobs:
           PYTHONUNBUFFERED: "1"
           PYTHONIOENCODING: "utf-8"
         run: |
+          # tee 를 거치면 파이프의 종료 코드가 tee 것이 되어, 평가가 실패해도
+          # 워크플로우가 성공으로 보인다.
+          set -o pipefail
           if [[ "${{ inputs.use_llm }}" == "true" ]]; then
             python -m tools.run_eval --llm --verbose | tee eval_output.txt
           else
