@@ -7,6 +7,7 @@
 
 import json
 import os
+import re
 import unittest
 from unittest import mock
 
@@ -105,8 +106,8 @@ class EditorGateTestCase(unittest.TestCase):
     def test_batches_cover_every_article(self):
         articles = [_article(f"기사 {i}") for i in range(editor.BATCH_SIZE + 5)]
 
-        def respond(prompt, _key):
-            ids = [int(m) for m in __import__("re").findall(r"ID \[(\d+)\]", prompt)]
+        def respond(prompt, _key, **_kwargs):
+            ids = [int(m) for m in re.findall(r"ID \[(\d+)\]", prompt)]
             verdicts = [{"id": i, "keep": True, "category": "🤖 AI", "score": 5} for i in ids]
             return json.dumps({"verdicts": verdicts}), "fake-model"
 
