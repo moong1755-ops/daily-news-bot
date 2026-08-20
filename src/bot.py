@@ -433,7 +433,6 @@ def main():
         EMBEDDING_AVAILABLE = False
 
     filtered = []
-    accepted_titles = []      # ✅ 런 내부 중복(경북펀드 등 다매체) 차단용
     # temporary container to keep embeddings for candidates to persist after send
     candidate_embeddings = []
     candidate_metas = []
@@ -449,9 +448,6 @@ def main():
             continue
         # 날짜 넘는 중복(어제까지 발송)
         if any(is_same_news_issue(title, old) for old in seen_titles[-800:]):
-            continue
-        # ✅ 오늘 실행분 내 같은 이슈 중복 차단
-        if any(is_same_news_issue(title, t) for t in accepted_titles):
             continue
         if not is_relevant(art):
             continue
@@ -476,9 +472,9 @@ def main():
             continue
 
         filtered.append(art)
-        accepted_titles.append(title)
 
     # persist candidate_embeddings? only persist after successful send to avoid noise
+    # 오늘 수집한 중복은 모두 전달해야 검증 출처와 원문을 대표 기사로 고를 수 있다.
     merged, dedup_errors = deduplicate_and_merge(filtered)
     all_errors.extend(dedup_errors)
 
