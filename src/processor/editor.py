@@ -50,9 +50,12 @@ _INSTRUCTIONS = """너는 임팩트 투자·벤처캐피탈 전문 뉴스 브리
   예: "insights - Bain & Company", "Life Sciences | Sector Trends | EY"
 - 행사·웨비나·시상 안내, 참가 신청
 - 홍보성 보도자료, 광고, 스폰서 콘텐츠
-- 인물 인터뷰·대담·프로필 기사. 제목에 'a conversation with', 'in conversation',
-  'Q&A with', '와의 대화', '인터뷰' 가 들어가면 대개 여기 해당한다.
-  예: "Coffee with Suzano CEO", "A conversation with Astellas Pharma CEO"
+- 인물 인터뷰·대담·프로필·팟캐스트. 문구를 외우지 말고 형태로 판단하라.
+  제목이 특정 인물을 대화 상대로 지목하면 — 'with 사람이름' 으로 끝나거나,
+  'a conversation with', 'in conversation', 'Q&A with', '와의 대화',
+  '와 함께하는', '인터뷰' 가 들어가면 — 사건 보도가 아니라 대담이다.
+  예: "Coffee with Suzano CEO", "A conversation with Astellas Pharma CEO",
+      "Exits, AI, and Asking 'What's Next?' with Advent International's John Maldonado"
 - 뉴스레터 상용구 링크. 기사 제목이 아니라 안내 문구인 것.
   예: "Read in browser", "View online", "Manage preferences"
 - 지자체 지원사업·업무협약(MOU)
