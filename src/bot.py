@@ -19,6 +19,7 @@ except ImportError:
         HAS_NEWSLETTERS = False
         print("ℹ️ 뉴스레터/Gmail 모듈을 찾을 수 없어 수집 단계에서 제외합니다.")
 
+from .processor import editor
 from .processor.deduplicator import deduplicate_and_merge
 from .processor.summarizer import summarize, keyword_hit
 from .processor.reranker import rerank_by_category, is_enabled as llm_enabled
@@ -307,6 +308,15 @@ def is_dry_run() -> bool:
     return os.environ.get("DRY_RUN", "").strip() in ("1", "true", "True")
 
 
+def editor_gate_enabled() -> bool:
+    """EDITOR_GATE=1 이면 LLM 편집 게이트를 키워드 판정 위에 덧씌운다.
+
+    기본값은 꺼짐이다. tools/run_eval.py 로 실제 정확도를 확인하기 전까지는
+    운영 동작을 바꾸지 않는다.
+    """
+    return os.environ.get("EDITOR_GATE", "").strip() in ("1", "true", "True")
+
+
 def _decision_record(article: dict, verdict: str) -> dict:
     """평가셋 구축과 사후 추적에 필요한 필드만 추린다."""
     return {
@@ -524,6 +534,22 @@ def main():
         art, e = summarize(art)
         all_errors.extend(e)
         classified.append(art)
+
+    # LLM 편집 게이트는 키워드 판정을 대체하지 않고 그 위에 덧씌운다. summarize 가
+    # 매긴 impact_must_read·major_deal 같은 플래그는 아래 선정 단계가 그대로 쓰기
+    # 때문이다. 따라서 이 단계는 걸러내기만 할 뿐 키워드가 죽인 기사를 되살리지는
+    # 못한다. is_relevant 를 걷어내는 것은 게이트 정확도를 확인한 뒤의 일이다.
+    if editor_gate_enabled():
+        reviewed, editor_errors = editor.review(classified)
+        all_errors.extend(editor_errors)
+        if reviewed is None:
+            print("⚠️ 편집 게이트 실패 — 키워드 판정 결과로 계속 진행합니다.")
+        else:
+            dropped = len(classified) - len(reviewed)
+            print(f"🧑‍⚖️ 편집 게이트가 {dropped}건을 추가로 걸렀습니다.")
+            rejected.extend(a for a in classified if a.get("editor_verdict") == "reject")
+            classified = reviewed
+
     classified.sort(key=lambda a: a.get("relevance", 0), reverse=True)
 
     print("\n===== CATEGORY DEBUG =====")
