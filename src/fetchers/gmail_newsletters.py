@@ -1,184 +1,247 @@
-"""Gmail newsletter fetcher using Google API."""
+"""Read newsletter links from a personal Gmail account through read-only IMAP."""
+
+import imaplib
 import os
-import json
 import re
-from datetime import datetime, timedelta
-from typing import Tuple, List
-
-# Gmail API imports
-try:
-    from google.auth.transport.requests import Request
-    from google.oauth2.service_account import Credentials
-    from google.oauth2 import service_account
-    from googleapiclient.discovery import build
-    GMAIL_API_AVAILABLE = True
-except ImportError:
-    GMAIL_API_AVAILABLE = False
+from datetime import datetime, timezone
+from email import policy
+from email.parser import BytesParser
+from email.utils import parsedate_to_datetime, parseaddr
+from html import unescape
+from typing import List, Tuple
+from urllib.parse import urlsplit
 
 
-GMAIL_CREDENTIALS_PATH = os.environ.get("GMAIL_CREDENTIALS_JSON", "").strip()
-GMAIL_USER_EMAIL = os.environ.get("GMAIL_USER_EMAIL", "").strip()
-GMAIL_NEWSLETTER_QUERY = os.environ.get("GMAIL_NEWSLETTER_QUERY", "label:newsletters from:newsletter").strip()
+def _positive_env_int(name: str, default: int) -> int:
+    try:
+        return max(1, int(os.environ.get(name, str(default))))
+    except (TypeError, ValueError):
+        return default
 
-SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
+
+GMAIL_USER = os.environ.get("GMAIL_USER", "").strip()
+GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "").replace(" ", "").strip()
+GMAIL_NEWSLETTER_QUERY = os.environ.get(
+    "GMAIL_NEWSLETTER_QUERY", "label:newsletters"
+).strip()
+GMAIL_IMAP_FOLDER = os.environ.get("GMAIL_IMAP_FOLDER", "INBOX").strip() or "INBOX"
+GMAIL_LOOKBACK_DAYS = _positive_env_int("GMAIL_LOOKBACK_DAYS", 3)
+GMAIL_MAX_EMAILS = _positive_env_int("GMAIL_MAX_EMAILS", 20)
+GMAIL_LINKS_PER_EMAIL = _positive_env_int("GMAIL_LINKS_PER_EMAIL", 8)
+
+_SKIP_URL_MARKERS = (
+    "unsubscribe", "subscription-preferences", "manage-preferences",
+    "email-preferences", "newsletter/settings", "view-in-browser",
+    "forward-to-a-friend", "mailto:",
+)
+_SKIP_LINK_TEXTS = {
+    "read more", "learn more", "click here", "view online", "view in browser",
+    "subscribe", "unsubscribe", "manage preferences", "privacy policy",
+    "terms of use", "facebook", "instagram", "linkedin", "x", "twitter",
+}
+_IMAGE_SUFFIXES = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg")
 
 
 def is_configured() -> bool:
-    """Check if Gmail is properly configured."""
-    if not GMAIL_API_AVAILABLE:
-        return False
-    return bool(GMAIL_CREDENTIALS_PATH and os.path.exists(GMAIL_CREDENTIALS_PATH))
+    """Return True only when both personal Gmail secrets are present."""
+    return bool(GMAIL_USER and GMAIL_APP_PASSWORD)
 
 
-def _get_gmail_service():
-    """Build and return Gmail API service."""
-    if not is_configured():
-        return None
-    try:
-        creds = service_account.Credentials.from_service_account_file(
-            GMAIL_CREDENTIALS_PATH, scopes=SCOPES
-        )
-        service = build("gmail", "v1", credentials=creds)
-        return service
-    except Exception as e:
-        print(f"⚠️ Gmail API service build failed: {e}")
-        return None
-
-
-def _extract_text_from_payload(payload: dict) -> str:
-    """Recursively extract text from MIME payload."""
-    text = ""
-    if "parts" in payload:
-        for part in payload["parts"]:
-            text += _extract_text_from_payload(part)
-    elif "data" in payload:
-        import base64
-        try:
-            text = base64.urlsafe_b64decode(payload["data"]).decode("utf-8", errors="ignore")
-        except Exception:
-            pass
-    return text
-
-
-def _extract_links_from_html(html_text: str) -> List[str]:
-    """Extract URLs from HTML/text content."""
-    # Find href links
-    href_pattern = r'href=["\'](https?://[^\s"\'<>]+)'
-    links = re.findall(href_pattern, html_text, re.IGNORECASE)
-    
-    # Also find bare URLs
-    url_pattern = r'https?://[^\s<>"\'{}|\\^`\[\]]*'
-    bare_urls = re.findall(url_pattern, html_text)
-    
-    # Combine and deduplicate
-    all_links = list(set(links + bare_urls))
-    # Filter out tracking/unsubscribe links
-    filtered = [
-        url for url in all_links
-        if not any(
-            skip in url.lower()
-            for skip in ["unsubscribe", "preferences", "manage", "newsletter/settings"]
-        )
-    ]
-    return filtered[:5]  # Limit to 5 links per email
+def _clean_text(value: str) -> str:
+    value = re.sub(r"<[^>]+>", " ", value or "")
+    return re.sub(r"\s+", " ", unescape(value)).strip()
 
 
 def _clean_subject(subject: str) -> str:
-    """Clean email subject for article title."""
-    # Remove common prefixes
-    subject = re.sub(r"^\[.*?\]\s*", "", subject)
+    subject = re.sub(r"^\[.*?\]\s*", "", subject or "")
     subject = re.sub(r"^(FW|Re|Fwd):\s*", "", subject, flags=re.IGNORECASE)
-    return subject.strip()
+    return _clean_text(subject) or "Newsletter"
+
+
+def _is_usable_article_url(url: str) -> bool:
+    cleaned = unescape(url or "").strip().strip("<>\"'")
+    lowered = cleaned.lower()
+    if not lowered.startswith(("http://", "https://")):
+        return False
+    if any(marker in lowered for marker in _SKIP_URL_MARKERS):
+        return False
+
+    try:
+        parts = urlsplit(cleaned)
+    except ValueError:
+        return False
+    if not parts.netloc or parts.path.lower().endswith(_IMAGE_SUFFIXES):
+        return False
+    return parts.path not in ("", "/")
+
+
+def _extract_link_candidates(html_text: str, plain_text: str) -> List[Tuple[str, str]]:
+    """Extract ordered article URLs with meaningful anchor text when available."""
+    candidates = []
+    seen_urls = set()
+
+    anchor_pattern = re.compile(
+        r"<a\b[^>]*?href=[\"'](https?://[^\"'<>\s]+)[\"'][^>]*>(.*?)</a>",
+        re.IGNORECASE | re.DOTALL,
+    )
+    for url, anchor_html in anchor_pattern.findall(html_text or ""):
+        url = unescape(url).strip()
+        if url in seen_urls or not _is_usable_article_url(url):
+            continue
+        anchor_text = _clean_text(anchor_html)
+        if anchor_text.lower() in _SKIP_LINK_TEXTS or len(anchor_text) < 8:
+            continue
+        candidates.append((url, anchor_text))
+        seen_urls.add(url)
+
+    bare_url_pattern = re.compile(r"https?://[^\s<>\"'{}|\\^`\[\]]+")
+    for raw_url in bare_url_pattern.findall(plain_text or ""):
+        url = unescape(raw_url).rstrip(".,);]")
+        if url in seen_urls or not _is_usable_article_url(url):
+            continue
+        candidates.append((url, ""))
+        seen_urls.add(url)
+
+    return candidates[:GMAIL_LINKS_PER_EMAIL]
+
+
+def _extract_message_bodies(message) -> Tuple[str, str]:
+    html_parts = []
+    plain_parts = []
+    parts = message.walk() if message.is_multipart() else [message]
+
+    for part in parts:
+        if part.is_multipart():
+            continue
+        if (part.get_content_disposition() or "").lower() == "attachment":
+            continue
+        content_type = part.get_content_type()
+        if content_type not in ("text/html", "text/plain"):
+            continue
+        try:
+            content = part.get_content()
+        except (LookupError, UnicodeDecodeError):
+            payload = part.get_payload(decode=True) or b""
+            content = payload.decode(part.get_content_charset() or "utf-8", errors="replace")
+        if content_type == "text/html":
+            html_parts.append(str(content))
+        else:
+            plain_parts.append(str(content))
+
+    return "\n".join(html_parts), "\n".join(plain_parts)
+
+
+def _message_date(message) -> str:
+    try:
+        parsed = parsedate_to_datetime(message.get("Date", ""))
+        if parsed is not None:
+            return parsed.date().isoformat()
+    except (TypeError, ValueError, OverflowError):
+        pass
+    return datetime.now(timezone.utc).date().isoformat()
+
+
+def _parse_email(raw_message: bytes) -> List[dict]:
+    message = BytesParser(policy=policy.default).parsebytes(raw_message)
+    subject = _clean_subject(str(message.get("Subject", "Newsletter")))
+    sender_name, sender_address = parseaddr(str(message.get("From", "")))
+    sender = _clean_text(sender_name) or sender_address.split("@")[0] or "Newsletter"
+    html_text, plain_text = _extract_message_bodies(message)
+    candidates = _extract_link_candidates(html_text, plain_text)
+    if not candidates:
+        return []
+
+    plain_summary = _clean_text(plain_text)[:350]
+    description = f"Newsletter: {subject}"
+    if plain_summary:
+        description = f"{description}. {plain_summary}"
+
+    published_date = _message_date(message)
+    articles = []
+    for url, anchor_text in candidates:
+        articles.append({
+            "title": anchor_text or subject,
+            "link": url,
+            "source": sender,
+            "feed": "Gmail Newsletters",
+            "date": published_date,
+            "description": description,
+            "region": "global",
+        })
+    return articles
+
+
+def _gmail_raw_query() -> str:
+    parts = [
+        part
+        for part in (GMAIL_NEWSLETTER_QUERY, f"newer_than:{GMAIL_LOOKBACK_DAYS}d")
+        if part
+    ]
+    query = " ".join(parts)
+    escaped = query.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
 
 
 def fetch() -> Tuple[List[dict], List[str]]:
-    """Fetch newsletters from Gmail.
-    
-    Returns:
-        (articles: list of dicts, errors: list of strings)
-    """
+    """Fetch recent newsletter emails without changing read/unread state."""
+    if not is_configured():
+        return [], ["Gmail 미설정: GMAIL_USER와 GMAIL_APP_PASSWORD가 필요합니다."]
+
+    client = None
     articles = []
     errors = []
-    
-    if not is_configured():
-        return [], ["Gmail not configured (missing credentials or config)"]
-    
     try:
-        service = _get_gmail_service()
-        if not service:
-            return [], ["Gmail API service unavailable"]
-        
-        # Search for newsletter emails (last 3 days by default)
-        query = GMAIL_NEWSLETTER_QUERY or "label:newsletters"
-        # Add time constraint
-        three_days_ago = (datetime.utcnow() - timedelta(days=3)).strftime("%Y/%m/%d")
-        query_with_date = f"{query} after:{three_days_ago}"
-        
-        print(f"🔍 Gmail search query: {query_with_date}")
-        
-        results = service.users().messages().list(
-            userId="me", q=query_with_date, maxResults=20
-        ).execute()
-        
-        messages = results.get("messages", [])
-        if not messages:
-            print("ℹ️ No newsletter emails found in the last 3 days")
-            return [], []
-        
-        for msg in messages:
+        client = imaplib.IMAP4_SSL("imap.gmail.com", 993, timeout=20)
+        client.login(GMAIL_USER, GMAIL_APP_PASSWORD)
+
+        status, _ = client.select(GMAIL_IMAP_FOLDER, readonly=True)
+        if status != "OK":
+            return [], [f"Gmail 폴더를 열 수 없습니다: {GMAIL_IMAP_FOLDER}"]
+
+        status, data = client.uid("search", None, "X-GM-RAW", _gmail_raw_query())
+        if status != "OK":
+            return [], ["Gmail 뉴스레터 검색에 실패했습니다."]
+
+        raw_uids = data[0] if data else b""
+        message_uids = (raw_uids or b"").split()
+        message_uids = list(reversed(message_uids))[:GMAIL_MAX_EMAILS]
+        for uid in message_uids:
             try:
-                msg_data = service.users().messages().get(userId="me", id=msg["id"], format="full").execute()
-                headers = msg_data["payload"].get("headers", [])
-                
-                # Extract subject, from, date
-                subject = next((h["value"] for h in headers if h["name"] == "Subject"), "No Subject")
-                from_addr = next((h["value"] for h in headers if h["name"] == "From"), "Unknown")
-                date_str = next((h["value"] for h in headers if h["name"] == "Date"), "")
-                
-                # Extract body text
-                body_text = _extract_text_from_payload(msg_data["payload"])
-                
-                # Extract links
-                links = _extract_links_from_html(body_text)
-                if not links:
-                    continue  # Skip if no links found
-                
-                # Create article entries (one per link, or one combined)
-                title = _clean_subject(subject)
-                
-                # Use first link as primary
-                article = {
-                    "title": title,
-                    "link": links[0],
-                    "source": f"Gmail Newsletter ({from_addr})",
-                    "feed": "Gmail Newsletters",
-                    "date": date_str[:10] if date_str else datetime.utcnow().strftime("%Y-%m-%d"),
-                    "description": f"From: {from_addr}\nLinks: {', '.join(links)}",
-                    "region": "global",
-                }
-                articles.append(article)
-                
-                # Also add secondary links as separate low-confidence mentions
-                for link in links[1:]:
-                    article_secondary = {
-                        "title": title,
-                        "link": link,
-                        "source": f"Gmail Newsletter ({from_addr})",
-                        "feed": "Gmail Newsletters",
-                        "date": date_str[:10] if date_str else datetime.utcnow().strftime("%Y-%m-%d"),
-                        "description": f"Additional link from: {from_addr}",
-                        "region": "global",
-                    }
-                    articles.append(article_secondary)
-            
-            except Exception as e:
-                errors.append(f"Failed to parse email {msg['id']}: {str(e)}")
-                continue
-        
-        print(f"✅ Gmail newsletters: {len(articles)} article links extracted from {len(messages)} emails")
+                status, payload = client.uid("fetch", uid, "(BODY.PEEK[])")
+                if status != "OK":
+                    errors.append("뉴스레터 메일 한 건을 불러오지 못했습니다.")
+                    continue
+                raw_message = next(
+                    (
+                        item[1]
+                        for item in payload
+                        if isinstance(item, tuple)
+                        and len(item) > 1
+                        and isinstance(item[1], bytes)
+                    ),
+                    None,
+                )
+                if raw_message:
+                    articles.extend(_parse_email(raw_message))
+            except Exception as exc:
+                errors.append(f"뉴스레터 메일 해석 실패: {type(exc).__name__}")
+
+        print(
+            f"✅ Gmail 뉴스레터: 최근 메일 {len(message_uids)}건에서 "
+            f"기사 링크 {len(articles)}건 수집"
+        )
         return articles, errors
-    
-    except Exception as e:
-        error_msg = f"Gmail fetch error: {str(e)}"
-        print(f"⚠️ {error_msg}")
-        return [], [error_msg]
+    except imaplib.IMAP4.error:
+        return [], ["Gmail 로그인 실패: 이메일 주소 또는 앱 비밀번호를 확인하세요."]
+    except (OSError, TimeoutError) as exc:
+        return [], [f"Gmail 연결 실패: {type(exc).__name__}"]
+    finally:
+        if client is not None:
+            try:
+                client.close()
+            except (imaplib.IMAP4.error, OSError):
+                pass
+            try:
+                client.logout()
+            except (imaplib.IMAP4.error, OSError):
+                pass
