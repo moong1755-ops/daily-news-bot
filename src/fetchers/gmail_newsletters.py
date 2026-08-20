@@ -89,6 +89,29 @@ def _looks_like_headline(anchor_text: str) -> bool:
     return len(text) >= threshold
 
 
+_MAX_HEADLINE_CHARS = 120
+
+
+def _headline_from_anchor(anchor_text: str) -> str:
+    """앵커 텍스트에서 제목 부분만 남긴다.
+
+    뉴스레터는 제목과 본문 첫 문단을 한 링크로 묶는 일이 많아, 그대로 쓰면
+    한 줄이 200자를 넘는다("Gates-Backed TerraPower to Announce Second Nuke
+    Plant This Year TerraPower LLC, the only company ..."). 본문은 대개
+    문장으로 이어지므로 첫 문장 경계에서 끊고, 그래도 길면 단어 단위로 자른다.
+    """
+    text = re.sub(r"\s+", " ", anchor_text or "").strip()
+    if len(text) <= _MAX_HEADLINE_CHARS:
+        return text
+
+    sentence_end = re.search(r"(?<=[.!?])\s+[A-Z가-힣]", text)
+    if sentence_end and sentence_end.start() + 1 <= _MAX_HEADLINE_CHARS:
+        return text[: sentence_end.start() + 1].strip()
+
+    clipped = text[:_MAX_HEADLINE_CHARS].rsplit(" ", 1)[0].strip()
+    return (clipped or text[:_MAX_HEADLINE_CHARS].strip()) + "…"
+
+
 _IMAGE_SUFFIXES = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg")
 
 
@@ -210,7 +233,7 @@ def _parse_email(raw_message: bytes) -> List[dict]:
     articles = []
     for url, anchor_text in candidates:
         articles.append({
-            "title": anchor_text or subject,
+            "title": _headline_from_anchor(anchor_text) or subject,
             "link": url,
             "source": sender,
             "feed": "Gmail Newsletters",

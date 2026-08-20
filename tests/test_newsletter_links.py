@@ -6,7 +6,11 @@ Bloomberg 의 "Read in browser" 가 기사 제목으로 슬랙에 발송된 적�
 
 import unittest
 
-from src.fetchers.gmail_newsletters import _is_boilerplate_anchor, _looks_like_headline
+from src.fetchers.gmail_newsletters import (
+    _headline_from_anchor,
+    _is_boilerplate_anchor,
+    _looks_like_headline,
+)
 
 
 class BoilerplateAnchorTestCase(unittest.TestCase):
@@ -40,9 +44,6 @@ class BoilerplateAnchorTestCase(unittest.TestCase):
     def test_normalizes_whitespace_before_matching(self):
         self.assertTrue(_is_boilerplate_anchor("  Read   in\n browser  "))
 
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class HeadlineShapeTestCase(unittest.TestCase):
@@ -92,3 +93,39 @@ class HeadlineShapeTestCase(unittest.TestCase):
 
     def test_very_short_korean_text_is_still_rejected(self):
         self.assertFalse(_looks_like_headline("계속 읽기"))
+
+
+class HeadlineTruncationTestCase(unittest.TestCase):
+    """제목과 본문 첫 문단이 한 링크로 묶여 오는 경우를 정리한다."""
+
+    RUN_ON = (
+        "Gates-Backed TerraPower to Announce Second Nuke Plant This Year "
+        "TerraPower LLC, the only company building a utility-scale nuclear "
+        "power plant in the US, expects to announce its next project this "
+        "year — one intended for a data center."
+    )
+
+    def test_run_on_anchor_is_shortened(self):
+        result = _headline_from_anchor(self.RUN_ON)
+        self.assertLess(len(result), len(self.RUN_ON))
+        self.assertLessEqual(len(result), 121)
+        self.assertTrue(result.startswith("Gates-Backed TerraPower"))
+
+    def test_normal_headline_is_untouched(self):
+        text = "Climate Fund Managers lands $182 million for green hydrogen fund"
+        self.assertEqual(_headline_from_anchor(text), text)
+
+    def test_sentence_boundary_is_preferred_over_word_cut(self):
+        text = "Fed holds rates steady. " + "Officials signalled patience " * 6
+        self.assertEqual(_headline_from_anchor(text), "Fed holds rates steady.")
+
+    def test_whitespace_is_normalized(self):
+        self.assertEqual(_headline_from_anchor("  Fed   holds\nrates  "), "Fed holds rates")
+
+    def test_empty_input_is_safe(self):
+        self.assertEqual(_headline_from_anchor(""), "")
+        self.assertEqual(_headline_from_anchor(None), "")
+
+
+if __name__ == "__main__":
+    unittest.main()
