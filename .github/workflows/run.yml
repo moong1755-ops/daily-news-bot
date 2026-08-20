@@ -3,15 +3,6 @@ name: News Bot 📰
 on:
   # 실제 뉴스 발송은 수동 실행만 허용한다.
   workflow_dispatch:
-  # 개발 작업 브랜치에서는 업로드할 때마다 테스트만 실행한다.
-  push:
-    branches:
-      - "codex/**"
-    paths:
-      - "src/**"
-      - "tests/**"
-      - "requirements.txt"
-      - ".github/workflows/run.yml"
   # PR에서는 발송 없이 편집 정책 테스트만 자동 실행한다.
   pull_request:
     paths:
