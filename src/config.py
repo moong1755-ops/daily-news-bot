@@ -142,6 +142,10 @@ MIN_CATEGORY_NEWS = 0       # 최소 개수 없음: 부족분을 낮은 품질 �
 TRANSLATE_TITLES = True     # 발송 기사 제목 한글 번역(영문만, 실패 시 원문 유지)
 
 SIMILARITY_THRESHOLD = 0.72
+# 선정 단계에서 '같은 사건' 을 걸러낼 때 쓰는 임계값. 수집 단계보다 낮다.
+# 잘못 걸러도 비슷한 기사 하나를 덜 보여줄 뿐이지만, 놓치면 한 카테고리가
+# 같은 사건으로 채워진다(실제로 거시 3칸이 전부 같은 FOMC 의사록이었다).
+SELECTION_SIMILARITY_THRESHOLD = 0.60
 WATCHLIST_WEIGHT = 2.5       # 관심기업 존재감 극대화
 
 # VC editor signals: market-moving events receive a higher score than routine

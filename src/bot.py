@@ -20,7 +20,7 @@ except ImportError:
         print("ℹ️ 뉴스레터/Gmail 모듈을 찾을 수 없어 수집 단계에서 제외합니다.")
 
 from .processor import editor
-from .processor.deduplicator import deduplicate_and_merge
+from .processor.deduplicator import deduplicate_and_merge, filter_near_duplicates
 from .processor.summarizer import summarize, keyword_hit
 from .processor.reranker import rerank_by_category, is_enabled as llm_enabled
 try:
@@ -41,6 +41,7 @@ from .config import (
     ALTERNATIVE_MAJOR_DEAL_MAX,
     OVERSEAS_PREFERRED_DOMAINS,
     REGION_WEIGHT,
+    SELECTION_SIMILARITY_THRESHOLD,
     HARD_EXCLUSION_KEYWORDS,
     SOFT_EDITORIAL_EXCLUSION_KEYWORDS,
     OPINION_FORMAT_KEYWORDS,
@@ -300,6 +301,9 @@ def _select_category_articles(ranked: list, category: str) -> list:
     elif category == ALTERNATIVE_CATEGORY:
         overflow_flag = "major_deal"
         final_limit = max(base_limit, ALTERNATIVE_MAJOR_DEAL_MAX)
+
+    # 같은 사건이 한 카테고리를 다 차지하지 않도록 먼저 솎아낸다.
+    ranked = filter_near_duplicates(ranked, SELECTION_SIMILARITY_THRESHOLD)
 
     selected = []
     nvidia = 0

@@ -240,3 +240,40 @@ def _title_based_dedup(articles: list) -> list:
         groups[normalized_title].append(article)
 
     return [_merge_group(groups[title]) for title in group_order]
+
+
+def filter_near_duplicates(articles: list, threshold: float) -> list:
+    """앞서 고른 기사와 같은 사건을 다룬 기사를 제외한다(원래 순서 유지).
+
+    수집 단계의 병합(SIMILARITY_THRESHOLD)보다 임계를 낮게 잡는다. 위험이
+    비대칭이기 때문이다. 수집 단계에서 잘못 병합하면 기사가 아예 사라지지만,
+    선정 단계에서 잘못 걸러도 비슷한 기사 하나를 덜 보여줄 뿐이고 그 자리는
+    다른 뉴스로 채워진다.
+
+    실제 실행에서 거시 카테고리 세 칸이 전부 같은 FOMC 의사록 기사였다.
+    제목 임베딩 유사도는 0.62~0.76 이라 0.72 기준으로는 한 쌍만 걸렸다.
+
+    모델을 쓸 수 없으면 입력을 그대로 돌려준다. 중복 제거 실패가 발송을
+    막아서는 안 된다.
+    """
+    if len(articles) < 2:
+        return list(articles)
+
+    try:
+        model = _get_model()
+        embeddings = model.encode([a.get("title", "") for a in articles], convert_to_numpy=True)
+        similarity = cosine_similarity(embeddings)
+    except Exception as e:
+        print(f"⚠️ 선정 단계 중복 검사 실패({e}) — 그대로 진행합니다.")
+        return list(articles)
+
+    kept_indexes = []
+    for index in range(len(articles)):
+        if any(similarity[index][kept] >= threshold for kept in kept_indexes):
+            continue
+        kept_indexes.append(index)
+
+    dropped = len(articles) - len(kept_indexes)
+    if dropped:
+        print(f"   ↪ 같은 사건 {dropped}건을 선정에서 제외")
+    return [articles[i] for i in kept_indexes]
