@@ -317,6 +317,53 @@ def editor_gate_enabled() -> bool:
     return os.environ.get("EDITOR_GATE", "").strip() in ("1", "true", "True")
 
 
+def select_for_briefing(classified: list) -> tuple:
+    """편집 판정을 적용한 최종 후보와 (탈락 기사, 오류) 를 돌려준다.
+
+    편집 게이트는 키워드 판정 위에 덧씌운다. summarize 가 매긴 impact_must_read·
+    major_deal 플래그를 선정 단계가 쓰기 때문이다. 따라서 걸러내기만 할 뿐,
+    키워드가 죽인 기사를 되살리지는 못한다.
+
+    게이트가 돌았으면 리랭커는 건너뛴다. 둘 다 '읽을 가치가 있는가' 를 판정하는
+    편집자인데 기준이 서로 달라, 겹쳐 돌리면 뒤의 것이 앞의 판단을 뒤집는다.
+    실제 실행에서 게이트가 통과시킨 193건이 리랭커를 지나며 4건으로 줄어
+    카테고리 셋이 비었다. 게이트가 카테고리와 0~10 점수를 이미 주므로 선정은
+    점수순으로 충분하다.
+    """
+    rejected, errors = [], []
+    gate_applied = False
+
+    if editor_gate_enabled():
+        reviewed, gate_errors = editor.review(classified)
+        errors.extend(gate_errors)
+        if reviewed is None:
+            print("⚠️ 편집 게이트 실패 — 키워드 판정 결과로 계속 진행합니다.")
+        else:
+            dropped = len(classified) - len(reviewed)
+            print(f"🧑‍⚖️ 편집 게이트가 {dropped}건을 추가로 걸렀습니다.")
+            rejected.extend(a for a in classified if a.get("editor_verdict") == "reject")
+            classified = reviewed
+            gate_applied = True
+
+    classified.sort(key=lambda a: a.get("relevance", 0), reverse=True)
+
+    print("\n===== CATEGORY DEBUG =====")
+    for category in CATEGORY_ORDER:
+        items = [x for x in classified if x.get("category") == category]
+        print(f"\n{category}: {len(items)}개")
+        for item in items[:3]:
+            print("-", item.get("title"))
+
+    if gate_applied:
+        print("🧑‍⚖️ 편집 게이트 점수를 사용합니다 (리랭커 생략).")
+    else:
+        classified = rerank_by_category(classified, CATEGORY_ORDER)
+        if llm_enabled():
+            print("LLM 리랭크 적용됨 (Gemini)")
+
+    return classified, rejected, errors
+
+
 def _decision_record(article: dict, verdict: str) -> dict:
     """평가셋 구축과 사후 추적에 필요한 필드만 추린다."""
     return {
@@ -535,33 +582,9 @@ def main():
         all_errors.extend(e)
         classified.append(art)
 
-    # LLM 편집 게이트는 키워드 판정을 대체하지 않고 그 위에 덧씌운다. summarize 가
-    # 매긴 impact_must_read·major_deal 같은 플래그는 아래 선정 단계가 그대로 쓰기
-    # 때문이다. 따라서 이 단계는 걸러내기만 할 뿐 키워드가 죽인 기사를 되살리지는
-    # 못한다. is_relevant 를 걷어내는 것은 게이트 정확도를 확인한 뒤의 일이다.
-    if editor_gate_enabled():
-        reviewed, editor_errors = editor.review(classified)
-        all_errors.extend(editor_errors)
-        if reviewed is None:
-            print("⚠️ 편집 게이트 실패 — 키워드 판정 결과로 계속 진행합니다.")
-        else:
-            dropped = len(classified) - len(reviewed)
-            print(f"🧑‍⚖️ 편집 게이트가 {dropped}건을 추가로 걸렀습니다.")
-            rejected.extend(a for a in classified if a.get("editor_verdict") == "reject")
-            classified = reviewed
-
-    classified.sort(key=lambda a: a.get("relevance", 0), reverse=True)
-
-    print("\n===== CATEGORY DEBUG =====")
-    for c in CATEGORY_ORDER:
-        items = [x for x in classified if x.get("category") == c]
-        print(f"\n{c}: {len(items)}개")
-        for item in items[:3]:
-            print("-", item.get("title"))
-
-    classified = rerank_by_category(classified, CATEGORY_ORDER)
-    if llm_enabled():
-        print("LLM 리랭크 적용됨 (Gemini)")
+    classified, gate_rejected, gate_errors = select_for_briefing(classified)
+    rejected.extend(gate_rejected)
+    all_errors.extend(gate_errors)
 
     # ✅ 발송 확정 후보만 제목 한글 번역(실패 시 원문 유지, 발송은 계속됨)
     print(f"🈯 번역 단계 진입: GEMINI_API_KEY={'있음' if os.environ.get('GEMINI_API_KEY') else '없음'}, "

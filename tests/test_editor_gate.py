@@ -124,5 +124,95 @@ class EditorGateTestCase(unittest.TestCase):
         self.assertEqual(errors, [])
 
 
+class GateReplacesRerankerTestCase(unittest.TestCase):
+    """게이트가 돌면 리랭커를 건너뛰는지 확인한다.
+
+    둘 다 '읽을 가치가 있는가' 를 판정하는데 기준이 달라, 겹쳐 돌리면 뒤의
+    리랭커가 앞의 판단을 뒤집는다. 실제 실행에서 게이트가 통과시킨 193건이
+    리랭커를 지나며 4건으로 줄어 카테고리 셋이 비었다.
+    """
+
+    @staticmethod
+    def _articles(count=3):
+        return [
+            {"title": f"기사 {i}", "description": "", "link": f"https://x/{i}",
+             "source": "S", "feed": "F", "category": "🤖 AI", "relevance": float(i)}
+            for i in range(count)
+        ]
+
+    @staticmethod
+    def _passing_gate(articles):
+        for article in articles:
+            article["editor_verdict"] = "keep"
+            article["editor_score"] = 8.0
+            article["relevance"] = 8.0
+        return list(articles), []
+
+    def test_reranker_is_skipped_when_gate_succeeds(self):
+        from src import bot
+
+        articles = self._articles()
+        with mock.patch.dict(os.environ, {"EDITOR_GATE": "1"}, clear=False):
+            with mock.patch.object(bot.editor, "review", side_effect=self._passing_gate):
+                with mock.patch.object(bot, "rerank_by_category") as rerank:
+                    selected, _rejected, _errors = bot.select_for_briefing(articles)
+
+        rerank.assert_not_called()
+        self.assertEqual(len(selected), 3, "게이트가 통과시킨 기사가 살아남아야 한다")
+
+    def test_reranker_still_runs_when_gate_is_off(self):
+        from src import bot
+
+        articles = self._articles()
+        with mock.patch.dict(os.environ, {"EDITOR_GATE": ""}, clear=False):
+            with mock.patch.object(bot, "rerank_by_category", return_value=articles) as rerank:
+                bot.select_for_briefing(articles)
+
+        rerank.assert_called_once()
+
+    def test_reranker_runs_when_gate_fails(self):
+        """게이트가 죽으면 기존 경로로 돌아가야 브리핑이 비지 않는다."""
+        from src import bot
+
+        articles = self._articles()
+        with mock.patch.dict(os.environ, {"EDITOR_GATE": "1"}, clear=False):
+            with mock.patch.object(bot.editor, "review", return_value=(None, ["실패"])):
+                with mock.patch.object(bot, "rerank_by_category", return_value=articles) as rerank:
+                    _selected, _rejected, errors = bot.select_for_briefing(articles)
+
+        rerank.assert_called_once()
+        self.assertIn("실패", errors)
+
+    def test_rejected_articles_are_reported_for_the_decision_log(self):
+        from src import bot
+
+        articles = self._articles(2)
+
+        def gate(items):
+            items[0]["editor_verdict"] = "reject"
+            items[1]["editor_verdict"] = "keep"
+            return [items[1]], []
+
+        with mock.patch.dict(os.environ, {"EDITOR_GATE": "1"}, clear=False):
+            with mock.patch.object(bot.editor, "review", side_effect=gate):
+                selected, rejected, _errors = bot.select_for_briefing(articles)
+
+        self.assertEqual(len(selected), 1)
+        self.assertEqual(len(rejected), 1)
+
+    def test_gate_score_drives_selection_order(self):
+        """리랭커 없이도 게이트 점수로 순위가 정해져야 한다."""
+        from src import bot
+
+        low = {"title": "낮은 점수", "category": "🤖 AI", "relevance": 2.0}
+        high = {"title": "높은 점수", "category": "🤖 AI", "relevance": 9.0}
+        ranked = sorted(
+            [low, high],
+            key=lambda a: bot._selection_score(a, "🤖 AI"),
+            reverse=True,
+        )
+        self.assertEqual(ranked[0]["title"], "높은 점수")
+
+
 if __name__ == "__main__":
     unittest.main()
