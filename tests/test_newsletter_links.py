@@ -7,6 +7,7 @@ Bloomberg 의 "Read in browser" 가 기사 제목으로 슬랙에 발송된 적�
 import unittest
 
 from src.fetchers.gmail_newsletters import (
+    _anchor_headline_html,
     _headline_from_anchor,
     _is_boilerplate_anchor,
     _looks_like_headline,
@@ -125,6 +126,58 @@ class HeadlineTruncationTestCase(unittest.TestCase):
     def test_empty_input_is_safe(self):
         self.assertEqual(_headline_from_anchor(""), "")
         self.assertEqual(_headline_from_anchor(None), "")
+
+
+
+class AnchorBlockExtractionTestCase(unittest.TestCase):
+    """제목과 본문이 한 링크 안의 다른 블록에 있을 때 제목만 취한다.
+
+    Bloomberg 는 "LG Energy Mulls Supplying Batteries for US Drones in Pivot"
+    뒤에 본문을 문장부호 없이 이어 붙여, 텍스트만 보면 자를 지점을 알 수 없다.
+    """
+
+    def test_takes_first_block_as_headline(self):
+        html = (
+            '<div>LG Energy Mulls Supplying Batteries for US Drones in Pivot</div>'
+            '<div>LG Energy Solution is considering supplying batteries for '
+            'drones made in the US, people familiar said.</div>'
+        )
+        self.assertEqual(
+            _anchor_headline_html(html),
+            "LG Energy Mulls Supplying Batteries for US Drones in Pivot",
+        )
+
+    def test_handles_paragraph_and_break_separators(self):
+        self.assertEqual(
+            _anchor_headline_html("<p>Fed holds rates steady again</p><p>본문입니다</p>"),
+            "Fed holds rates steady again",
+        )
+        self.assertEqual(
+            _anchor_headline_html("Fed holds rates steady again<br>본문입니다"),
+            "Fed holds rates steady again",
+        )
+
+    def test_skips_short_leading_labels(self):
+        html = "<div>NEWS</div><div>Climate Fund Managers lands $182 million</div>"
+        self.assertEqual(
+            _anchor_headline_html(html),
+            "Climate Fund Managers lands $182 million",
+        )
+
+    def test_plain_anchor_is_unchanged(self):
+        text = "Climate Fund Managers lands $182 million for green hydrogen fund"
+        self.assertEqual(_anchor_headline_html(text), text)
+
+    def test_inline_tags_do_not_split_the_headline(self):
+        html = "Anthropic’s <b>annualized revenue</b> surges to $65B"
+        self.assertEqual(
+            _anchor_headline_html(html),
+            "Anthropic’s annualized revenue surges to $65B",
+        )
+
+    def test_empty_input_is_safe(self):
+        self.assertEqual(_anchor_headline_html(""), "")
+        self.assertEqual(_anchor_headline_html(None), "")
 
 
 if __name__ == "__main__":

@@ -89,6 +89,28 @@ def _looks_like_headline(anchor_text: str) -> bool:
     return len(text) >= threshold
 
 
+def _anchor_headline_html(anchor_html: str) -> str:
+    """앵커 안에서 제목에 해당하는 첫 블록만 텍스트로 뽑는다.
+
+    뉴스레터는 제목과 본문을 한 링크 안에 서로 다른 블록으로 넣는다. 태그를
+    전부 지우고 이어 붙이면 "...in Pivot LG Energy Solution is considering..."
+    처럼 제목과 본문이 문장부호 없이 붙어, 글자 수로는 자를 지점을 알 수 없다.
+    블록 경계를 먼저 살려서 첫 덩어리만 취한다.
+
+    블록 구분이 없으면 원래대로 전체 텍스트를 돌려주고, 길이 정리는
+    _headline_from_anchor 가 맡는다.
+    """
+    chunks = re.split(
+        r"(?is)</(?:div|p|h[1-6]|td|tr|li|table|section)\s*>|<br\s*/?>",
+        anchor_html or "",
+    )
+    for chunk in chunks:
+        text = _clean_text(chunk)
+        if len(text) >= 15:
+            return text
+    return _clean_text(anchor_html)
+
+
 _MAX_HEADLINE_CHARS = 120
 
 
@@ -161,7 +183,7 @@ def _extract_link_candidates(html_text: str, plain_text: str) -> List[Tuple[str,
         url = unescape(url).strip()
         if url in seen_urls or not _is_usable_article_url(url):
             continue
-        anchor_text = _clean_text(anchor_html)
+        anchor_text = _anchor_headline_html(anchor_html)
         if _is_boilerplate_anchor(anchor_text) or not _looks_like_headline(anchor_text):
             continue
         candidates.append((url, anchor_text))
