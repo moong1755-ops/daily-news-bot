@@ -139,22 +139,40 @@ SOFT_PENALTY_KEYWORDS = [
 # ---------------------------------------------------------------------------
 # ✅ 비-뉴스(채용공고·행사·수상·부고 등) 하드 차단 — is_relevant 에서 사용
 NON_NEWS_KEYWORDS = [
-    # 채용
+    # 채용 페이지/지원 안내. 단순한 "채용", "공고", "모집"은 기업 확장이나
+    # 정책 공고까지 지울 수 있으므로 단독 키워드로 사용하지 않는다.
     "we're hiring", "we are hiring", "now hiring", "job opening", "job opportunity",
-    "apply now", "join our team", "career opportunity", "director of", "head of",
-    "vp of", "chief of", "is hiring", "vacancy", "recruit",
-    "채용", "공고", "모집", "구인", "리크루팅", "인재 영입",
-    # 행사/세미나/시상
-    "webinar", "join us", "register now", "rsvp", "save the date", "conference invite",
-    "세미나", "웨비나", "포럼 개최", "행사 안내", "참가 신청", "참가신청",
-    "컨퍼런스", "시상", "수상자 발표", "공모전", "설명회",
+    "apply now", "join our team", "career opportunity", "is hiring", "vacancy",
+    "careers at", "view all jobs", "open position", "open roles", "job description",
+    "job requirements", "application deadline", "submit your application",
+    "equal opportunity employer", "work with us", "internship opportunity",
+    "채용 공고", "채용공고", "채용 안내", "채용안내", "채용 중", "채용중",
+    "공개채용", "상시채용", "입사 지원", "입사지원", "지원 자격", "지원자격",
+    "접수 기간", "접수기간", "서류 접수", "신입사원 모집", "경력사원 모집",
+    "인턴 모집", "구인 공고",
+    # 행사 참가/접수 안내
+    "register now", "registration open", "early bird registration", "rsvp",
+    "save the date", "conference invite", "call for speakers", "call for papers",
+    "ticket sales", "visit our booth", "meet us at",
+    "행사 안내", "참가 신청", "참가신청", "사전 등록", "사전등록", "등록 마감",
+    "참가자 모집", "연사 모집", "부스 참가", "공모전 접수", "설명회 신청",
+    # 수상/회사 내부 홍보
+    "award nominations open", "award ceremony", "named a winner", "wins award",
+    "best workplace", "top employer", "employee spotlight", "meet the team",
+    "welcome to the team", "수상자 발표", "시상식", "수상 소식", "우수기업 선정",
+    "표창 수상", "임직원 소개", "직원 인터뷰",
+    # 광고/판매 유도
+    "sponsored content", "paid partnership", "partner content", "advertorial",
+    "brand studio", "promoted content", "limited-time offer", "giveaway", "shop now",
+    "협찬 콘텐츠", "유료 광고", "유료광고", "광고성 기사", "할인 코드", "할인코드",
+    "경품 이벤트",
     # 부고/인사
     "obituary", "부고", "인사발령", "동정",
 ]
 
 EDITORIAL_EXCLUSION_KEYWORDS = NON_NEWS_KEYWORDS + [
     "interview", "podcast", "webinar", "sponsored", "press release",
-    "product announcement", "awards", "event",
+    "product announcement", "awards", "event registration",
 ]
 
 # Alternative-investment deal policy. Amount is a signal, never an automatic
@@ -189,6 +207,11 @@ BLACKLIST_KEYWORDS = [
     "best price", "buy now", "airdoctor", "booking.com", "best laptop",
     "laptop review", "celebrity", "sports", "entertainment", "gaming",
     "movie", "tv show", "gossip", "github repo", "code walkthrough",
+    "price target", "stock forecast", "stock prediction", "analyst rating",
+    "buy rating", "sell rating", "stock to buy", "why shares are up",
+    "why shares are down", "why stock is up", "why stock is down",
+    "technical analysis", "dividend stock", "crypto price prediction", "airdrop",
+    "hands-on review", "buying guide", "gift guide", "where to buy",
     "배임", "횡령", "파업",
     "중기자금", "소상공인", "지역화폐", "테크노파크", "지자체",
     "인천시", "서울시", "경기도", "부산시", "대구시", "광주시", "대전시", "울산시",
