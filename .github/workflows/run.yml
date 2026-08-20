@@ -65,6 +65,14 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pip-
 
+      - name: Restore semantic duplicate state
+        uses: actions/cache@v4
+        with:
+          path: data/seen_embeddings.npz
+          key: news-semantic-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            news-semantic-${{ runner.os }}-
+
       - name: Install dependencies
         run: pip install -r requirements.txt
 
@@ -82,6 +90,20 @@ jobs:
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git add data/seen_news.txt data/seen_titles.txt data/slack_archive.jsonl || true
-          git diff --staged --quiet || git commit -m "Update seen files and slack archive [skip ci]"
-          git push
+          state_files=(
+            data/seen_news.txt
+            data/seen_titles.txt
+            data/slack_archive.jsonl
+          )
+          for state_file in "${state_files[@]}"; do
+            if [[ -f "$state_file" ]]; then
+              git add -- "$state_file"
+            fi
+          done
+
+          if git diff --staged --quiet; then
+            echo "No news state changes to save."
+          else
+            git commit -m "Update seen files and slack archive [skip ci]"
+            git push
+          fi
