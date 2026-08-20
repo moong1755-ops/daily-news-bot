@@ -12,6 +12,10 @@ on:
         description: "LLM 편집 게이트 사용"
         type: boolean
         default: false
+      as_of_date:
+        description: "과거 날짜 재현 (YYYY-MM-DD, 비우면 오늘). Google News 만 완전 재현됨"
+        type: string
+        default: ""
   # PR에서는 발송 없이 편집 정책 테스트만 자동 실행한다.
   pull_request:
     paths:
@@ -96,6 +100,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
           EDITOR_GATE: ${{ inputs.editor_gate && '1' || '' }}
+          AS_OF_DATE: ${{ inputs.as_of_date }}
           PYTHONUNBUFFERED: "1"
           PYTHONIOENCODING: "utf-8"
         run: python -m src.bot

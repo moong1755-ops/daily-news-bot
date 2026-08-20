@@ -1,8 +1,9 @@
+import os
 import re
 import socket
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
-from urllib.parse import quote, urlsplit
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 import feedparser
 import requests
@@ -123,6 +124,18 @@ def _uses_long_form_window(source_name: str) -> bool:
 def _article_date(entry, source_name: str, now_utc: datetime) -> tuple:
     """표시 날짜와 수집 여부를 반환한다. 날짜가 없으면 버리지 않고 표시만 보류한다."""
     published = _published_utc(entry)
+
+    target_date = as_of_date()
+    if target_date:
+        # 재현 모드에서는 그날 기사만 남긴다. 날짜를 모르는 기사는 그날 것인지
+        # 확인할 수 없으므로 제외한다(평소에는 살려 두는 것과 반대).
+        if published is None:
+            return "", False
+        local_date = published.astimezone(KOREA_TIMEZONE).date()
+        if local_date != target_date:
+            return "", False
+        return local_date.strftime("%Y-%m-%d"), True
+
     if published is None:
         return "Unknown date", True
 
@@ -135,6 +148,48 @@ def _article_date(entry, source_name: str, now_utc: datetime) -> tuple:
         return "", False
 
     return published.astimezone(KOREA_TIMEZONE).strftime("%Y-%m-%d"), True
+
+
+# ── 과거 날짜 재현(테스트 전용) ────────────────────────────────────────────
+# AS_OF_DATE=YYYY-MM-DD 를 주면 그날 발행된 기사만 모은다. 편집 로직을 다른
+# 날짜의 뉴스로 검증하기 위한 것이다.
+#
+# 완전한 재현은 불가능하다. RSS 는 과거 시점을 돌려주지 않고 최신 항목만
+# 싣기 때문에, TechCrunch·PE Hub 처럼 발행량이 많은 피드는 며칠 지나면 그날
+# 기사가 이미 빠져 있다. 반면 Google News 는 after:/before: 검색을 지원해
+# 지난 날짜를 그대로 가져올 수 있다. 따라서 결과는 'Google News 쪽은 충실,
+# 직접 RSS 쪽은 남아 있는 만큼' 이라는 부분 재현이다.
+
+
+def as_of_date():
+    """AS_OF_DATE 환경변수를 date 로 돌려준다. 없거나 형식이 틀리면 None."""
+    raw = os.environ.get("AS_OF_DATE", "").strip()
+    if not raw:
+        return None
+    try:
+        return datetime.strptime(raw, "%Y-%m-%d").date()
+    except ValueError:
+        print(f"⚠️ AS_OF_DATE 형식이 잘못됨({raw}) — 무시하고 현재 날짜로 수집합니다.")
+        return None
+
+
+def rewrite_for_as_of(url: str, target) -> str:
+    """Google News 쿼리의 when:Nd 를 해당 날짜 하루 구간으로 바꾼다."""
+    if not target or "news.google.com" not in url:
+        return url
+    parts = urlsplit(url)
+    params = parse_qsl(parts.query, keep_blank_values=True)
+    window = (
+        f"after:{target - timedelta(days=1)} before:{target + timedelta(days=1)}"
+    )
+    changed = []
+    for key, value in params:
+        if key == "q":
+            value = re.sub(r"when:\d+[dhm]", window, value)
+            if "after:" not in value:
+                value = f"{value} {window}"
+        changed.append((key, value))
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(changed), ""))
 
 
 def _get_feed(url: str):
@@ -204,11 +259,16 @@ def fetch() -> tuple:
     articles = []
     errors = []
     now_utc = datetime.now(timezone.utc)
+    target_date = as_of_date()
+    if target_date:
+        print(f"🕰 재현 모드: {target_date} 발행 기사만 수집합니다 "
+              "(Google News 는 해당 날짜로 재검색, 직접 RSS 는 남아 있는 만큼).")
 
     for source_name, url in FEEDS.items():
         if not url or url.startswith("<"):
             continue
 
+        url = rewrite_for_as_of(url, target_date)
         is_gnews = "news.google.com" in url
         via_fallback = False
 
