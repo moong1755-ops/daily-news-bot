@@ -1,14 +1,18 @@
 import re
 import socket
+from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
+from urllib.parse import quote, urlsplit
+
 import feedparser
 import requests
-from datetime import datetime, timedelta
-from urllib.parse import urlsplit, quote
 
 try:
     from ..config import ALL_FEEDS as FEEDS
 except ImportError:
     from ..config import RSS_SOURCES as FEEDS
+
+from ..config import FEED_CATEGORY_OVERRIDE, RSS_SOURCE_METADATA
 
 try:
     from ..config import source_region
@@ -34,11 +38,13 @@ _HEADERS = {
     "Accept": "application/rss+xml, application/xml, text/xml, */*",
 }
 
-# 인사이트/리포트 계열은 발행 주기가 길어 1일 recency 예외
-EVERGREEN_SOURCES = [
-    "McKinsey Insights", "BCG Insights", "PwC strategy+business", "SSIR",
-    "PitchBook News", "Impact Alpha", "Climate Home News", "The Batch",
-]
+# 일반 뉴스는 실행 지연을 고려해 3일, 정기 간행물은 주간 발행 주기를 고려해 8일 수집한다.
+STANDARD_LOOKBACK = timedelta(days=3)
+LONG_FORM_LOOKBACK = timedelta(days=8)
+MAX_FUTURE_SKEW = timedelta(days=1)
+KOREA_TIMEZONE = timezone(timedelta(hours=9))
+
+LONG_FORM_SOURCES = frozenset({"SSIR", "The Batch"})
 
 _GN_URL_CACHE = {}
 
@@ -84,6 +90,51 @@ def extract_gnews(entry, raw_title: str, feed_name: str):
             title = head.strip()
             outlet = outlet or tail.strip()
     return title, (outlet or feed_name)
+
+
+def _published_utc(entry):
+    """feedparser 날짜를 UTC datetime으로 정규화한다."""
+    parsed = entry.get("published_parsed") or entry.get("updated_parsed")
+    if parsed:
+        try:
+            return datetime(*parsed[:6], tzinfo=timezone.utc)
+        except (TypeError, ValueError):
+            pass
+
+    raw_date = entry.get("published") or entry.get("updated")
+    if not raw_date:
+        return None
+    try:
+        published = parsedate_to_datetime(raw_date)
+        if published.tzinfo is None:
+            published = published.replace(tzinfo=timezone.utc)
+        return published.astimezone(timezone.utc)
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _uses_long_form_window(source_name: str) -> bool:
+    category = FEED_CATEGORY_OVERRIDE.get(source_name) or RSS_SOURCE_METADATA.get(
+        source_name, {}
+    ).get("category", "")
+    return str(category).startswith("👔") or source_name in LONG_FORM_SOURCES
+
+
+def _article_date(entry, source_name: str, now_utc: datetime) -> tuple:
+    """표시 날짜와 수집 여부를 반환한다. 날짜가 없으면 버리지 않고 표시만 보류한다."""
+    published = _published_utc(entry)
+    if published is None:
+        return "Unknown date", True
+
+    lookback = (
+        LONG_FORM_LOOKBACK
+        if _uses_long_form_window(source_name)
+        else STANDARD_LOOKBACK
+    )
+    if published < now_utc - lookback or published > now_utc + MAX_FUTURE_SKEW:
+        return "", False
+
+    return published.astimezone(KOREA_TIMEZONE).strftime("%Y-%m-%d"), True
 
 
 def _get_feed(url: str):
@@ -152,7 +203,7 @@ def _gnews_site_fallback_url(original_url: str, source_name: str) -> str:
 def fetch() -> tuple:
     articles = []
     errors = []
-    yesterday = datetime.utcnow() - timedelta(days=1)
+    now_utc = datetime.now(timezone.utc)
 
     for source_name, url in FEEDS.items():
         if not url or url.startswith("<"):
@@ -205,14 +256,9 @@ def fetch() -> tuple:
                 title = raw_title
                 display_source = source_name
 
-            published = entry.get("published_parsed") or entry.get("updated_parsed")
-            if published:
-                pub_date = datetime(*published[:6])
-                if pub_date < yesterday and source_name not in EVERGREEN_SOURCES:
-                    continue
-                date_str = pub_date.strftime("%Y-%m-%d")
-            else:
-                date_str = "Unknown date"
+            date_str, include_article = _article_date(entry, source_name, now_utc)
+            if not include_article:
+                continue
 
             description = clean_html(entry.get("summary") or entry.get("description") or "")
 
