@@ -59,6 +59,36 @@ def _is_boilerplate_anchor(anchor_text: str) -> bool:
     if normalized in _SKIP_LINK_TEXTS:
         return True
     return any(fragment in normalized for fragment in _SKIP_LINK_FRAGMENTS)
+
+
+def _looks_like_headline(anchor_text: str) -> bool:
+    """기사 제목처럼 보이는 링크만 통과시킨다.
+
+    뉴스레터 본문은 문장 중간 단어에 링크를 건다. 그 앵커 텍스트가 그대로
+    기사 제목이 되면 "swap soybeans for credits" 나 사람 이름 같은 조각이
+    브리핑에 올라간다. 상용구 목록으로는 이런 걸 걸러낼 수 없다.
+
+    두 가지 신호를 쓴다. 문장 중간에서 잘라온 링크는 소문자로 시작하고,
+    제목이라기엔 너무 짧다. 편집 판단이 아니라 파싱 문제라 규칙으로 다룬다.
+    """
+    text = re.sub(r"\s+", " ", anchor_text or "").strip()
+    if not text:
+        return False
+
+    first_letter = next((c for c in text if c.isalpha()), "")
+    if first_letter and first_letter.isascii() and first_letter.islower():
+        return False        # "rising ocean temperatures" — 문장 중간 조각
+
+    if len(text.split()) >= 5:
+        return True
+
+    # 단어 수가 적으면 글자 수로 본다. 한국어·중국어·일본어는 같은 내용을 훨씬
+    # 짧게 쓰므로("삼성전자, SK하이닉스 인수") 영문과 같은 기준을 대면 멀쩡한
+    # 제목이 조각으로 몰린다.
+    threshold = 12 if re.search(r"[가-힣぀-ヿ一-鿿]", text) else 30
+    return len(text) >= threshold
+
+
 _IMAGE_SUFFIXES = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg")
 
 
@@ -109,7 +139,7 @@ def _extract_link_candidates(html_text: str, plain_text: str) -> List[Tuple[str,
         if url in seen_urls or not _is_usable_article_url(url):
             continue
         anchor_text = _clean_text(anchor_html)
-        if _is_boilerplate_anchor(anchor_text):
+        if _is_boilerplate_anchor(anchor_text) or not _looks_like_headline(anchor_text):
             continue
         candidates.append((url, anchor_text))
         seen_urls.add(url)
