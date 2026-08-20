@@ -75,11 +75,12 @@ def _post_generate(model: str, api_key: str, instruction: str, timeout: int = 12
         "generationConfig": {"responseMimeType": "application/json", "temperature": 0.0},
     }
     last = None
-    for attempt in range(3):                     # 최대 3회(0s→2s→4s)
+    # 503(과부하)은 무료 티어에서 몇 초 만에 풀리지 않는다. 2·4·6초로는 대개
+    # 세 번 모두 같은 혼잡 구간에 걸려 그대로 실패한다.
+    for attempt, wait in enumerate((5, 15, 30)):
         resp = requests.post(url, json=payload, timeout=timeout)
         if resp.status_code in _TRANSIENT_CODES:
             last = resp
-            wait = 2 * (attempt + 1)
             print(f"   ↻ {model} HTTP {resp.status_code}(일시) — {wait}s 후 재시도")
             time.sleep(wait)
             continue
@@ -93,8 +94,13 @@ def _post_generate(model: str, api_key: str, instruction: str, timeout: int = 12
     raise RuntimeError("no response")
 
 
-def _discover_model(api_key: str, timeout: int = 8):
-    """ListModels 로 실제 사용 가능한 flash 계열 generateContent 모델을 찾는다."""
+def _discover_models(api_key: str, timeout: int = 8) -> list:
+    """ListModels 로 쓸 수 있는 flash 계열 모델을 '전부' 찾아 순서대로 돌려준다.
+
+    하나만 돌려주면 그게 이미 시도한 모델일 때 체인이 그대로 끝난다. 실제로
+    후보 목록의 gemini-2.5-flash-lite 가 이 키에서 404 라, 탐색이 같은 이름을
+    반환해 살아 있는 다른 모델을 못 써보고 실패하는 일이 있었다.
+    """
     # 캐시 전용 모드에서는 탐색도 네트워크를 쓰므로 시도하지 않는다.
     llm_cache.guard_network("ListModels")
     url = f"{_API_ROOT}/models?key={api_key}&pageSize=100"
@@ -109,7 +115,7 @@ def _discover_model(api_key: str, timeout: int = 8):
             flashes.append(name)
     # lite(저비용) 우선, 그다음 이름 순
     flashes.sort(key=lambda n: (0 if "lite" in n else 1, n))
-    return flashes[0] if flashes else None
+    return flashes
 
 
 def _call_llm(instruction: str, api_key: str, timeout: int = 12):
@@ -144,16 +150,22 @@ def _call_llm(instruction: str, api_key: str, timeout: int = 12):
 
     # 후보 전부 실패 → ListModels 자동탐색
     try:
-        disc = _discover_model(api_key)
-        if disc and disc in tried:
-            print(f"⚠️ ListModels 가 이미 시도한 모델({disc})만 반환 — 더 시도할 후보 없음.")
-        elif not disc:
+        discovered = _discover_models(api_key)
+        remaining = [m for m in discovered if m not in tried]
+        if not discovered:
             print("⚠️ ListModels 에서 사용 가능한 flash 계열 모델을 찾지 못함.")
-        if disc and disc not in tried:
+        elif not remaining:
+            print(f"⚠️ ListModels 결과({', '.join(discovered)})가 모두 이미 시도한 모델임.")
+        for disc in remaining:
             print(f"🔎 ListModels 로 사용 가능한 모델 탐색 → {disc}")
-            text = _post_generate(disc, api_key, instruction, timeout=timeout)
-            _RESOLVED_MODEL = disc
-            return text, disc
+            tried.append(disc)
+            try:
+                text = _post_generate(disc, api_key, instruction, timeout=timeout)
+                _RESOLVED_MODEL = disc
+                return text, disc
+            except Exception as e:
+                print(f"⚠️ {disc} 도 실패({e}) — 다음 탐색 후보로.")
+                continue
     except Exception as e:
         print(f"⚠️ ListModels 탐색 실패: {e}")
     return None, None
