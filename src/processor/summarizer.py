@@ -13,6 +13,7 @@ from ..config import (
     EDITORIAL_PRIORITY_SIGNALS,
     EDITORIAL_PRIORITY_WEIGHT,
     EDITORIAL_EXCLUSION_KEYWORDS,
+    IMPACT_THEME_KEYWORDS,
 )
 
 def keyword_hit(keyword: str, text: str) -> bool:
@@ -27,6 +28,27 @@ def keyword_hit(keyword: str, text: str) -> bool:
 def _has_any(keywords: list, text: str) -> bool:
     return any(keyword_hit(keyword, text) for keyword in keywords)
 
+
+def _category_by_prefix(prefix: str) -> str:
+    return next(category for category in CATEGORIES if category.startswith(prefix))
+
+
+def _matched_groups(groups: dict, text: str) -> set:
+    return {
+        name
+        for name, keywords in groups.items()
+        if _has_any(keywords, text)
+    }
+
+
+def _matched_impact_themes(text: str) -> list:
+    return [
+        theme
+        for theme, keywords in IMPACT_THEME_KEYWORDS.items()
+        if _has_any(keywords, text)
+    ]
+
+
 def summarize(article: dict):
     errors = []
     title = article.get("title", "")
@@ -38,47 +60,71 @@ def summarize(article: dict):
         source = source[0] if source else ""
     source_clean = source.strip()
 
-    assigned_category = None
     base_score = 0.0
-
-    # 🚀 [0단계] Google News 피드 기반 카테고리 강제 확정 (최우선)
-    #    Google News 기사는 source 가 실제 언론사(Deloitte 등)라 RSS_SOURCE_METADATA 로는
-    #    안 잡히므로, 원 피드명(article['feed'])으로 카테고리를 먼저 고정한다.
     feed_name = (article.get("feed") or "").strip()
     feed_override = FEED_CATEGORY_OVERRIDE.get(feed_name)
-    if feed_override:
-        assigned_category = feed_override
-        base_score += 4.0   # 카테고리 규정 피드는 A급 준하는 우선순위 부여
+    source_meta = RSS_SOURCE_METADATA.get(feed_name) or RSS_SOURCE_METADATA.get(source_clean)
+    source_category = feed_override or (source_meta or {}).get("category")
+    source_priority = float((source_meta or {}).get("priority", 4.0 if feed_override else 0.0))
+    base_score += source_priority
 
-    # 🚀 [1단계] 출처(RSS 전문매체) 기반 카테고리 강제 지정 및 Priority 적용
-    #    (0단계에서 이미 확정됐으면 건너뜀)
-    # ✅ site: 폴백 기사는 source 가 실제 언론사명이라 메타데이터 키와 불일치
-    #    → 원 피드명(feed)으로도 조회해 카테고리·priority 를 유지한다.
-    source_meta = RSS_SOURCE_METADATA.get(source_clean) or RSS_SOURCE_METADATA.get(feed_name)
-    if source_meta:
-        if not assigned_category:
-            assigned_category = source_meta.get("category")
-        # 메타데이터에 정의된 강력한 우선순위(Priority 4~5점)를 기본 점수로 부여
-        base_score += float(source_meta.get("priority", 0))
-
-    # 🚀 [2단계] 키워드 보정 (종합 매체 분류 & 전문 매체 가점)
+    # 출처 점수는 상대 순위의 보조 신호일 뿐이며 카테고리를 강제하지 않는다.
     category_scores = {cat: 0 for cat in CATEGORIES}
     for cat, kws in CATEGORIES.items():
         hits = sum(1 for kw in kws if keyword_hit(kw, text))
         category_scores[cat] = hits
 
-    # 아직 카테고리 미정(구글뉴스 일반 쿼리, 해커뉴스 등)이면 키워드로 결정
-    if not assigned_category:
-        if sum(category_scores.values()) > 0:
-            assigned_category = max(category_scores, key=category_scores.get)
-        else:
-            assigned_category = list(CATEGORIES.keys())[-1]  # Fallback
+    impact_category = _category_by_prefix("🌱")
+    ai_category = _category_by_prefix("🤖")
+    alternative_category = _category_by_prefix("💼")
+    macro_category = _category_by_prefix("🌐")
+    insights_category = _category_by_prefix("👔")
 
-    # 전문 매체 기사라도 우리 타겟 키워드가 많으면 추가 가점 (+보정)
+    impact_themes = _matched_impact_themes(text)
+    editorial_groups = _matched_groups(EDITORIAL_PRIORITY_SIGNALS, text)
+    deal_groups = _matched_groups(DEAL_PRIORITY_SIGNALS, text)
+    early_stage = _has_any(DEAL_EARLY_STAGE_SIGNALS, text)
+    deal_event = bool(deal_groups & {"transaction", "financing"}) or early_stage
+    official_insights = source_category == insights_category
+
+    # MBB·Big4 공식 발행물만 출처 고정. 나머지는 기사 내용을 우선한다.
+    if official_insights:
+        assigned_category = insights_category
+        category_reason = "official_insights_source"
+    elif impact_themes:
+        assigned_category = impact_category
+        category_reason = "impact_content"
+    elif deal_event:
+        assigned_category = alternative_category
+        category_reason = "deal_event"
+    elif (
+        category_scores[alternative_category] > 0
+        and category_scores[alternative_category] > category_scores[ai_category]
+    ):
+        assigned_category = alternative_category
+        category_reason = "alternative_content"
+    elif category_scores[ai_category] > 0:
+        assigned_category = ai_category
+        category_reason = "ai_content"
+    elif category_scores[macro_category] > 0 or "policy_or_regulation" in editorial_groups:
+        assigned_category = macro_category
+        category_reason = "macro_content"
+    elif category_scores[alternative_category] > 0:
+        assigned_category = alternative_category
+        category_reason = "alternative_content"
+    elif "enterprise_risk" in editorial_groups:
+        assigned_category = source_category if source_category in CATEGORIES else alternative_category
+        category_reason = "enterprise_risk"
+    elif source_category in CATEGORIES and source_category != insights_category:
+        assigned_category = source_category
+        category_reason = "source_fallback"
+    else:
+        assigned_category = macro_category
+        category_reason = "general_fallback"
+
     if assigned_category in category_scores:
         base_score += float(category_scores[assigned_category])
 
-    # 🚀 [3단계] 관심 기업(Watchlist) 및 페널티 적용
     for w_kw in ALL_WATCHLISTS:
         if keyword_hit(w_kw, text):
             base_score += float(WATCHLIST_WEIGHT)
@@ -87,20 +133,45 @@ def summarize(article: dict):
         if keyword_hit(p_kw, text):
             base_score -= 1.0
 
-    editorial_score = sum(EDITORIAL_PRIORITY_WEIGHT for keywords in EDITORIAL_PRIORITY_SIGNALS.values() if _has_any(keywords, text))
-    deal_score = sum(EDITORIAL_PRIORITY_WEIGHT for keywords in DEAL_PRIORITY_SIGNALS.values() if _has_any(keywords, text))
-    early_stage = _has_any(DEAL_EARLY_STAGE_SIGNALS, text)
-    impact_exception = assigned_category.startswith("🌱") and _has_any(IMPACT_EARLY_STAGE_SIGNALS, text)
-    if early_stage and not (deal_score or impact_exception):
+    editorial_score = len(editorial_groups) * EDITORIAL_PRIORITY_WEIGHT
+    deal_score = len(deal_groups) * EDITORIAL_PRIORITY_WEIGHT
+    impact_exception = assigned_category == impact_category and _has_any(IMPACT_EARLY_STAGE_SIGNALS, text)
+    if early_stage and not deal_groups and not impact_exception:
+        if "investment_or_ma" in editorial_groups:
+            editorial_score -= EDITORIAL_PRIORITY_WEIGHT
         deal_score -= EDITORIAL_PRIORITY_WEIGHT
+
     excluded = _has_any(DEAL_EXCLUSION_KEYWORDS + EDITORIAL_EXCLUSION_KEYWORDS, text)
+    if article.get("rescue_signal"):
+        excluded = False
     base_score += editorial_score + deal_score
 
-    # 최종 적용
     article["category"] = assigned_category
-    article["relevance"] = max(0.0, base_score)  # 점수 마이너스 방지
-
+    article["category_reason"] = category_reason
+    article["source_priority"] = source_priority
+    article["impact_themes"] = impact_themes
+    article["editorial_signals"] = sorted(editorial_groups)
+    article["deal_signals"] = sorted(deal_groups)
+    article["relevance"] = max(0.0, base_score)
     article["deal_score"] = deal_score
+    article["major_deal"] = (
+        assigned_category == alternative_category
+        and bool(deal_groups & {"transaction", "financing"})
+    )
+    article["impact_must_read"] = (
+        assigned_category == impact_category
+        and bool(
+            editorial_groups
+            & {
+                "investment_or_ma",
+                "policy_or_regulation",
+                "major_contract_or_technology",
+                "enterprise_risk",
+                "impact_evidence",
+            }
+            or deal_groups
+        )
+    )
     article["editorial_excluded"] = excluded
     if excluded:
         article["relevance"] = 0.0
