@@ -307,6 +307,50 @@ def is_dry_run() -> bool:
     return os.environ.get("DRY_RUN", "").strip() in ("1", "true", "True")
 
 
+def _decision_record(article: dict, verdict: str) -> dict:
+    """평가셋 구축과 사후 추적에 필요한 필드만 추린다."""
+    return {
+        "verdict": verdict,
+        "title": article.get("title_orig") or article.get("title"),
+        "source": get_primary_source(article),
+        "feed": article.get("feed"),
+        "url": get_primary_link(article),
+        "category": article.get("category"),
+        "category_reason": article.get("category_reason"),
+        "relevance": article.get("relevance"),
+        "filter_reason": article.get("filter_reason"),
+        "relevance_signal": article.get("relevance_signal"),
+        "editorial_signals": article.get("editorial_signals"),
+        "deal_signals": article.get("deal_signals"),
+    }
+
+
+def save_run_decisions(rejected: list, considered: list, sent: list) -> None:
+    """이번 실행의 기사별 판정을 통째로 남긴다(덮어쓰기라 파일이 자라지 않는다).
+
+    슬랙 아카이브는 '나간 것'의 렌더링 결과만 담아 feed 같은 라우팅 정보가
+    사라진다. 평가셋을 실제 파이프라인과 같은 입력으로 만들려면 구조화된
+    기록이 필요하고, 무엇이 왜 탈락했는지는 여기에만 남는다.
+    """
+    sent_ids = {id(a) for a in sent}
+    records = [_decision_record(a, "rejected") for a in rejected]
+    records += [
+        _decision_record(a, "sent" if id(a) in sent_ids else "not_selected")
+        for a in considered
+    ]
+    path = Path(__file__).parent.parent / "data" / "last_run_decisions.json"
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(
+                {"ts": datetime.utcnow().isoformat(), "decisions": records},
+                f, ensure_ascii=False, indent=2,
+            )
+        print(f"🧾 판정 로그 {len(records)}건 기록 → {path.name}")
+    except OSError as e:
+        print(f"⚠️ 판정 로그 저장 실패({e}) — 발송에는 영향 없음")
+
+
 def bucket_by_category(articles) -> dict:
     """기사를 카테고리별로 묶는다. 모르는 카테고리는 마지막 카테고리로 보낸다."""
     buckets = {cat: [] for cat in CATEGORY_ORDER}
@@ -362,7 +406,14 @@ def send_aggregated_slack_news(articles) -> tuple:
     message_text = render_digest(selected_by_category)
     print(f"ℹ️ Slack 메시지 {len(message_text):,}자, 선택 기사 {len(sent_articles)}건 전부 발송")
 
+    if is_dry_run():
+        print("\n===== DRY RUN — 실제 발송하지 않음 =====")
+        print(message_text)
+        print("===== DRY RUN 끝 =====\n")
+        return True, sent_articles
+
     # ✅ 메시지 아카이브: 발송 전 로컬 파일에 기록(append, JSONL)
+    #    아카이브는 '실제로 나간 것'의 기록이므로 DRY RUN 은 남기지 않는다.
     try:
         archive_path = Path(__file__).parent.parent / "data" / "slack_archive.jsonl"
         archive_path.parent.mkdir(parents=True, exist_ok=True)
@@ -371,12 +422,6 @@ def send_aggregated_slack_news(articles) -> tuple:
     except Exception as e:
         # 아카이브 실패는 발송 실패로 간주하지 않음
         print(f"⚠️ 슬랙 아카이브 저장 실패: {e}")
-
-    if is_dry_run():
-        print("\n===== DRY RUN — 실제 발송하지 않음 =====")
-        print(message_text)
-        print("===== DRY RUN 끝 =====\n")
-        return True, sent_articles
 
     # ✅ 링크 미리보기(unfurl) 끄기: 카드/썸네일이 딸려 나오지 않게 함
     resp = requests.post(
@@ -434,6 +479,7 @@ def main():
         EMBEDDING_AVAILABLE = False
 
     filtered = []
+    rejected = []          # 탈락 사유와 함께 판정 로그에 남긴다
     for art in all_articles:
         link = get_primary_link(art)
         normalized_link = normalize_url(link)
@@ -447,6 +493,7 @@ def main():
         if any(is_same_news_issue(title, old) for old in seen_titles[-800:]):
             continue
         if not is_relevant(art):
+            rejected.append(art)      # is_relevant 가 filter_reason 을 붙여 둔다
             continue
 
         # Cross-day semantic dedupe using embedding store
@@ -495,6 +542,7 @@ def main():
           f"후보 {len(classified)}건")
     classified = translate_titles(classified)
 
+    sent_articles = []
     if classified:
         success, sent_articles = send_aggregated_slack_news(classified)
         if success and not is_dry_run():
@@ -540,6 +588,9 @@ def main():
                 print(f"⚠️ 텔레그램 전송 중 에러(계속 진행): {_e}")
     else:
         print("전송할 새로운 기사가 없습니다.")
+
+    # 한 건도 못 골랐을 때야말로 탈락 사유가 필요하므로 항상 남긴다.
+    save_run_decisions(rejected, classified, sent_articles)
 
     if is_dry_run():
         print("ℹ️ DRY RUN — seen 상태를 저장하지 않았습니다(다음 실행에 영향 없음).")
