@@ -30,6 +30,7 @@ on:
 jobs:
   test-editorial-policy:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
@@ -59,6 +60,7 @@ jobs:
     needs: test-editorial-policy
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    timeout-minutes: 35
     permissions:
       contents: write
     concurrency:
@@ -88,6 +90,37 @@ jobs:
           key: news-semantic-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
             news-semantic-${{ runner.os }}-
+
+      - name: Validate required configuration
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          DRY_RUN_REQUESTED: ${{ inputs.dry_run && 'true' || 'false' }}
+        run: |
+          failed=0
+
+          if [[ -z "$GEMINI_API_KEY" ]]; then
+            echo "::error::GEMINI_API_KEY가 없습니다. 뉴스 품질 선별을 실행할 수 없습니다."
+            failed=1
+          fi
+
+          if [[ "$DRY_RUN_REQUESTED" != "true" && -z "$SLACK_WEBHOOK_URL" ]]; then
+            echo "::error::SLACK_WEBHOOK_URL이 없습니다. 실제 뉴스 발송을 할 수 없습니다."
+            failed=1
+          fi
+
+          if [[ -z "$GMAIL_USER" && -z "$GMAIL_APP_PASSWORD" ]]; then
+            echo "::warning::Gmail 뉴스레터 연결이 없어 RSS 기사만 수집합니다."
+          elif [[ -z "$GMAIL_USER" || -z "$GMAIL_APP_PASSWORD" ]]; then
+            echo "::error::Gmail 주소와 앱 비밀번호 중 하나만 설정되어 있습니다."
+            failed=1
+          fi
+
+          if [[ "$failed" -ne 0 ]]; then
+            exit 1
+          fi
 
       - name: Install dependencies
         run: pip install -r requirements.txt
