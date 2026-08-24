@@ -2,6 +2,8 @@ import sys
 import types
 import unittest
 from datetime import datetime, timezone
+from urllib.parse import parse_qs, urlparse
+from unittest.mock import patch
 
 
 def _install_optional_dependency_stubs():
@@ -41,11 +43,27 @@ def _install_optional_dependency_stubs():
 
 _install_optional_dependency_stubs()
 
-from src.bot import is_relevant
-from src.config import CATEGORIES
-from src.fetchers.rss_feeds import _article_date, _uses_long_form_window
-from src.processor.deduplicator import _events_compatible, _merge_group
-from src.processor.reranker import _fallback_rule_based
+from src.bot import _build_slack_blocks, _select_category_articles, is_relevant
+from src.config import CATEGORIES, DIRECT_WEB_SOURCE_METADATA, GOOGLE_NEWS_FEEDS
+from src.fetchers.rss_feeds import (
+    _ConfiguredArticleListParser,
+    _article_date,
+    _direct_web_date,
+    _uses_long_form_window,
+)
+from src.processor import deduplicator as deduplicator_module
+from src.processor.deduplicator import (
+    _events_compatible,
+    _merge_group,
+    _should_merge,
+    deduplicate_and_merge,
+)
+from src.processor.reranker import (
+    _fallback_rule_based,
+    _finalize_llm_selection,
+    _macro_geography_scope,
+    select_top_news_with_llm,
+)
 from src.processor.summarizer import summarize
 
 
@@ -56,6 +74,7 @@ def _category(prefix):
 IMPACT = _category("🌱")
 AI = _category("🤖")
 ALTERNATIVE = _category("📈")
+MACRO = _category("🌐")
 INSIGHTS = _category("👔")
 CATEGORY_ORDER = list(CATEGORIES)
 
@@ -97,6 +116,83 @@ class ArticleQualificationTests(unittest.TestCase):
 
 
 class CategoryRoutingTests(unittest.TestCase):
+    def test_weekly_calendar_roundups_are_excluded(self):
+        titles = (
+            "[다음주 경제] 기준금리 결정과 출생통계 발표",
+            "[이번주 증시] 주요 기업 실적 발표 일정",
+            "주간 정책 일정: 국회와 정부 주요 회의",
+            "Week Ahead: Central bank meetings and economic releases",
+        )
+
+        for title in titles:
+            with self.subTest(title=title):
+                result, errors = summarize({
+                    "title": title,
+                    "description": "여러 예정 일정을 한 기사에 모아 정리한다.",
+                    "source": "Example",
+                    "feed": "Example",
+                    "region": "korea",
+                })
+                self.assertEqual(errors, [])
+                self.assertTrue(result["editorial_excluded"])
+                self.assertEqual(
+                    result["editorial_exclusion_reason"],
+                    "compound_roundup",
+                )
+
+    def test_substantive_rate_outlook_is_not_treated_as_calendar(self):
+        result, errors = summarize({
+            "title": "기준금리 전망 혼조…인상과 숨 고르기 의견 엇갈려",
+            "description": "시장 전문가들이 한국은행의 다음 결정을 분석했다.",
+            "source": "연합뉴스",
+            "feed": "국내 거시/정책 (연합·한경)",
+            "region": "korea",
+        })
+
+        self.assertEqual(errors, [])
+        self.assertFalse(result["editorial_excluded"])
+        self.assertEqual(result["category"], MACRO)
+
+    def test_local_administration_and_company_rules_do_not_become_macro(self):
+        titles = (
+            "불법 운임인상 역대급 제재…통합 후에도 최대 난제로",
+            "해외직구 주문 정보 관세청에 바로 전달…통관부호 일회용 인증",
+            "금산법 10% 규제, 배당과 자사주 삼성전자 주주환원 변수",
+        )
+
+        for title in titles:
+            with self.subTest(title=title):
+                result, errors = summarize({
+                    "title": title,
+                    "description": "",
+                    "source": "Example",
+                    "feed": "Example",
+                    "region": "korea",
+                })
+                self.assertEqual(errors, [])
+                self.assertNotEqual(result["category"], MACRO)
+
+    def test_economy_wide_macro_events_stay_macro(self):
+        titles = (
+            "한국은행 기준금리 동결",
+            "한국 소비자물가 상승률 둔화",
+            "정부, 내년도 국가예산과 재정정책 발표",
+            "EU sanctions Russia over invasion",
+            "US imposes tariffs on China",
+        )
+
+        for title in titles:
+            with self.subTest(title=title):
+                result, errors = summarize({
+                    "title": title,
+                    "description": "",
+                    "source": "Example",
+                    "feed": "Example",
+                    "region": "korea",
+                })
+                self.assertEqual(errors, [])
+                self.assertEqual(result["category"], MACRO)
+
     def test_impact_content_overrides_venture_feed(self):
         article = {
             "title": "Climate healthcare startup raises Series A",
@@ -143,6 +239,34 @@ class CategoryRoutingTests(unittest.TestCase):
 
 
 class DuplicateProtectionTests(unittest.TestCase):
+    def test_policy_decision_and_immediate_market_reaction_are_merged(self):
+        decision = {
+            "title": "Turkey's Central Bank Shifts Funding Back to 37% Policy Rate",
+            "description": "The central bank restored funding at its main policy rate.",
+            "date": "2026-08-24",
+        }
+        reaction = {
+            "title": "Turkish Banks Rally as Central Bank Restores Cheaper Funding",
+            "description": "Bank shares rose after the central bank changed funding policy.",
+            "date": "2026-08-24",
+        }
+
+        self.assertTrue(_should_merge(decision, reaction, similarity=0.65))
+
+    def test_different_policy_rate_values_are_not_merged(self):
+        first_rate = {
+            "title": "Turkey's Central Bank Moves to 37% Policy Rate",
+            "description": "Local markets rallied after the policy decision.",
+            "date": "2026-08-24",
+        }
+        second_rate = {
+            "title": "Turkish Banks Rally as Central Bank Moves to 40% Policy Rate",
+            "description": "Banks gained after the policy rate announcement.",
+            "date": "2026-08-24",
+        }
+
+        self.assertFalse(_should_merge(first_rate, second_rate, similarity=0.65))
+
     def test_different_event_types_are_not_merged(self):
         acquisition = {
             "title": "Acme acquires Beta",
@@ -187,6 +311,122 @@ class DuplicateProtectionTests(unittest.TestCase):
         self.assertEqual(result["link"][0], "https://impactalpha.com/story")
         self.assertEqual(result["duplicate_count"], 2)
         self.assertIsInstance(relay["source"], str)
+
+    def test_topic_series_articles_are_merged(self):
+        common = {
+            "source": "머니투데이",
+            "feed": "국내 포용·상생금융",
+            "gnews_link": "https://news.google.com/example",
+        }
+        articles = [
+            {
+                **common,
+                "title": "개미 울 때 10조 번 증권가, 사회 기여 나선다",
+                "description": "금투협 중심 사회기여 공동방안 논의 착수",
+                "link": "https://www.mt.co.kr/story/1",
+                "date": "2026-08-18",
+            },
+            {
+                **common,
+                "title": "불장에 10조 대박 증권사, 사회 기여 나선다",
+                "description": "증권업계 이익나누기 종합",
+                "link": "https://www.mt.co.kr/story/2",
+                "date": "2026-08-20",
+            },
+            {
+                **common,
+                "title": "청년자산형성·모험자본, 증권업계 상생금융",
+                "description": "금융투자교육과 상생펀드 조성",
+                "link": "https://www.mt.co.kr/story/3",
+                "date": "2026-08-18",
+            },
+        ]
+        similarity_matrix = [
+            [1.00, 0.65, 0.45],
+            [0.65, 1.00, 0.69],
+            [0.45, 0.69, 1.00],
+        ]
+        fake_model = types.SimpleNamespace(
+            encode=lambda titles, convert_to_numpy=True: titles
+        )
+
+        with (
+            patch.object(deduplicator_module, "_get_model", return_value=fake_model),
+            patch.object(
+                deduplicator_module,
+                "cosine_similarity",
+                return_value=similarity_matrix,
+            ),
+        ):
+            result, errors = deduplicate_and_merge(articles)
+
+        self.assertEqual(errors, [])
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["duplicate_count"], 3)
+
+    def test_different_industry_articles_stay_separate(self):
+        securities = {
+            "title": "증권업계가 사회 기여와 상생금융을 확대한다",
+            "source": "머니투데이",
+            "feed": "국내 포용·상생금융",
+            "date": "2026-08-20",
+        }
+        banking = {
+            "title": "은행권이 취약계층 포용금융을 확대한다",
+            "source": "머니투데이",
+            "feed": "국내 포용·상생금융",
+            "date": "2026-08-20",
+        }
+
+        self.assertFalse(_should_merge(securities, banking, similarity=0.95))
+
+    def test_original_publisher_link_beats_aggregator(self):
+        relay = {
+            "title": "증권업계 사회 기여 논의 (종합)",
+            "description": "최신 종합 기사",
+            "source": "머니투데이",
+            "feed": "국내 포용·상생금융",
+            "link": "https://v.daum.net/v/123",
+            "gnews_link": "https://news.google.com/123",
+            "date": "2026-08-21",
+        }
+        original = {
+            "title": "증권업계 사회 기여 논의",
+            "description": "언론사 원문",
+            "source": "머니투데이",
+            "feed": "국내 포용·상생금융",
+            "link": "https://www.mt.co.kr/story/original",
+            "gnews_link": "",
+            "date": "2026-08-20",
+        }
+
+        result = _merge_group([relay, original])
+
+        self.assertEqual(result["link"][0], original["link"])
+
+    def test_comprehensive_article_becomes_representative(self):
+        base = {
+            "description": "증권업계 사회 기여 공동방안",
+            "source": "머니투데이",
+            "feed": "국내 포용·상생금융",
+            "gnews_link": "",
+        }
+        plain = {
+            **base,
+            "title": "증권업계 사회 기여 논의",
+            "link": "https://www.mt.co.kr/story/plain",
+            "date": "2026-08-20",
+        }
+        comprehensive = {
+            **base,
+            "title": "증권업계 사회 기여 논의 (종합)",
+            "link": "https://www.mt.co.kr/story/comprehensive",
+            "date": "2026-08-19",
+        }
+
+        result = _merge_group([plain, comprehensive])
+
+        self.assertEqual(result["title"], comprehensive["title"])
 
 
 class SelectionAndDateTests(unittest.TestCase):
@@ -234,6 +474,196 @@ class SelectionAndDateTests(unittest.TestCase):
         self.assertFalse(_article_date(too_old, "TechCrunch Venture", now)[1])
         self.assertTrue(_uses_long_form_window("BCG Official Insights"))
         self.assertTrue(_article_date(weekly, "BCG Official Insights", now)[1])
+
+
+class RegionalBriefingTests(unittest.TestCase):
+    def test_core_macro_markets_are_kept(self):
+        articles = (
+            {"title": "Federal Reserve signals a rate cut", "region": "global"},
+            {"title": "ECB reviews the eurozone policy rate", "region": "global"},
+            {"title": "China cuts its benchmark lending rate", "region": "global"},
+            {"title": "Bank of Japan changes bond policy", "region": "global"},
+            {"title": "한국은행이 기준금리를 동결했다", "region": "korea"},
+        )
+
+        for article in articles:
+            with self.subTest(title=article["title"]):
+                self.assertEqual(_macro_geography_scope(article), "core_market")
+
+    def test_non_core_local_macro_is_excluded_but_global_shock_is_kept(self):
+        local_only = {
+            "title": "Turkey's Central Bank Shifts Funding Back to 37% Policy Rate",
+            "description": "Turkish banks reacted to cheaper local funding.",
+            "region": "global",
+        }
+        global_shock = {
+            "title": "Iran attack threatens oil supply through Strait of Hormuz",
+            "description": "World oil prices rise as global markets assess the disruption.",
+            "region": "global",
+        }
+
+        self.assertEqual(_macro_geography_scope(local_only), "non_core_local")
+        self.assertEqual(_macro_geography_scope(global_shock), "global_exception")
+
+    @patch.dict("os.environ", {"GEMINI_API_KEY": ""})
+    def test_macro_pipeline_removes_non_core_local_news(self):
+        articles = [
+            {
+                "title": "Turkey's Central Bank Shifts Funding Back to 37% Policy Rate",
+                "description": "Turkish banks reacted to local funding.",
+                "region": "global",
+                "category": MACRO,
+            },
+            {
+                "title": "Federal Reserve signals a rate cut",
+                "description": "U.S. inflation continues to cool.",
+                "region": "global",
+                "category": MACRO,
+            },
+            {
+                "title": "Iran attack threatens oil supply through Strait of Hormuz",
+                "description": "World oil prices rise after the disruption.",
+                "region": "global",
+                "category": MACRO,
+            },
+        ]
+
+        # Windows의 기본 콘솔 인코딩이 안내용 이모지를 표시하지 못할 수 있다.
+        # 이 테스트는 화면 출력이 아니라 선별 결과만 검증한다.
+        with patch("builtins.print"):
+            selected = select_top_news_with_llm(articles, [MACRO])
+        selected_titles = {article["title"] for article in selected}
+
+        self.assertNotIn(articles[0]["title"], selected_titles)
+        self.assertIn(articles[1]["title"], selected_titles)
+        self.assertIn(articles[2]["title"], selected_titles)
+
+    def test_macro_source_queries_use_core_markets_and_global_shocks(self):
+        for feed_name in ("Reuters 거시/정책", "Bloomberg 거시/정책"):
+            query = parse_qs(urlparse(GOOGLE_NEWS_FEEDS[feed_name]).query)["q"][0]
+            with self.subTest(feed=feed_name):
+                self.assertIn('"Federal Reserve"', query)
+                self.assertIn("ECB", query)
+                self.assertIn("BOJ", query)
+                self.assertIn("PBOC", query)
+                self.assertIn('"global markets"', query)
+                self.assertIn('"Strait of Hormuz"', query)
+
+    def test_marketinsight_configured_html_is_parsed(self):
+        metadata = DIRECT_WEB_SOURCE_METADATA["국내 한경 마켓인사이트"]
+        article_url = "https://marketinsight.hankyung.com/article/202608214829r"
+        parser = _ConfiguredArticleListParser(metadata)
+        parser.feed(
+            '<h3 class="news-tit">'
+            f'<a href="{article_url}">'
+            "IPO 한파인데 실적은 ‘잭팟’…상반기 VC 성과보수 터졌다"
+            "</a></h3>"
+            '<p class="lead">국내 상장 VC의 회수 성과와 성과보수가 증가했다.</p>'
+        )
+
+        self.assertEqual(len(parser.items), 1)
+        self.assertEqual(parser.items[0]["link"], article_url)
+        self.assertIn("VC 성과보수", parser.items[0]["title"])
+        self.assertIn("회수 성과", parser.items[0]["description"])
+        self.assertEqual(
+            _direct_web_date(
+                article_url,
+                metadata,
+                datetime(2026, 8, 24, 6, 0, tzinfo=timezone.utc),
+            ),
+            ("2026-08-21", True),
+        )
+
+    def test_llm_selection_keeps_three_per_region(self):
+        candidates = {
+            str(index + 1): {
+                "title": f"Candidate {index}",
+                "category": ALTERNATIVE if index < 10 else MACRO,
+                "region": "korea" if index % 10 < 5 else "global",
+            }
+            for index in range(20)
+        }
+        selected = _finalize_llm_selection(
+            {
+                "selected": list(candidates),
+                "impact_must_read": [],
+                "major_deals": [],
+            },
+            candidates,
+            [ALTERNATIVE, MACRO],
+        )
+
+        for category in (ALTERNATIVE, MACRO):
+            self.assertEqual(
+                sum(
+                    article["category"] == category
+                    and article["region"] == "global"
+                    for article in selected
+                ),
+                3,
+            )
+            self.assertEqual(
+                sum(
+                    article["category"] == category
+                    and article["region"] == "korea"
+                    for article in selected
+                ),
+                3,
+            )
+
+    def test_macro_does_not_fill_missing_korea_slots_with_global_news(self):
+        ranked = [
+            {"title": f"Global macro {index}", "region": "global"}
+            for index in range(5)
+        ] + [{"title": "Korea macro", "region": "korea"}]
+
+        # 이 테스트는 지역별 한도만 검증한다. 비슷한 가짜 제목을 당일 중복으로
+        # 판단하는 별도 기능은 잠시 제외해 두 규칙이 서로 간섭하지 않게 한다.
+        with patch(
+            "src.bot.filter_near_duplicates",
+            side_effect=lambda articles, _threshold: list(articles),
+        ):
+            selected = _select_category_articles(ranked, MACRO)
+
+        self.assertEqual(len(selected), 4)
+        self.assertEqual(
+            [article["region"] for article in selected],
+            ["global", "global", "global", "korea"],
+        )
+
+    def test_slack_region_sections_show_global_first(self):
+        global_article = {
+            "title": "Global deal",
+            "link": "https://example.com/global",
+            "source": "Reuters",
+            "date": "2026-08-24",
+            "region": "global",
+        }
+        korea_article = {
+            "title": "Korea deal",
+            "link": "https://example.com/korea",
+            "source": "한경 마켓인사이트",
+            "date": "2026-08-24",
+            "region": "korea",
+        }
+        blocks = _build_slack_blocks({
+            ALTERNATIVE: [
+                {"article": global_article, "region": "global"},
+                {"article": korea_article, "region": "korea"},
+            ]
+        })
+        alternative_block = next(
+            block
+            for block in blocks
+            if block.get("type") == "rich_text"
+            and block["elements"][0]["elements"][0]["text"] == ALTERNATIVE
+        )
+
+        elements = alternative_block["elements"]
+        self.assertEqual(elements[1]["elements"][0]["text"], "해외")
+        self.assertEqual(elements[2]["type"], "rich_text_list")
+        self.assertEqual(elements[3]["elements"][0]["text"], "국내")
+        self.assertEqual(elements[4]["type"], "rich_text_list")
 
 
 if __name__ == "__main__":
