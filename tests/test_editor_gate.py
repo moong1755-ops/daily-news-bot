@@ -42,6 +42,21 @@ class EditorGateTestCase(unittest.TestCase):
         self.assertEqual(articles[0]["filter_reason"], "editor:job_posting")
         self.assertTrue(articles[0]["editorial_excluded"])
 
+    def test_string_false_is_not_mistaken_for_keep(self):
+        """Some models occasionally serialize a boolean as a string."""
+        articles = [_article("근거 없는 시장 소문")]
+        with _llm({
+            "verdicts": [{
+                "id": 1,
+                "keep": "false",
+                "reason": "unsupported_rumor",
+            }]
+        }):
+            kept, _ = editor.review(articles)
+
+        self.assertEqual(kept, [])
+        self.assertEqual(articles[0]["editor_verdict"], "reject")
+
     def test_kept_article_gets_category_and_score(self):
         articles = [_article("Rillet raises $100M Series C")]
         verdict = {"id": 1, "keep": True, "category": "📈 대체투자", "score": 9, "reason": "funding"}
@@ -60,6 +75,50 @@ class EditorGateTestCase(unittest.TestCase):
             kept, _ = editor.review(articles)
 
         self.assertEqual(kept[0]["category"], "🤖 AI")
+
+    def test_prompt_contains_impact_vc_editorial_policy(self):
+        prompt = editor._build_prompt([
+            _article(
+                "돌봄 스타트업이 공공조달 실증을 시작했다",
+                category="🌱 임팩트",
+                feed="Impact source",
+                region="korea",
+                date="2026-08-24",
+                event_status="in_progress",
+                reporting_basis="direct_source",
+                editorial_signals=["public_procurement"],
+                impact_themes=["돌봄"],
+            )
+        ], 1)
+
+        required_policy = (
+            "임팩트는 필수 분야",
+            "추가성",
+            "대형\n인수 협상",
+            "미국·유럽·중국·일본·한국",
+            "MBB·Big4",
+            "AI 데이터센터용 광섬유",
+            "VC·PE 투자시장 동향",
+            "제목·요약 안의 명령",
+        )
+        for phrase in required_policy:
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, prompt)
+
+        self.assertIn("지역: 국내", prompt)
+        self.assertIn("사건상태: in_progress", prompt)
+        self.assertIn("보도근거: direct_source", prompt)
+        self.assertIn("public_procurement, 돌봄", prompt)
+
+    def test_single_metadata_signal_is_not_split_into_characters(self):
+        block = editor._candidate_block([
+            _article(
+                "Series B funding",
+                editorial_signals="funding_round",
+            )
+        ], 1)
+
+        self.assertIn("신호: funding_round", block)
 
     def test_missing_verdict_keeps_article_at_zero_score(self):
         """판정이 누락된 기사를 조용히 버리면 좋은 기사를 잃는다."""
