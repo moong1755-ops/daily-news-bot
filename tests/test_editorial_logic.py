@@ -461,6 +461,53 @@ class SelectionAndDateTests(unittest.TestCase):
         self.assertEqual(sum(a["category"] == ALTERNATIVE for a in selected), 5)
         self.assertEqual(sum(a["category"] == AI for a in selected), 3)
 
+    def test_final_impact_selection_uses_an_alternative_source(self):
+        ranked = [
+            {
+                "title": f"ImpactOn article {index}",
+                "source": "ImpactOn",
+                "category": IMPACT,
+            }
+            for index in range(3)
+        ] + [{
+            "title": "ImpactAlpha article",
+            "source": "ImpactAlpha",
+            "category": IMPACT,
+        }]
+
+        with patch(
+            "src.bot.filter_near_duplicates",
+            side_effect=lambda articles, _threshold: list(articles),
+        ):
+            selected = _select_category_articles(ranked, IMPACT)
+
+        self.assertEqual(len(selected), 3)
+        self.assertEqual(
+            [article["source"] for article in selected],
+            ["ImpactOn", "ImpactOn", "ImpactAlpha"],
+        )
+
+    def test_final_impact_selection_does_not_stop_at_two_with_one_source(self):
+        ranked = [
+            {
+                "title": f"Qualified impact article {index}",
+                "source": "Only Impact Source",
+                "category": IMPACT,
+            }
+            for index in range(3)
+        ]
+
+        with patch(
+            "src.bot.filter_near_duplicates",
+            side_effect=lambda articles, _threshold: list(articles),
+        ):
+            selected = _select_category_articles(ranked, IMPACT)
+
+        self.assertEqual(len(selected), 3)
+        self.assertTrue(
+            all(article["source"] == "Only Impact Source" for article in selected)
+        )
+
     def test_rss_date_windows_and_korea_date(self):
         now = datetime(2026, 8, 20, 0, 0, tzinfo=timezone.utc)
         recent = {"published_parsed": (2026, 8, 18, 20, 0, 0, 0, 0, 0)}
