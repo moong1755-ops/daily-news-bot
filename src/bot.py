@@ -65,6 +65,9 @@ from .utils.file_handler import load_lines, save_lines, SEEN_FILE, SEEN_TITLES_F
 CATEGORY_ORDER = list(CATEGORIES.keys())
 IMPACT_CATEGORY = next(category for category in CATEGORY_ORDER if category.startswith("🌱"))
 ALTERNATIVE_CATEGORY = next(category for category in CATEGORY_ORDER if category.startswith("📈"))
+MACRO_CATEGORY = next(category for category in CATEGORY_ORDER if category.startswith("🌐"))
+REGION_SPLIT_CATEGORIES = {ALTERNATIVE_CATEGORY, MACRO_CATEGORY}
+REGION_DISPLAY_ORDER = (("global", "해외"), ("korea", "국내"))
 TRACKING_QUERY_KEYS = {"fbclid", "gclid", "mc_cid", "mc_eid", "ref", "referrer"}
 
 
@@ -220,6 +223,96 @@ def is_relevant(article: dict, require_topic_match: bool = True) -> bool:
     return False
 
 
+def _batch_filter_semantic_duplicates(
+    articles: list,
+    embedding_model,
+    load_store,
+    threshold: float,
+) -> list:
+    """Compare final candidates with the cross-day store in one model call."""
+    if not articles or embedding_model is None:
+        return articles
+
+    indexed_texts = [
+        (
+            index,
+            (
+                (article.get("title_orig") or article.get("title", ""))
+                + " \n "
+                + (article.get("description", "") or "")
+            ).strip(),
+        )
+        for index, article in enumerate(articles)
+    ]
+    indexed_texts = [item for item in indexed_texts if item[1]]
+    if not indexed_texts:
+        return articles
+
+    try:
+        import numpy as np
+
+        stored_embeddings, _ = load_store()
+        embeddings = np.asarray(
+            embedding_model.encode(
+                [text for _, text in indexed_texts],
+                convert_to_numpy=True,
+            ),
+            dtype=float,
+        )
+        if embeddings.ndim == 1:
+            embeddings = embeddings.reshape(1, -1)
+
+        duplicate_flags = np.zeros(len(indexed_texts), dtype=bool)
+        stored_embeddings = np.asarray(stored_embeddings, dtype=float)
+        if (
+            stored_embeddings.ndim == 2
+            and stored_embeddings.size
+            and stored_embeddings.shape[1] == embeddings.shape[1]
+        ):
+            candidate_norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+            stored_norms = np.linalg.norm(stored_embeddings, axis=1, keepdims=True)
+            candidate_norms[candidate_norms == 0] = 1.0
+            stored_norms[stored_norms == 0] = 1.0
+            similarities = (
+                embeddings / candidate_norms
+            ) @ (
+                stored_embeddings / stored_norms
+            ).T
+            duplicate_flags = np.any(similarities >= float(threshold), axis=1)
+
+        embedding_by_index = {
+            article_index: embedding
+            for (article_index, _), embedding in zip(indexed_texts, embeddings)
+        }
+        duplicate_indices = {
+            article_index
+            for (article_index, _), is_duplicate in zip(
+                indexed_texts,
+                duplicate_flags,
+            )
+            if is_duplicate
+        }
+
+        filtered = []
+        for index, article in enumerate(articles):
+            if index in duplicate_indices:
+                continue
+            embedding = embedding_by_index.get(index)
+            if embedding is not None:
+                article["_embedding"] = embedding
+            filtered.append(article)
+
+        print(
+            f"⚡ 임베딩 중복 검사: {len(indexed_texts)}건 일괄 처리, "
+            f"과거 발송 중복 {len(duplicate_indices)}건 제외"
+        )
+        return filtered
+    except Exception as exc:
+        # 중복 검사 장애가 뉴스 발송 전체를 막지 않게 원래 후보로 계속 진행한다.
+        print(f"⚠️ 임베딩 일괄 검사 실패: {exc}")
+        return articles
+
+
 def get_primary_link(article: dict) -> str:
     link = article.get("link", "")
     if isinstance(link, list):
@@ -270,7 +363,7 @@ def fmt_date(date_str: str) -> str:
 
 
 def _article_region(article: dict) -> str:
-    return article.get("region", "global")
+    return "korea" if article.get("region") == "korea" else "global"
 
 
 def _selection_score(article: dict, category: str) -> float:
@@ -294,6 +387,39 @@ def _is_sendable(article: dict) -> bool:
 def _select_category_articles(ranked: list, category: str) -> list:
     """Keep normal caps while preserving tagged impact and major-deal overflow."""
     base_limit = MAX_PER_CATEGORY_DICT.get(category, MAX_PER_CATEGORY)
+
+    # 같은 사건이 한 카테고리를 다 차지하지 않도록 발송 직전에 한 번 더 솎는다.
+    ranked = filter_near_duplicates(ranked, SELECTION_SIMILARITY_THRESHOLD)
+
+    if category in REGION_SPLIT_CATEGORIES:
+        # 대체투자·거시는 해외와 국내를 각각 최대 3개까지 보존한다.
+        # 대체투자의 확정 주요 딜만 한 지역의 3개 제한을 넘을 수 있다.
+        region_counts = {"global": 0, "korea": 0}
+        selected = []
+        overflow = []
+        final_limit = base_limit * 2
+
+        for article in ranked:
+            region = _article_region(article)
+            if region_counts[region] < base_limit:
+                selected.append(article)
+                region_counts[region] += 1
+            elif category == ALTERNATIVE_CATEGORY and article.get("major_deal", False):
+                overflow.append(article)
+
+        for article in overflow:
+            if len(selected) >= min(final_limit, ALTERNATIVE_MAJOR_DEAL_MAX):
+                break
+            if article not in selected:
+                selected.append(article)
+
+        return [
+            article
+            for region, _label in REGION_DISPLAY_ORDER
+            for article in selected
+            if _article_region(article) == region
+        ]
+
     overflow_flag = ""
     final_limit = base_limit
     if category == IMPACT_CATEGORY:
@@ -302,9 +428,6 @@ def _select_category_articles(ranked: list, category: str) -> list:
     elif category == ALTERNATIVE_CATEGORY:
         overflow_flag = "major_deal"
         final_limit = max(base_limit, ALTERNATIVE_MAJOR_DEAL_MAX)
-
-    # 같은 사건이 한 카테고리를 다 차지하지 않도록 먼저 솎아낸다.
-    ranked = filter_near_duplicates(ranked, SELECTION_SIMILARITY_THRESHOLD)
 
     selected = []
     nvidia = 0
@@ -469,6 +592,89 @@ def _format_article_line(article: dict) -> str:
     return f"• <{url}|{title}> ({source}, {date})"
 
 
+def _slack_list_items(lines: list) -> list:
+    """Convert articles into Slack-native list items without typed bullet glyphs."""
+    list_items = []
+    for item in lines:
+        article = item.get("article")
+        if article is None:
+            item_elements = [{"type": "text", "text": "오늘 조건에 맞는 뉴스가 없습니다."}]
+        else:
+            title = article.get("title", "제목 없음").strip()
+            url = get_primary_link(article)
+            source = clean_source_name(get_primary_source(article) or "출처미상")
+            date = fmt_date(article.get("date", ""))
+            if url:
+                item_elements = [{"type": "link", "url": url, "text": title}]
+            else:
+                item_elements = [{"type": "text", "text": title}]
+            item_elements.append({"type": "text", "text": f" ({source}, {date})"})
+
+        list_items.append({
+            "type": "rich_text_section",
+            "elements": item_elements,
+        })
+    return list_items
+
+
+def _build_slack_blocks(category_lines: dict) -> list:
+    """Build one Slack message with native, consistently indented bullet lists."""
+    blocks = []
+    if SLACK_HEADER:
+        blocks.append({
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": SLACK_HEADER.replace("{date}", datetime.now().strftime("%y.%m.%d")),
+            },
+        })
+
+    for index, category in enumerate(CATEGORY_ORDER):
+        rich_elements = [{
+            "type": "rich_text_section",
+            "elements": [{
+                "type": "text",
+                "text": category,
+                "style": {"bold": True},
+            }],
+        }]
+
+        if category in REGION_SPLIT_CATEGORIES:
+            for region, label in REGION_DISPLAY_ORDER:
+                region_lines = [
+                    item
+                    for item in category_lines.get(category, [])
+                    if item.get("region") == region
+                ] or [{"article": None, "region": region}]
+                rich_elements.append({
+                    "type": "rich_text_section",
+                    "elements": [{
+                        "type": "text",
+                        "text": label,
+                        "style": {"bold": True},
+                    }],
+                })
+                rich_elements.append({
+                    "type": "rich_text_list",
+                    "style": "bullet",
+                    "indent": 0,
+                    "elements": _slack_list_items(region_lines),
+                })
+        else:
+            items = category_lines.get(category, []) or [{"article": None}]
+            rich_elements.append({
+                "type": "rich_text_list",
+                "style": "bullet",
+                "indent": 0,
+                "elements": _slack_list_items(items),
+            })
+
+        blocks.append({"type": "rich_text", "elements": rich_elements})
+        if index < len(CATEGORY_ORDER) - 1:
+            blocks.append({"type": "divider"})
+    return blocks
+
+
 def render_digest(articles_by_category: dict) -> str:
     """슬랙·텔레그램 공용 다이제스트 본문. 카테고리 헤더는 비어 있어도 항상 표시한다."""
     parts = []
@@ -478,7 +684,19 @@ def render_digest(articles_by_category: dict) -> str:
     for cat in CATEGORY_ORDER:
         parts.append(f"*{cat}*")
         selected = articles_by_category.get(cat) or []
-        if selected:
+        if cat in REGION_SPLIT_CATEGORIES:
+            for region, label in REGION_DISPLAY_ORDER:
+                parts.append(f"*{label}*")
+                region_articles = [
+                    article
+                    for article in selected
+                    if _article_region(article) == region
+                ]
+                if region_articles:
+                    parts.extend(_format_article_line(a) for a in region_articles)
+                else:
+                    parts.append("• 오늘 조건에 맞는 뉴스가 없습니다.")
+        elif selected:
             parts.extend(_format_article_line(a) for a in selected)
         else:
             parts.append("• 오늘 조건에 맞는 뉴스가 없습니다.")
@@ -511,6 +729,23 @@ def send_aggregated_slack_news(articles) -> tuple:
         print("===== DRY RUN 끝 =====\n")
         return True, sent_articles
 
+    category_lines = {
+        category: [
+            {
+                "article": article,
+                "region": _article_region(article),
+            }
+            for article in selected_by_category.get(category, [])
+        ]
+        for category in CATEGORY_ORDER
+    }
+    slack_blocks = _build_slack_blocks(category_lines)
+    notification_text = (
+        SLACK_HEADER.replace("{date}", datetime.now().strftime("%y.%m.%d"))
+        if SLACK_HEADER
+        else f"VC 데일리 브리핑 · {datetime.now().strftime('%y.%m.%d')} · {len(sent_articles)}건"
+    )
+
     # ✅ 메시지 아카이브: 발송 전 로컬 파일에 기록(append, JSONL)
     #    아카이브는 '실제로 나간 것'의 기록이므로 DRY RUN 은 남기지 않는다.
     try:
@@ -526,13 +761,15 @@ def send_aggregated_slack_news(articles) -> tuple:
     resp = requests.post(
         slack_webhook_url,
         json={
-            "text": message_text,
+            # text는 알림용이고, 전체 뉴스는 blocks 한 메시지에 자르지 않고 담는다.
+            "text": notification_text,
+            "blocks": slack_blocks,
             "unfurl_links": False,
             "unfurl_media": False,
         },
     )
     if resp.status_code == 200:
-        print("슬랙 메시지 통합 전송 성공!")
+        print(f"슬랙 메시지 1건 통합 전송 성공! (Block Kit {len(slack_blocks)}개)")
         return True, sent_articles
     print(f"슬랙 전송 실패: {resp.status_code}, {resp.text}")
     return False, sent_articles
@@ -570,13 +807,11 @@ def main():
     try:
         from .processor.deduplicator import _get_model as _get_emb_model
         emb_model = _get_emb_model()
-        from .utils.embedding_store import find_similar, add_embeddings, meta_for_article
+        from .utils.embedding_store import load_store
         EMBEDDING_AVAILABLE = True
     except Exception:
         emb_model = None
-        find_similar = lambda *a, **k: False
-        add_embeddings = lambda *a, **k: None
-        meta_for_article = lambda a: {"ts": None}
+        load_store = lambda: ([], [])
         EMBEDDING_AVAILABLE = False
 
     filtered = []
@@ -601,23 +836,6 @@ def main():
             rejected.append(art)      # is_relevant 가 filter_reason 을 붙여 둔다
             continue
 
-        # Cross-day semantic dedupe using embedding store
-        text_for_embed = (title + " \n " + art.get("description", "")).strip()
-        is_duplicate_via_store = False
-        if EMBEDDING_AVAILABLE and text_for_embed:
-            try:
-                emb = emb_model.encode([text_for_embed], convert_to_numpy=True)[0]
-                if find_similar(emb, threshold=float(SIMILARITY_THRESHOLD)):
-                    is_duplicate_via_store = True
-                else:
-                    # 발송이 확정된 뒤에만 저장하도록 기사에 임시로 붙여 둔다.
-                    art["_embedding"] = emb
-            except Exception as _e:
-                # model failure should not block pipeline
-                print(f"⚠️ 임베딩 검사 실패: {_e}")
-        if is_duplicate_via_store:
-            continue
-
         filtered.append(art)
 
     # 오늘 수집한 중복은 모두 전달해야 검증 출처와 원문을 대표 기사로 고를 수 있다.
@@ -633,6 +851,15 @@ def main():
     classified, gate_rejected, gate_errors = select_for_briefing(classified)
     rejected.extend(gate_rejected)
     all_errors.extend(gate_errors)
+
+    # 수백 개 수집 기사마다 모델을 부르지 않고, 최종 후보만 한 번에 과거 발송분과 비교한다.
+    if EMBEDDING_AVAILABLE:
+        classified = _batch_filter_semantic_duplicates(
+            classified,
+            emb_model,
+            load_store,
+            float(SIMILARITY_THRESHOLD),
+        )
 
     # ✅ 발송 확정 후보만 제목 한글 번역(실패 시 원문 유지, 발송은 계속됨)
     print(f"🈯 번역 단계 진입: GEMINI_API_KEY={'있음' if os.environ.get('GEMINI_API_KEY') else '없음'}, "
