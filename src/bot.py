@@ -68,6 +68,7 @@ ALTERNATIVE_CATEGORY = next(category for category in CATEGORY_ORDER if category.
 MACRO_CATEGORY = next(category for category in CATEGORY_ORDER if category.startswith("🌐"))
 REGION_SPLIT_CATEGORIES = {ALTERNATIVE_CATEGORY, MACRO_CATEGORY}
 REGION_DISPLAY_ORDER = (("global", "해외"), ("korea", "국내"))
+IMPACT_SOURCE_SOFT_CAP = max(1, IMPACT_MUST_READ_MAX // 2)
 TRACKING_QUERY_KEYS = {"fbclid", "gclid", "mc_cid", "mc_eid", "ref", "referrer"}
 
 
@@ -366,6 +367,11 @@ def _article_region(article: dict) -> str:
     return "korea" if article.get("region") == "korea" else "global"
 
 
+def _article_source_key(article: dict) -> str:
+    """Normalize a publisher name for final-page diversity checks."""
+    return " ".join(str(get_primary_source(article) or "").casefold().split())
+
+
 def _selection_score(article: dict, category: str) -> float:
     llm = article.get("llm_score")
     if llm is not None:
@@ -419,6 +425,57 @@ def _select_category_articles(ranked: list, category: str) -> list:
             for article in selected
             if _article_region(article) == region
         ]
+
+    if category == IMPACT_CATEGORY:
+        # 다른 출처가 있다면 한 언론사가 임팩트 지면을 독점하지 않게 한다.
+        # 대체 출처가 전혀 없을 때는 제한 때문에 2개에서 멈추지 않고, 이미
+        # 편집 자격을 통과한 다음 순위 기사로 기본 3개를 채울 수 있게 한다.
+        selected = []
+        deferred = []
+        source_counts = {}
+
+        def can_add(article: dict) -> bool:
+            source = _article_source_key(article)
+            return not source or source_counts.get(source, 0) < IMPACT_SOURCE_SOFT_CAP
+
+        def add(article: dict) -> None:
+            selected.append(article)
+            source = _article_source_key(article)
+            if source:
+                source_counts[source] = source_counts.get(source, 0) + 1
+
+        for article in ranked:
+            if len(selected) >= base_limit:
+                break
+            if can_add(article):
+                add(article)
+            else:
+                deferred.append(article)
+
+        for article in deferred:
+            if len(selected) >= base_limit:
+                break
+            add(article)
+
+        must_read = [
+            article
+            for article in ranked
+            if article.get("impact_must_read", False) and article not in selected
+        ]
+        deferred_must_read = []
+        for article in must_read:
+            if len(selected) >= IMPACT_MUST_READ_MAX:
+                break
+            if can_add(article):
+                add(article)
+            else:
+                deferred_must_read.append(article)
+
+        for article in deferred_must_read:
+            if len(selected) >= IMPACT_MUST_READ_MAX:
+                break
+            add(article)
+        return selected
 
     overflow_flag = ""
     final_limit = base_limit
