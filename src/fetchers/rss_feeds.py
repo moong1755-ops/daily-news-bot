@@ -3,7 +3,8 @@ import re
 import socket
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
-from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
+from html.parser import HTMLParser
+from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlsplit, urlunsplit
 
 import feedparser
 import requests
@@ -13,7 +14,11 @@ try:
 except ImportError:
     from ..config import RSS_SOURCES as FEEDS
 
-from ..config import FEED_CATEGORY_OVERRIDE, RSS_SOURCE_METADATA
+from ..config import (
+    DIRECT_WEB_SOURCE_METADATA,
+    FEED_CATEGORY_OVERRIDE,
+    RSS_SOURCE_METADATA,
+)
 
 try:
     from ..config import source_region
@@ -37,6 +42,16 @@ _HEADERS = {
         "Chrome/126.0 Safari/537.36"
     ),
     "Accept": "application/rss+xml, application/xml, text/xml, */*",
+}
+
+_DIRECT_WEB_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/126.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
 }
 
 # 일반 뉴스는 실행 지연을 고려해 3일, 정기 간행물은 주간 발행 주기를 고려해 8일 수집한다.
@@ -255,6 +270,289 @@ def _gnews_site_fallback_url(original_url: str, source_name: str) -> str:
     return f"https://news.google.com/rss/search?q={q}&{lang}"
 
 
+class _ConfiguredArticleListParser(HTMLParser):
+    """설정에 적힌 CSS class와 URL prefix만으로 공개 기사 목록을 읽는다."""
+
+    def __init__(self, metadata: dict):
+        super().__init__(convert_charrefs=True)
+        self.title_class = metadata["title_container_class"]
+        self.summary_class = metadata["summary_class"]
+        self.article_url_prefix = metadata["article_url_prefix"]
+        self.items = []
+        self._seen_links = set()
+        self._title_depth = 0
+        self._summary_depth = 0
+        self._title_parts = []
+        self._summary_parts = []
+        self._title_link = ""
+        self._last_item = None
+
+    @staticmethod
+    def _attributes(attrs) -> dict:
+        return {key: value or "" for key, value in attrs}
+
+    def handle_starttag(self, tag, attrs):
+        attributes = self._attributes(attrs)
+        classes = set(attributes.get("class", "").split())
+
+        if self._title_depth:
+            self._title_depth += 1
+        elif self.title_class in classes:
+            self._title_depth = 1
+            self._title_parts = []
+            self._title_link = ""
+
+        if self._title_depth and tag == "a":
+            href = attributes.get("href", "").strip()
+            if href.startswith(self.article_url_prefix):
+                self._title_link = href
+
+        if self._summary_depth:
+            self._summary_depth += 1
+        elif self.summary_class in classes:
+            self._summary_depth = 1
+            self._summary_parts = []
+
+    def handle_data(self, data):
+        if self._title_depth:
+            self._title_parts.append(data)
+        if self._summary_depth:
+            self._summary_parts.append(data)
+
+    def handle_endtag(self, _tag):
+        if self._title_depth:
+            self._title_depth -= 1
+            if self._title_depth == 0:
+                title = " ".join("".join(self._title_parts).split())
+                if (
+                    title
+                    and self._title_link
+                    and self._title_link not in self._seen_links
+                ):
+                    self._last_item = {
+                        "title": title,
+                        "link": self._title_link,
+                        "description": "",
+                    }
+                    self.items.append(self._last_item)
+                    self._seen_links.add(self._title_link)
+
+        if self._summary_depth:
+            self._summary_depth -= 1
+            if self._summary_depth == 0 and self._last_item is not None:
+                self._last_item["description"] = " ".join(
+                    "".join(self._summary_parts).split()
+                )
+
+
+class _SemanticArticleListParser(HTMLParser):
+    """제목 링크와 ``time`` 태그가 있는 공식 인사이트 목록을 읽는다.
+
+    MBB 사이트처럼 CSS 클래스 이름이 수시로 바뀌는 페이지를 위한 파서다.
+    허용 URL은 config의 도메인·경로 또는 정규식으로 제한하므로 메뉴 링크가
+    기사로 들어오는 것을 막는다.
+    """
+
+    def __init__(self, metadata: dict):
+        super().__init__(convert_charrefs=True)
+        self.base_url = metadata["url"]
+        self.allowed_domains = tuple(metadata.get("allowed_domains", ()))
+        self.path_markers = tuple(metadata.get("article_path_markers", ()))
+        self.url_patterns = tuple(metadata.get("article_url_patterns", ()))
+        self.minimum_title_length = int(metadata.get("minimum_title_length", 12))
+        self.items = []
+        self._items_by_link = {}
+        self._anchor_depth = 0
+        self._anchor_link = ""
+        self._anchor_parts = []
+        self._time_depth = 0
+        self._time_parts = []
+        self._time_value = ""
+        self._last_item = None
+
+    @staticmethod
+    def _attributes(attrs) -> dict:
+        return {key: value or "" for key, value in attrs}
+
+    def _article_link(self, href: str) -> str:
+        if not href or href.startswith(("#", "javascript:", "mailto:")):
+            return ""
+
+        link = urljoin(self.base_url, href.strip())
+        parsed = urlsplit(link)
+        domain = parsed.netloc.lower().removeprefix("www.")
+        if self.allowed_domains and not any(
+            domain == allowed or domain.endswith("." + allowed)
+            for allowed in self.allowed_domains
+        ):
+            return ""
+        if self.path_markers and not any(
+            marker in parsed.path for marker in self.path_markers
+        ):
+            return ""
+        if self.url_patterns and not any(
+            re.search(pattern, link, re.I) for pattern in self.url_patterns
+        ):
+            return ""
+        return link
+
+    def handle_starttag(self, tag, attrs):
+        attributes = self._attributes(attrs)
+        if self._anchor_depth:
+            self._anchor_depth += 1
+        elif tag == "a":
+            link = self._article_link(attributes.get("href", ""))
+            if link:
+                self._anchor_depth = 1
+                self._anchor_link = link
+                self._anchor_parts = []
+
+        if self._time_depth:
+            self._time_depth += 1
+        elif tag == "time":
+            self._time_depth = 1
+            self._time_parts = []
+            self._time_value = attributes.get("datetime", "").strip()
+
+    def handle_data(self, data):
+        if self._anchor_depth:
+            self._anchor_parts.append(data)
+        if self._time_depth:
+            self._time_parts.append(data)
+
+    def handle_endtag(self, tag):
+        if self._anchor_depth:
+            self._anchor_depth -= 1
+            if self._anchor_depth == 0:
+                title = " ".join("".join(self._anchor_parts).split())
+                if len(title) >= self.minimum_title_length:
+                    item = self._items_by_link.get(self._anchor_link)
+                    if item is None:
+                        item = {
+                            "title": title,
+                            "link": self._anchor_link,
+                            "description": "",
+                            "published": "",
+                        }
+                        self.items.append(item)
+                        self._items_by_link[self._anchor_link] = item
+                    elif len(title) > len(item["title"]):
+                        item["title"] = title
+                    self._last_item = item
+
+        if self._time_depth:
+            self._time_depth -= 1
+            if self._time_depth == 0 and tag == "time" and self._last_item:
+                visible_date = " ".join("".join(self._time_parts).split())
+                self._last_item["published"] = self._time_value or visible_date
+
+
+def _parse_direct_web_date(raw_date: str):
+    cleaned = " ".join((raw_date or "").strip().split())
+    if not cleaned:
+        return None
+
+    # 21st처럼 영문 날짜에 붙는 서수 표현도 허용한다.
+    cleaned = re.sub(r"(?<=\d)(st|nd|rd|th)\b", "", cleaned, flags=re.I)
+    iso_candidate = cleaned.replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(iso_candidate).date()
+    except ValueError:
+        pass
+
+    for date_format in ("%B %d, %Y", "%b %d, %Y", "%Y.%m.%d", "%Y/%m/%d"):
+        try:
+            return datetime.strptime(cleaned, date_format).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _direct_web_date(
+    link: str,
+    metadata: dict,
+    now_utc: datetime,
+    raw_date: str = "",
+) -> tuple:
+    """화면 날짜 또는 기사 URL 날짜를 읽고 수집 기간을 적용한다."""
+    article_date = _parse_direct_web_date(raw_date)
+    date_pattern = metadata.get("date_from_url_pattern", "")
+    match = re.search(date_pattern, link) if date_pattern else None
+    if article_date is None and match:
+        try:
+            article_date = datetime.strptime(match.group("date"), "%Y%m%d").date()
+        except (TypeError, ValueError):
+            article_date = None
+
+    target_date = as_of_date()
+    if article_date is None:
+        return (
+            ("", False)
+            if target_date or metadata.get("require_date", False)
+            else ("Unknown date", True)
+        )
+    if target_date:
+        return (
+            (article_date.isoformat(), True)
+            if article_date == target_date
+            else ("", False)
+        )
+
+    today_korea = now_utc.astimezone(KOREA_TIMEZONE).date()
+    age_days = (today_korea - article_date).days
+    default_lookback = (
+        LONG_FORM_LOOKBACK.days
+        if str(metadata.get("category", "")).startswith("👔")
+        else STANDARD_LOOKBACK.days
+    )
+    lookback_days = int(metadata.get("lookback_days", default_lookback))
+    if age_days > lookback_days or age_days < -MAX_FUTURE_SKEW.days:
+        return "", False
+    return article_date.isoformat(), True
+
+
+def _fetch_direct_web_source(
+    source_name: str,
+    metadata: dict,
+    now_utc: datetime,
+) -> list:
+    response = requests.get(
+        metadata["url"],
+        headers=_DIRECT_WEB_HEADERS,
+        timeout=15,
+    )
+    response.raise_for_status()
+
+    parser_type = metadata.get("parser", "configured_classes")
+    if parser_type == "semantic_links":
+        parser = _SemanticArticleListParser(metadata)
+    else:
+        parser = _ConfiguredArticleListParser(metadata)
+    parser.feed(response.text)
+
+    articles = []
+    for item in parser.items:
+        date_str, include_article = _direct_web_date(
+            item["link"],
+            metadata,
+            now_utc,
+            item.get("published", ""),
+        )
+        if not include_article:
+            continue
+        articles.append({
+            "title": item["title"],
+            "link": item["link"],
+            "date": date_str,
+            "source": source_name,
+            "feed": source_name,
+            "region": metadata.get("region", "global"),
+            "gnews_link": "",
+            "description": clean_html(item["description"]),
+        })
+    return articles
+
+
 def fetch() -> tuple:
     articles = []
     errors = []
@@ -301,7 +599,10 @@ def fetch() -> tuple:
 
         parse_as_gnews = is_gnews or via_fallback
 
-        for entry in feed.entries[:20]:
+        # 발행량이 많은 매체는 3일 이내 기사도 20번째 뒤로 밀릴 수 있다.
+        # feedparser가 이미 피드 전체를 읽은 상태이므로 여기서 먼저 자르지 않고,
+        # 아래 _article_date()가 실제 수집 기간에 해당하는 기사만 남기게 한다.
+        for entry in feed.entries:
             raw_title = entry.get("title", "").strip()
             link = entry.get("link", "").strip()
             if not raw_title or not link:
@@ -332,5 +633,20 @@ def fetch() -> tuple:
                 "gnews_link": gnews_link,
                 "description": description,
             })
+
+    for source_name, metadata in DIRECT_WEB_SOURCE_METADATA.items():
+        try:
+            direct_articles = _fetch_direct_web_source(
+                source_name,
+                metadata,
+                now_utc,
+            )
+            articles.extend(direct_articles)
+            print(
+                f"📰 {source_name}: 공개 기사 목록에서 "
+                f"{len(direct_articles)}건 수집"
+            )
+        except Exception as exc:
+            errors.append(f"{source_name} ({metadata.get('url', '')}): {exc}")
 
     return articles, errors

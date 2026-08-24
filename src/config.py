@@ -25,6 +25,8 @@ IMPACT_THEME_KEYWORDS = {
         "climate resilience", "just transition", "임팩트투자", "기후테크",
         "탄소중립", "넷제로", "에너지전환", "재생에너지", "녹색기금",
         "기후펀드", "그린뉴딜", "클린테크", "기후적응", "기후회복력", "공정전환",
+        "탄소크레딧", "탄소배출권", "청정전력", "재생전력", "지열발전",
+        "차세대 지열", "전력망 연계",
     ],
     "circular_nature_food": [
         "circular economy", "biodiversity", "natural capital", "nature-based solutions",
@@ -77,7 +79,8 @@ ALT_KW = [
     "대체투자", "사모펀드", "벤처캐피탈", "사모채권", "인프라펀드",
     "부동산펀드", "세컨더리", "바이아웃", "그로스에쿼티", "출자자",
     "운용사", "드라이파우더", "블라인드펀드", "모태펀드", "공제회",
-    "스타트업", "투자유치", "펀딩", "시리즈a", "시리즈b", "프리ipo", "인수", "합병", "유니콘"
+    "스타트업", "투자유치", "펀딩", "시리즈a", "시리즈b", "프리ipo", "인수", "합병", "유니콘",
+    "기업가치", "밸류에이션", "구주 거래", "투자 회수", "엑시트",
 ]
 
 MACRO_KW = [
@@ -154,30 +157,40 @@ EDITORIAL_PRIORITY_SIGNALS = {
     "investment_or_ma": [
         "funding", "fundraise", "raises", "raised", "investment", "acquisition",
         "merger", "m&a", "buyout", "ipo", "series a", "series b", "series c",
+        "투자", "투자유치", "투자 유치", "인수", "인수합병", "합병",
+        "기업공개", "상장", "시리즈a", "시리즈b", "시리즈c",
     ],
     "policy_or_regulation": [
         "regulation", "regulatory", "policy", "legislation", "tariff", "sanction",
         "antitrust", "federal reserve", "interest rate",
+        "규제", "정책", "법안", "법률", "관세", "제재", "무효화",
+        "인증 취소", "크레딧 취소", "감축실적 보충", "당국 명령",
     ],
     "market_or_industry_shift": [
         "outlook", "forecast", "report", "global trends", "industry trends",
         "market share", "supply chain", "restructuring",
+        "시장 재편", "산업 재편", "기업가치", "밸류에이션", "구주 거래",
+        "투자 회수", "회수 전략", "엑시트", "가치 하락",
     ],
     "major_contract_or_technology": [
         "contract", "partnership", "agreement", "launches", "breakthrough",
         "commercial deployment", "data center",
+        "대형 계약", "공급계약", "전력구매계약", "상용화", "상용 가동",
+        "실증 성공", "기술 검증", "전력망 연계", "가동 성공",
     ],
     "enterprise_risk": [
         "fraud", "embezzlement", "lawsuit", "bankruptcy", "insolvency",
         "layoffs", "strike", "data breach", "contract termination",
         "배임", "횡령", "소송", "파산", "부도", "구조조정", "대규모 해고",
         "파업", "개인정보 유출", "계약 해지", "투자 철회",
+        "인증 취소", "무효화", "회수 지연", "상장 불확실성", "ipo 불확실성",
     ],
     "impact_evidence": [
         "emissions reduction", "verified impact", "health outcomes", "learning outcomes",
         "public procurement", "clinical validation", "impact measurement",
         "탄소 감축", "임팩트 측정", "의료접근성 개선", "학습성과", "공공조달",
-        "임상 검증", "실증 결과",
+        "임상 검증", "실증 결과", "실증 성공", "전력망 연계", "상용 가동",
+        "감축실적", "탄소크레딧 취소", "크레딧 무효화",
     ],
 }
 EDITORIAL_PRIORITY_WEIGHT = 2.0
@@ -200,7 +213,8 @@ HARD_EXCLUSION_KEYWORDS = [
     "채용 공고", "채용공고", "채용 안내", "채용안내", "채용 중", "채용중",
     "공개채용", "상시채용", "입사 지원", "입사지원", "지원 자격", "지원자격",
     "접수 기간", "접수기간", "서류 접수", "신입사원 모집", "경력사원 모집",
-    "인턴 모집", "구인 공고",
+    "인턴 모집", "구인 공고", "기자프로필", "기자 프로필", "reporter profile",
+    "author profile",
     # 행사 참가/접수 안내
     "register now", "registration open", "early bird registration", "rsvp",
     "save the date", "conference invite", "call for speakers", "call for papers",
@@ -253,15 +267,21 @@ DEAL_PRIORITY_SIGNALS = {
     "transaction": [
         "acquisition", "acquires", "acquired", "merger", "buyout", "take-private",
         "ipo", "secondary sale", "stake sale", "continuation fund",
+        "인수", "인수합병", "합병", "바이아웃", "기업공개", "상장",
+        "구주 매각", "지분 매각", "세컨더리 거래",
     ],
     "financing": [
         "series b", "series c", "series d", "growth round", "bridge financing",
         "follow-on", "private credit", "credit facility", "project finance",
         "infrastructure financing", "fund close", "fundraising",
+        "시리즈b", "시리즈c", "시리즈d", "성장투자", "브릿지 투자",
+        "사모대출", "프로젝트 파이낸싱", "인프라 금융", "펀드 결성", "투자유치",
     ],
     "exception": [
         "strategic investment", "undisclosed", "government contract", "public procurement",
         "valuation", "unicorn", "commercial deployment",
+        "전략적 투자", "비공개", "정부 계약", "공공조달", "기업가치",
+        "유니콘", "상용화",
     ],
 }
 DEAL_EARLY_STAGE_SIGNALS = ["seed", "pre-seed", "series a"]
@@ -338,6 +358,7 @@ RSS_SOURCE_METADATA = {
     # 추가: 다른 MBB/Big4의 공식 인사이트 또는 블로그 피드(없는 경우 블로그로 대체)
     "Bain Insights": {"url": "https://www.bain.com/insights/feed/", "category": "👔 MBB·Big4 인사이트", "tier": "supplemental", "priority": 3},
     "BCG Insights (blog)": {"url": "https://news.google.com/rss/search?q=(site:bcg.com)+when:3d&hl=en-US&gl=US&ceid=US:en", "category": "👔 MBB·Big4 인사이트", "tier": "supplemental", "priority": 3},
+    "BCG Korea 공식 블로그": {"url": "https://rss.blog.naver.com/bcg_kr.xml", "category": "👔 MBB·Big4 인사이트", "tier": "supplemental", "priority": 4},
     "Deloitte Insights (blog)": {"url": "https://news.google.com/rss/search?q=(site:deloitte.com+insights)+when:3d&hl=en-US&gl=US&ceid=US:en", "category": "👔 MBB·Big4 인사이트", "tier": "supplemental", "priority": 3},
     "EY Insights (blog)": {"url": "https://news.google.com/rss/search?q=(site:ey.com+insights)+when:3d&hl=en-US&gl=US&ceid=US:en", "category": "👔 MBB·Big4 인사이트", "tier": "supplemental", "priority": 3},
     "KPMG Insights (blog)": {"url": "https://news.google.com/rss/search?q=(site:kpmg.com+insights)+when:3d&hl=en-US&gl=US&ceid=US:en", "category": "👔 MBB·Big4 인사이트", "tier": "supplemental", "priority": 3},
@@ -350,7 +371,9 @@ RSS_SOURCE_METADATA = {
 # 한국어 Google News 대비 한글명 병기.
 ALL_WATCHLISTS = [
     "Trump", "트럼프", "Powell", "파월", "Federal Reserve", "연준", "FOMC",
-    "이창용", "한국은행", "ECB",
+    "이창용", "한국은행", "ECB", "유럽중앙은행",
+    "Bank of Japan", "BOJ", "일본은행",
+    "People's Bank of China", "PBOC", "중국인민은행",
     "OpenAI", "Anthropic", "NVIDIA", "엔비디아", "Google", "Microsoft",
     "삼성전자", "SK하이닉스",
 ]
@@ -375,32 +398,169 @@ OFFICIAL_INSIGHTS_QUERIES = {
     "PwC Official Insights": 'site:pwc.com (insights OR "strategy+business") when:8d',
     "EY Official Insights": "site:ey.com (insights OR publications) when:8d",
     "KPMG Official Insights": "site:kpmg.com (insights OR research) when:8d",
+    # 한국 법인이 직접 발행한 리포트·이슈 브리프·산업 전망을 별도로 수집한다.
+    # 별도 국내 발행물 목록과 최근 검색 결과가 확인되는 공식 사이트만 포함한다.
+    "국내 Deloitte Korea Insights": (
+        "site:deloitte.com/kr/ko/our-thinking "
+        "(보고서 OR 인사이트 OR 전망 OR 트렌드 OR research OR survey) when:8d"
+    ),
+    "국내 PwC Korea Insights": (
+        "site:pwc.com/kr/ko/insights "
+        "(보고서 OR 인사이트 OR 이슈브리프 OR 산업 OR 전망 OR 트렌드) when:8d"
+    ),
+    "국내 EY Korea Insights": (
+        "(site:ey.com/ko_kr/insights OR site:ey.com/ko_kr/market-insights) "
+        "(보고서 OR 인사이트 OR 전망 OR 트렌드 OR research OR survey) when:8d"
+    ),
+    "국내 KPMG Korea Insights": (
+        "site:kpmg.com/kr/ko/insights "
+        "(보고서 OR 인사이트 OR 전망 OR 트렌드 OR research OR survey) when:8d"
+    ),
 }
 OFFICIAL_INSIGHTS_FEEDS = {
-    feed_name: _google_news_url(query)
+    feed_name: _google_news_url(
+        query,
+        language="ko" if feed_name.startswith("국내") else "en-US",
+        country="KR" if feed_name.startswith("국내") else "US",
+    )
     for feed_name, query in OFFICIAL_INSIGHTS_QUERIES.items()
 }
 
 # 다음 summarizer 단계에서 Google News 결과의 실제 언론사가 공식 회사인지 검증한다.
 OFFICIAL_INSIGHTS_SOURCE_ALIASES = {
     "McKinsey Official Insights": ("McKinsey", "McKinsey & Company"),
+    "McKinsey Korea Insights": (
+        "McKinsey Korea", "McKinsey & Company", "McKinsey",
+    ),
     "BCG Official Insights": ("BCG", "Boston Consulting Group"),
     "Bain Official Insights": ("Bain", "Bain & Company"),
     "Deloitte Official Insights": ("Deloitte", "Deloitte Insights"),
     "PwC Official Insights": ("PwC", "strategy+business"),
     "EY Official Insights": ("EY", "Ernst & Young"),
     "KPMG Official Insights": ("KPMG",),
+    "BCG Korea 공식 블로그": ("BCG Korea", "BCG 코리아", "BCG"),
+    "국내 Deloitte Korea Insights": (
+        "Deloitte", "Deloitte Korea", "한국 딜로이트 그룹", "딜로이트",
+    ),
+    "국내 PwC Korea Insights": (
+        "PwC", "Samil PwC", "삼일PwC", "삼일회계법인",
+    ),
+    "국내 EY Korea Insights": ("EY", "EY Korea", "EY한영"),
+    "국내 KPMG Korea Insights": (
+        "KPMG", "kpmg.com", "Samjong KPMG", "삼정KPMG",
+    ),
+}
+
+# 기사마다 개별 검색어를 추가하지 않고, 넓은 주제 하나를 설정해 수집과
+# 카테고리 연결에 함께 사용한다. query_clauses는 모든 표현의 목록이 아니라
+# 오탐을 막기 위해 반드시 함께 등장해야 하는 대표 개념 쌍이다.
+DISCOVERY_TOPICS = {
+    "국내 포용·상생금융": {
+        "category": "🌱 임팩트",
+        "description": (
+            "금융기관과 자본시장이 투자자 보호, 금융 접근성, 취약계층의 "
+            "자산형성, 모험자본 공급 등 사회적 역할을 확대하는 구조적 변화"
+        ),
+        "source_domains": (
+            "mt.co.kr",
+            "hankyung.com",
+            "sedaily.com",
+            "edaily.co.kr",
+        ),
+        "query_clauses": (
+            ("증권업계", "사회 기여"),
+            ("투자자 보호", "자산형성"),
+            ("사회공헌", "금융투자협회"),
+            ("포용금융", "취약계층"),
+            ("상생금융", "자본시장"),
+            ("금융교육", "청년"),
+            ("모험자본", "사회적 역할"),
+            ("공익펀드", "금융"),
+        ),
+        "window_days": 3,
+    },
+}
+
+
+def _query_term(term: str) -> str:
+    return f'"{term}"' if " " in term else term
+
+
+def _discovery_topic_query(topic: dict) -> str:
+    clause_query = "(" + " OR ".join(
+        "(" + " ".join(_query_term(term) for term in clause) + ")"
+        for clause in topic["query_clauses"]
+    ) + ")"
+    # Google News는 여러 site: 조건을 한 괄호에 모으면 검색 범위를 과도하게
+    # 넓히는 경우가 있어, 출처별 완성 검색식을 만든 뒤 OR로 합친다.
+    source_queries = " OR ".join(
+        f"(site:{domain} {clause_query})"
+        for domain in topic["source_domains"]
+    )
+    return (
+        f"({source_queries}) "
+        f"when:{topic.get('window_days', 3)}d"
+    )
+
+
+DISCOVERY_TOPIC_QUERIES = {
+    topic_name: _discovery_topic_query(topic)
+    for topic_name, topic in DISCOVERY_TOPICS.items()
 }
 
 SUPPLEMENTAL_NEWS_QUERIES = {
+    **DISCOVERY_TOPIC_QUERIES,
     "글로벌 임팩트 주요 사건": (
+        "(site:impactalpha.com OR site:nextbillion.net OR site:ssir.org OR "
+        "site:pioneerspost.com OR site:canarymedia.com OR site:carbonbrief.org OR "
+        "site:responsible-investor.com OR site:esgtoday.com) "
         '("impact investing" OR "climate tech" OR "social enterprise" OR '
-        '"financial inclusion" OR "care economy" OR "circular economy") '
+        '"financial inclusion" OR "care economy" OR "circular economy" OR healthcare OR education) '
         "(funding OR raises OR acquisition OR policy OR regulation OR contract) when:3d"
     ),
-    "국내 임팩트 주요 사건": (
-        "(임팩트투자 OR 기후테크 OR 소셜벤처 OR 돌봄 OR 의료접근성 OR "
-        "교육격차 OR 순환경제) (투자 OR 인수 OR 정책 OR 규제 OR 계약 OR 실증) when:3d"
+    "국내 임팩트온": (
+        "site:impacton.net (임팩트투자 OR 기후테크 OR 소셜벤처 OR 돌봄 OR 의료접근성 OR "
+        "교육격차 OR 순환경제 OR ESG OR 사회적경제) when:3d"
+    ),
+    "국내 기후에너지경제": (
+        "site:efn.co.kr (기후 OR 에너지 OR 탄소 OR 전력망 OR 재생에너지 OR "
+        "환경정책 OR 녹색금융) when:3d"
+    ),
+    "국내 소셜임팩트뉴스": (
+        "site:socialimpactnews.net (임팩트 OR 사회적경제 OR 소셜벤처 OR 돌봄 OR "
+        "헬스케어 OR 교육 OR 장애 OR 비영리) when:3d"
+    ),
+    "국내 한경ESG": (
+        "site:hankyung.com/esg (ESG OR 기후 OR 탄소 OR 임팩트 OR 지속가능 OR "
+        "공급망 OR 책임투자 OR 녹색금융) when:3d"
+    ),
+    "국내 딜사이트 VC/PE": (
+        "site:dealsite.co.kr/articles "
+        "(투자유치 OR 펀드결성 OR 인수 OR 합병 OR 매각 OR IPO OR 상장 OR 출자) when:3d"
+    ),
+    "국내 플래텀 VC/스타트업": (
+        "site:platum.kr (투자 OR 투자유치 OR 펀드 OR 인수 OR 합병 OR 매각 OR "
+        "IPO OR 상장 OR 벤처 OR 스타트업) when:3d"
+    ),
+    "국내 더벨 VC/PE": (
+        "site:thebell.co.kr (투자 OR 투자유치 OR 펀드 OR 출자 OR 인수 OR 합병 OR "
+        "매각 OR IPO OR 상장 OR 벤처캐피탈 OR 사모펀드) when:3d"
+    ),
+    "국내 스타트업레시피 VC": (
+        "site:startuprecipe.co.kr (투자 OR 투자유치 OR 펀드 OR 인수 OR 합병 OR "
+        "매각 OR IPO OR 상장 OR 벤처 OR 스타트업) when:3d"
+    ),
+    "국내 벤처스퀘어 VC/스타트업": (
+        "site:venturesquare.net (투자 OR 투자유치 OR 펀드 OR 인수 OR 합병 OR "
+        "매각 OR IPO OR 상장 OR 벤처 OR 스타트업) when:3d"
+    ),
+    # 국내 거시 보완은 매체를 무작정 늘리지 않고 연합뉴스·한국경제로 한정한다.
+    # 광범위한 '경제' 검색 대신 VC 판단에 직접 영향을 주는 거시·정책 신호만 수집한다.
+    "국내 거시/정책 (연합·한경)": (
+        "(site:yna.co.kr OR site:hankyung.com) "
+        "(\"한국은행\" OR \"한은 금리\" OR \"한국 성장률\" OR \"한국 경제성장률\" OR "
+        "\"가계부채\" OR \"국내 소비자물가\" OR \"정부 경제정책\" OR \"내년도 예산\" OR "
+        "\"한국 수출\" OR \"국내 고용\") when:3d"
     ),
     "Bloomberg Green": "site:bloomberg.com/green (climate OR energy OR carbon) when:3d",
     "ESG Today": "site:esgtoday.com (investment OR regulation OR policy OR financing) when:3d",
@@ -419,23 +579,82 @@ SUPPLEMENTAL_NEWS_FEEDS = {
     for feed_name, query in SUPPLEMENTAL_NEWS_QUERIES.items()
 }
 
+# Google News에 색인되지 않는 신뢰 매체는 공개 기사 목록을 직접 읽는다.
+# 다음 수집 단계는 아래 설정만 보고 목록·제목·요약·날짜를 추출하도록 구성한다.
+DIRECT_WEB_SOURCE_METADATA = {
+    "McKinsey Korea Insights": {
+        "url": "https://www.mckinsey.com/kr/our-insights/mckinsey-insights",
+        "category": "👔 MBB·Big4 인사이트",
+        "tier": "primary",
+        "priority": 5,
+        "region": "korea",
+        "parser": "semantic_links",
+        "allowed_domains": ("mckinsey.com",),
+        "article_path_markers": ("/our-insights/", "/our-research/"),
+        "minimum_title_length": 12,
+        "lookback_days": 14,
+        "require_date": True,
+    },
+    "국내 한경 마켓인사이트": {
+        "url": "https://marketinsight.hankyung.com/freenews",
+        "category": "📈 대체투자",
+        "tier": "supplemental",
+        "priority": 4,
+        "region": "korea",
+        "article_url_prefix": "https://marketinsight.hankyung.com/article/",
+        "title_container_class": "news-tit",
+        "summary_class": "lead",
+        "date_from_url_pattern": r"/article/(?P<date>\d{8})",
+    },
+}
+
+# 해외 거시 보완 검색은 핵심 시장의 정책·지표를 기본으로 하고, 그 밖의
+# 국가는 세계 금융시장·에너지·공급망으로 전파되는 사건만 수집한다.
+_MACRO_CORE_MARKETS_QUERY = (
+    '("Federal Reserve" OR "Fed" OR FOMC OR "United States" OR "U.S." OR '
+    '"US economy" OR "US inflation" OR "US jobs" OR "US GDP" OR '
+    'ECB OR eurozone OR "European Union" OR Germany OR France OR Italy OR Spain OR '
+    '"UK economy" OR "UK inflation" OR "Bank of England" OR '
+    '"Bank of Japan" OR BOJ OR Japan OR '
+    '"People\'s Bank of China" OR PBOC OR China OR '
+    '"Bank of Korea" OR "South Korea economy")'
+)
+_MACRO_DECISION_SIGNALS_QUERY = (
+    '("interest rate" OR inflation OR GDP OR growth OR employment OR unemployment OR '
+    'recession OR tariff OR "trade policy" OR sanctions OR regulation OR '
+    '"fiscal policy" OR budget)'
+)
+_MACRO_GLOBAL_SHOCK_QUERY = (
+    '("global markets" OR "world economy" OR "oil prices" OR OPEC OR '
+    '"Strait of Hormuz" OR "Red Sea" OR "Suez Canal" OR '
+    '"global supply chain" OR "trade route" OR "trade war" OR '
+    '"sovereign default" OR "currency crisis" OR "financial contagion" OR '
+    '((Russia OR Ukraine OR Israel OR Iran OR Taiwan OR "Middle East") '
+    '(war OR attack OR invasion OR blockade OR sanctions)))'
+)
+
+
+def _macro_source_query(domain: str) -> str:
+    return (
+        f"site:{domain} "
+        f"(({_MACRO_CORE_MARKETS_QUERY} {_MACRO_DECISION_SIGNALS_QUERY}) "
+        f"OR {_MACRO_GLOBAL_SHOCK_QUERY}) when:3d"
+    )
+
 GOOGLE_NEWS_FEEDS = {
     **OFFICIAL_INSIGHTS_FEEDS,
     **SUPPLEMENTAL_NEWS_FEEDS,
-    "국내 VC/스타트업": _google_news_url(
-        "(투자유치 OR 펀딩 OR M&A OR 시리즈A OR 시리즈B OR 벤처펀드) when:3d",
-        language="ko",
-        country="KR",
-    ),
     "글로벌 VC/PE": _google_news_url(
+        "(site:pehub.com OR site:news.crunchbase.com OR site:techcrunch.com OR "
+        "site:sifted.eu OR site:businessinsider.com OR site:bloomberg.com) "
         '("venture capital" OR "private equity" OR "funding round" OR '
-        '"dry powder" OR "startup raising") when:3d'
+        '"dry powder" OR "startup raising" OR acquisition OR IPO) when:3d'
     ),
-    "미국 통화정책/금리": _google_news_url(
-        "(FOMC OR Federal Reserve OR interest rate OR inflation OR treasury yield) when:3d"
+    "Reuters 거시/정책": _google_news_url(
+        _macro_source_query("reuters.com")
     ),
-    "글로벌 거시/지정학": _google_news_url(
-        "(interest rate OR recession OR tariff OR geopolitics OR federal reserve) when:3d"
+    "Bloomberg 거시/정책": _google_news_url(
+        _macro_source_query("bloomberg.com")
     ),
 }
 
@@ -450,10 +669,35 @@ FEED_CATEGORY_OVERRIDE = {
         feed_name: OFFICIAL_INSIGHTS_CATEGORY
         for feed_name in OFFICIAL_INSIGHTS_FEEDS
     },
-    "국내 VC/스타트업": "📈 대체투자",
+    **{
+        topic_name: topic["category"]
+        for topic_name, topic in DISCOVERY_TOPICS.items()
+    },
+    **{
+        feed_name: "🌱 임팩트"
+        for feed_name in (
+            "국내 임팩트온",
+            "국내 기후에너지경제",
+            "국내 소셜임팩트뉴스",
+            "국내 한경ESG",
+        )
+    },
+    **{
+        feed_name: "📈 대체투자"
+        for feed_name in (
+            "국내 딜사이트 VC/PE",
+            "국내 한경 마켓인사이트",
+            "국내 플래텀 VC/스타트업",
+            "국내 더벨 VC/PE",
+            "국내 스타트업레시피 VC",
+            "국내 벤처스퀘어 VC/스타트업",
+        )
+    },
     "글로벌 VC/PE": "📈 대체투자",
-    "미국 통화정책/금리": "🌐 거시·정책·지정학",
-    "글로벌 거시/지정학": "🌐 거시·정책·지정학",
+    "McKinsey Korea Insights": OFFICIAL_INSIGHTS_CATEGORY,
+    "국내 거시/정책 (연합·한경)": "🌐 거시·정책·지정학",
+    "Reuters 거시/정책": "🌐 거시·정책·지정학",
+    "Bloomberg 거시/정책": "🌐 거시·정책·지정학",
 }
 
 # ---------------------------------------------------------------------------
@@ -481,6 +725,7 @@ VERIFIED_RSS_SOURCE_NAMES = frozenset({
     "The Economist",
     "Foreign Affairs",
     "McKinsey Insights",
+    "BCG Korea 공식 블로그",
 })
 
 # ImpactOn is the single domestic supplement retained for the impact category.
@@ -534,6 +779,7 @@ _KOREA_SOURCE_DOMAINS = (
     "venturesquare.net",
     "hankyung.com",
     "etnews.com",
+    "blog.naver.com",
 )
 KOREA_SOURCE_NAMES = frozenset(
     source_name
@@ -546,4 +792,11 @@ KOREA_SOURCE_NAMES = frozenset(
 def source_region(source_name: str) -> str:
     """Return the configured region for a known feed source."""
     return "korea" if source_name in KOREA_SOURCE_NAMES else "global"
+
+# ---------------------------------------------------------------------------
+# (참고) 과거의 SOURCE_CATEGORY_OVERRIDE 는 summarizer 가 참조하지 않는 죽은 변수라 삭제함.
+#   현재 카테고리 배정은 RSS_SOURCE_METADATA['category'] 가 담당.
+#   ※ 단, Google News 5개 피드는 메타데이터에 category 가 없어 '키워드 분류'로 떨어짐.
+#     'MBB/Big4 인사이트' 구글뉴스가 👔 인사이트로 안 꽂히면, summarizer 에
+#     feed명→category 매핑을 추가해야 함(Step 4 대상).
 # ---------------------------------------------------------------------------

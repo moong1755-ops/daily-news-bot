@@ -1,13 +1,52 @@
 import re
 from datetime import datetime
+from urllib.parse import urlsplit
 
 import numpy as np
 from sentence_transformers import SentenceTransformer
+from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
-from ..config import RSS_SOURCE_METADATA, SIMILARITY_THRESHOLD
+from ..config import DISCOVERY_TOPICS, RSS_SOURCE_METADATA, SIMILARITY_THRESHOLD
 
 _model = None
+
+# 일반 기사에는 기존 임계값을 그대로 사용한다. 같은 주제 검색에서 나온
+# 연속 기사만 출처·날짜·산업 주체를 추가 확인한 뒤 보조 임계값을 허용한다.
+_TOPIC_SERIES_SIMILARITY_FLOOR = max(0.0, SIMILARITY_THRESHOLD - 0.30)
+_TOPIC_SERIES_MAX_DATE_GAP_DAYS = 2
+_POLICY_REACTION_SIMILARITY_FLOOR = max(0.0, SIMILARITY_THRESHOLD - 0.15)
+_POLICY_REACTION_MAX_DATE_GAP_DAYS = 1
+_FULL_SEMANTIC_SCAN_LIMIT = 200
+_LEXICAL_CANDIDATE_FLOOR = 0.30
+_RARE_TOKEN_MAX_DOCUMENTS = 6
+_CANDIDATE_TOKEN_STOPWORDS = {
+    "about", "after", "against", "company", "global", "insights", "market",
+    "news", "report", "startup", "startups", "funding", "investment",
+    "investing", "raises", "raised", "launches", "policy", "business",
+    "with", "from", "into", "over", "through", "amid", "says", "could",
+    "기사", "기업", "국내", "글로벌", "금융", "뉴스", "리포트", "발표", "사업", "산업",
+    "시장", "스타트업", "전망", "정책", "정부", "조사", "추진", "출시", "투자", "투자유치",
+    "펀드", "확대", "회사",
+}
+
+_ENTITY_FAMILY_PATTERNS = {
+    "securities": (
+        r"증권(?:가|사|업계)", r"금융투자(?:업계|협회)", r"금투협",
+        r"\bsecurit(?:y|ies)\s+(?:firm|industry)\b",
+    ),
+    "banking": (
+        r"은행(?:권|업계)?", r"금융지주", r"\bbank(?:ing|s)?\b",
+    ),
+    "insurance": (r"보험(?:사|업계)?", r"\binsur(?:er|ers|ance)\b"),
+    "venture_capital": (
+        r"벤처캐피탈", r"vc협회", r"모태펀드", r"\bventure capital\b",
+    ),
+    "government": (
+        r"정부", r"금융위원회", r"금융감독원", r"국회", r"당국",
+        r"\bgovernment\b", r"\bregulator\b",
+    ),
+}
 
 
 _EVENT_PATTERNS = {
@@ -37,6 +76,61 @@ _EVENT_PATTERNS = {
     ),
 }
 
+_POLICY_ACTOR_PATTERNS = {
+    "federal_reserve": (r"\bfederal reserve\b", r"\bthe fed\b", r"\b연준\b"),
+    "ecb": (r"\beuropean central bank\b", r"\becb\b", r"유럽중앙은행"),
+    "bank_of_korea": (r"\bbank of korea\b", r"한국은행", r"\b한은\b"),
+    "bank_of_england": (r"\bbank of england\b", r"\bboe\b", r"영란은행"),
+    "bank_of_japan": (r"\bbank of japan\b", r"\bboj\b", r"일본은행"),
+    "pboc": (r"\bpeople'?s bank of china\b", r"\bpboc\b", r"중국인민은행"),
+    "turkey_central_bank": (
+        r"\bturkey(?:'s)?\s+central bank\b",
+        r"\bturkish\b.{0,80}\bcentral bank\b",
+        r"\bcbrt\b",
+    ),
+}
+
+_POLICY_ACTION_PATTERNS = {
+    "funding": (
+        r"\bfunding\b", r"\bliquidity\b", r"\brefinancing\b",
+        "유동성", "자금 공급", "자금공급",
+    ),
+    "interest_rate": (
+        r"\b(?:interest|policy|benchmark|deposit|lending)\s+rates?\b",
+        r"\brate\s+(?:cut|hike|increase|decrease)\b",
+        "기준금리", "정책금리", "금리 인상", "금리 인하",
+    ),
+    "asset_purchase": (
+        r"\basset purchases?\b", r"\bquantitative (?:easing|tightening)\b",
+        "자산 매입", "양적완화", "양적긴축",
+    ),
+    "reserve_requirement": (
+        r"\breserve requirements?\b", r"\brequired reserve\b",
+        "지급준비율", "지준율",
+    ),
+    "currency_intervention": (
+        r"\bcurrency intervention\b", r"\bforeign exchange intervention\b",
+        "외환시장 개입", "환율 개입",
+    ),
+}
+
+_MARKET_REACTION_PATTERNS = (
+    r"\brall(?:y|ies|ied)\b", r"\bsurg(?:e|es|ed)\b", r"\bjump(?:s|ed)?\b",
+    r"\bclimb(?:s|ed)?\b", r"\bgain(?:s|ed)?\b", r"\bsoar(?:s|ed)?\b",
+    r"\bfall(?:s|en)?\b", r"\bfell\b", r"\bdrop(?:s|ped)?\b",
+    r"\bslid(?:e|es)\b", r"\bslump(?:s|ed)?\b", r"\bsell[- ]?off\b",
+    "급등", "상승", "반등", "강세", "급락", "하락", "약세",
+)
+
+_POLICY_RATE_VALUE_PATTERNS = (
+    r"(?:policy|interest|benchmark|deposit|lending)\s+rates?"
+    r"(?:\s+\w+){0,4}\s+(?:to|at|of)?\s*(\d+(?:\.\d+)?\s?%)",
+    r"(\d+(?:\.\d+)?\s?%)\s+"
+    r"(?:policy|interest|benchmark|deposit|lending)\s+rates?",
+    r"(?:기준|정책)금리(?:를|가|는|도)?\s*(\d+(?:\.\d+)?\s?%)",
+    r"(\d+(?:\.\d+)?\s?%)\s*(?:의\s*)?(?:기준|정책)금리",
+)
+
 _FUNDING_STAGE_PATTERNS = (
     ("pre-seed", (r"\bpre[- ]seed\b", "프리시드", "프리 시드")),
     ("seed", (r"\bseed\b", "시드")),
@@ -56,6 +150,20 @@ _FACT_PATTERNS = (
     r"\bacqui(?:re|res|red|sition)\b|\bmerger\b|인수|합병",
     r"\bcontracts?\b|\bprocurement\b|\bofftake\b|계약|조달",
     r"\bregulat|\bpolicy\b|규제|정책|법안",
+)
+
+_COMPREHENSIVE_ARTICLE_PATTERNS = (
+    r"[\[(（]\s*종합\s*[\])）]", r"\b종합(?:판|기사|분석)?\b",
+    r"\bupdated?\b", r"\bfull report\b", r"\bexplainer\b",
+    r"최종(?:안|결과|집계)", r"심층(?:분석|취재)",
+)
+
+_AGGREGATOR_DOMAINS = (
+    "news.google.com",
+    "v.daum.net",
+    "news.nate.com",
+    "news.yahoo.com",
+    "msn.com",
 )
 
 
@@ -92,9 +200,32 @@ def _source_priority(article: dict) -> int:
     return int(metadata.get("priority", 0))
 
 
-def _is_direct_article(article: dict) -> bool:
+def _link_quality(article: dict) -> int:
+    """Prefer publisher URLs over relay and unresolved Google News links."""
     link = _first_text(article.get("link")).lower()
-    return not article.get("gnews_link") and "news.google.com" not in link
+    if not link:
+        return 0
+
+    domain = urlsplit(link).netloc.removeprefix("www.")
+    if domain == "news.google.com":
+        return 0
+    if any(domain == item or domain.endswith(f".{item}") for item in _AGGREGATOR_DOMAINS):
+        return 1
+    if article.get("gnews_link"):
+        return 2
+    return 3
+
+
+def _is_direct_article(article: dict) -> bool:
+    return _link_quality(article) == 3
+
+
+def _comprehensive_article_score(article: dict) -> int:
+    text = _article_text(article)
+    return sum(
+        bool(re.search(pattern, text, re.IGNORECASE))
+        for pattern in _COMPREHENSIVE_ARTICLE_PATTERNS
+    )
 
 
 def _fact_detail_score(article: dict) -> int:
@@ -110,14 +241,58 @@ def _published_rank(article: dict) -> int:
         return 0
 
 
+def _publication_gap_days(left: dict, right: dict) -> int | None:
+    left_rank = _published_rank(left)
+    right_rank = _published_rank(right)
+    if not left_rank or not right_rank:
+        return None
+    return abs(left_rank - right_rank)
+
+
+def _entity_families(article: dict) -> set:
+    text = _article_text(article)
+    return {
+        family
+        for family, patterns in _ENTITY_FAMILY_PATTERNS.items()
+        if _matches_any(text, patterns)
+    }
+
+
+def _same_discovery_topic(left: dict, right: dict) -> bool:
+    left_feed = _first_text(left.get("feed"))
+    right_feed = _first_text(right.get("feed"))
+    return bool(left_feed) and left_feed == right_feed and left_feed in DISCOVERY_TOPICS
+
+
+def _same_source(left: dict, right: dict) -> bool:
+    left_source = _first_text(left.get("source")).casefold()
+    right_source = _first_text(right.get("source")).casefold()
+    return bool(left_source) and left_source == right_source
+
+
+def _topic_series_compatible(left: dict, right: dict) -> bool:
+    """Identify adjacent installments of one issue without merging a whole topic."""
+    if not _same_discovery_topic(left, right) or not _same_source(left, right):
+        return False
+
+    date_gap = _publication_gap_days(left, right)
+    if date_gap is None or date_gap > _TOPIC_SERIES_MAX_DATE_GAP_DAYS:
+        return False
+
+    left_families = _entity_families(left)
+    right_families = _entity_families(right)
+    return bool(left_families & right_families)
+
+
 def _representative_key(article: dict) -> tuple:
     description_length = len(str(article.get("description") or ""))
     return (
         _source_priority(article),
-        int(_is_direct_article(article)),
+        _link_quality(article),
+        _comprehensive_article_score(article),
         _fact_detail_score(article),
-        description_length,
         _published_rank(article),
+        description_length,
     )
 
 
@@ -152,6 +327,177 @@ def _events_compatible(left: dict, right: dict) -> bool:
     return True
 
 
+def _matching_keys(article: dict, pattern_groups: dict) -> set:
+    text = _article_text(article)
+    return {
+        key
+        for key, patterns in pattern_groups.items()
+        if _matches_any(text, patterns)
+    }
+
+
+def _policy_rate_values(article: dict) -> set:
+    text = _article_text(article)
+    values = set()
+    for pattern in _POLICY_RATE_VALUE_PATTERNS:
+        values.update(
+            match.replace(" ", "")
+            for match in re.findall(pattern, text, re.IGNORECASE)
+        )
+    return values
+
+
+def _same_policy_event_with_reaction(left: dict, right: dict) -> bool:
+    """Merge one policy decision with its immediate market-reaction headline."""
+    date_gap = _publication_gap_days(left, right)
+    if date_gap is None or date_gap > _POLICY_REACTION_MAX_DATE_GAP_DAYS:
+        return False
+
+    left_actors = _matching_keys(left, _POLICY_ACTOR_PATTERNS)
+    right_actors = _matching_keys(right, _POLICY_ACTOR_PATTERNS)
+    if not left_actors.intersection(right_actors):
+        return False
+
+    left_actions = _matching_keys(left, _POLICY_ACTION_PATTERNS)
+    right_actions = _matching_keys(right, _POLICY_ACTION_PATTERNS)
+    if not left_actions.intersection(right_actions):
+        return False
+
+    if not (
+        _matches_any(_article_text(left), _MARKET_REACTION_PATTERNS)
+        or _matches_any(_article_text(right), _MARKET_REACTION_PATTERNS)
+    ):
+        return False
+
+    # 같은 날의 서로 다른 금리 결정을 잘못 합치지 않는다.
+    left_rates = _policy_rate_values(left)
+    right_rates = _policy_rate_values(right)
+    if left_rates and right_rates and left_rates.isdisjoint(right_rates):
+        return False
+
+    return True
+
+
+def _normalized_title(article: dict) -> str:
+    return " ".join(str(article.get("title") or "").casefold().split())
+
+
+def _candidate_tokens(title: str) -> set:
+    """Return brand, organization, number, and Korean phrase tokens."""
+    tokens = {
+        token.strip(".-")
+        for token in re.findall(
+            r"[a-z0-9][a-z0-9+.-]{2,}|[가-힣]{2,}",
+            title.casefold(),
+        )
+        if len(token.strip(".-")) >= 3
+    }
+    return {
+        token
+        for token in tokens
+        if token not in _CANDIDATE_TOKEN_STOPWORDS
+    }
+
+
+def _large_batch_candidate_pairs(articles: list) -> set:
+    """Find plausible duplicate pairs cheaply before loading the AI model."""
+    titles = [_normalized_title(article) for article in articles]
+    candidate_pairs = set()
+
+    # Exact titles must always be compared and merged.
+    exact_groups = {}
+    for index, title in enumerate(titles):
+        exact_groups.setdefault(title, []).append(index)
+    for group in exact_groups.values():
+        for offset, left in enumerate(group):
+            for right in group[offset + 1:]:
+                candidate_pairs.add((left, right))
+
+    # Character n-grams handle Korean particles and slightly different headlines.
+    try:
+        lexical_vectors = TfidfVectorizer(
+            analyzer="char_wb",
+            ngram_range=(3, 5),
+            min_df=2,
+            max_features=30000,
+        ).fit_transform(titles)
+        lexical_similarity = cosine_similarity(
+            lexical_vectors,
+            dense_output=False,
+        ).tocoo()
+        for left, right, score in zip(
+            lexical_similarity.row,
+            lexical_similarity.col,
+            lexical_similarity.data,
+        ):
+            if left < right and float(score) >= _LEXICAL_CANDIDATE_FLOOR:
+                candidate_pairs.add((int(left), int(right)))
+    except ValueError:
+        # All titles may be empty or have no repeated n-grams.
+        pass
+
+    # A shared rare brand/entity token catches paraphrases with low word order overlap.
+    token_documents = {}
+    for index, title in enumerate(titles):
+        for token in _candidate_tokens(title):
+            token_documents.setdefault(token, []).append(index)
+    for document_indices in token_documents.values():
+        if not 2 <= len(document_indices) <= _RARE_TOKEN_MAX_DOCUMENTS:
+            continue
+        for offset, left in enumerate(document_indices):
+            for right in document_indices[offset + 1:]:
+                candidate_pairs.add((left, right))
+
+    # Discovery-topic installments intentionally use a lower semantic threshold.
+    topic_groups = {}
+    for index, article in enumerate(articles):
+        feed = _first_text(article.get("feed"))
+        source = _first_text(article.get("source")).casefold()
+        if feed in DISCOVERY_TOPICS and source:
+            topic_groups.setdefault((feed, source), []).append(index)
+    for group in topic_groups.values():
+        for offset, left in enumerate(group):
+            for right in group[offset + 1:]:
+                gap = _publication_gap_days(articles[left], articles[right])
+                if gap is not None and gap <= _TOPIC_SERIES_MAX_DATE_GAP_DAYS:
+                    candidate_pairs.add((left, right))
+
+    return {
+        (left, right)
+        for left, right in candidate_pairs
+        if _events_compatible(articles[left], articles[right])
+    }
+
+
+def _should_merge(left: dict, right: dict, similarity: float) -> bool:
+    if not _events_compatible(left, right):
+        return False
+
+    left_families = _entity_families(left)
+    right_families = _entity_families(right)
+    if (
+        _same_discovery_topic(left, right)
+        and left_families
+        and right_families
+        and left_families.isdisjoint(right_families)
+    ):
+        return False
+
+    if similarity >= SIMILARITY_THRESHOLD:
+        return True
+
+    if (
+        similarity >= _POLICY_REACTION_SIMILARITY_FLOOR
+        and _same_policy_event_with_reaction(left, right)
+    ):
+        return True
+
+    return (
+        similarity >= _TOPIC_SERIES_SIMILARITY_FLOOR
+        and _topic_series_compatible(left, right)
+    )
+
+
 def _unique_values(articles: list, key: str) -> list:
     result = []
     seen = set()
@@ -180,8 +526,10 @@ def _merge_group(group: list) -> dict:
     merged["duplicate_titles"] = _unique_values(ordered, "title")
     merged["representative_reason"] = (
         f"source_priority={_source_priority(representative)},"
-        f"direct={int(_is_direct_article(representative))},"
-        f"facts={_fact_detail_score(representative)}"
+        f"link_quality={_link_quality(representative)},"
+        f"comprehensive={_comprehensive_article_score(representative)},"
+        f"facts={_fact_detail_score(representative)},"
+        f"published={_published_rank(representative)}"
     )
     return merged
 
@@ -194,9 +542,41 @@ def deduplicate_and_merge(articles: list) -> tuple:
 
     try:
         model = _get_model()
-        titles = [article["title"] for article in articles]
+        if len(articles) <= _FULL_SEMANTIC_SCAN_LIMIT:
+            candidate_pairs = {
+                (left, right)
+                for left in range(len(articles))
+                for right in range(left + 1, len(articles))
+            }
+        else:
+            candidate_pairs = _large_batch_candidate_pairs(articles)
+
+        candidate_indices = sorted({
+            index
+            for pair in candidate_pairs
+            for index in pair
+        })
+        if not candidate_indices:
+            return [_merge_group([article]) for article in articles], errors
+
+        local_index = {
+            article_index: embedding_index
+            for embedding_index, article_index in enumerate(candidate_indices)
+        }
+        titles = [articles[index]["title"] for index in candidate_indices]
         embeddings = model.encode(titles, convert_to_numpy=True)
         sim_matrix = cosine_similarity(embeddings)
+
+        neighbors = {}
+        for left, right in candidate_pairs:
+            neighbors.setdefault(left, []).append(right)
+
+        if len(articles) > _FULL_SEMANTIC_SCAN_LIMIT:
+            print(
+                f"⚡ 당일 중복 후보 축소: {len(articles)}건 중 "
+                f"{len(candidate_indices)}건만 AI 비교 "
+                f"(후보 쌍 {len(candidate_pairs)}개)"
+            )
 
         visited = set()
         merged = []
@@ -206,11 +586,20 @@ def deduplicate_and_merge(articles: list) -> tuple:
                 continue
 
             group = [i]
-            for j in range(i + 1, len(articles)):
+            for j in sorted(neighbors.get(i, [])):
                 if (
                     j not in visited
-                    and sim_matrix[i][j] >= SIMILARITY_THRESHOLD
-                    and _events_compatible(articles[i], articles[j])
+                    and _should_merge(
+                        articles[i],
+                        articles[j],
+                        float(
+                            sim_matrix[
+                                local_index[i]
+                            ][
+                                local_index[j]
+                            ]
+                        ),
+                    )
                 ):
                     group.append(j)
                     visited.add(j)
@@ -240,7 +629,6 @@ def _title_based_dedup(articles: list) -> list:
         groups[normalized_title].append(article)
 
     return [_merge_group(groups[title]) for title in group_order]
-
 
 def filter_near_duplicates(articles: list, threshold: float) -> list:
     """앞서 고른 기사와 같은 사건을 다룬 기사를 제외한다(원래 순서 유지).
