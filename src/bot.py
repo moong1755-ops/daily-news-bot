@@ -1,7 +1,7 @@
 import os
 import re
 import requests
-from datetime import datetime
+from datetime import datetime, timezone
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 import json
 from pathlib import Path
@@ -70,6 +70,7 @@ REGION_SPLIT_CATEGORIES = {ALTERNATIVE_CATEGORY, MACRO_CATEGORY}
 REGION_DISPLAY_ORDER = (("global", "해외"), ("korea", "국내"))
 IMPACT_SOURCE_SOFT_CAP = max(1, IMPACT_MUST_READ_MAX // 2)
 TRACKING_QUERY_KEYS = {"fbclid", "gclid", "mc_cid", "mc_eid", "ref", "referrer"}
+SLACK_ARCHIVE_PATH = Path(__file__).parent.parent / "data" / "slack_archive.jsonl"
 
 
 def normalize_url(url: str) -> str:
@@ -761,6 +762,43 @@ def render_digest(articles_by_category: dict) -> str:
     return "\n".join(parts).rstrip() + "\n"
 
 
+def _append_slack_archive(
+    selected_by_category: dict,
+    message_text: str,
+    archive_path=None,
+) -> None:
+    """실제로 발송된 다이제스트를 주간 브리핑용 구조화 기록으로 남긴다."""
+    path = Path(archive_path) if archive_path is not None else SLACK_ARCHIVE_PATH
+    articles = []
+    for category in CATEGORY_ORDER:
+        for article in selected_by_category.get(category, []):
+            articles.append({
+                "category": category,
+                "region": _article_region(article),
+                "title": article.get("title", "제목 없음").strip(),
+                "title_orig": (article.get("title_orig") or "").strip(),
+                "url": get_primary_link(article) or "",
+                "source": clean_source_name(get_primary_source(article) or "출처미상"),
+                "date": fmt_date(article.get("date", "")),
+                "event_type": article.get("event_type") or "",
+                "deal_status": article.get("deal_status") or "",
+                "major_deal": bool(article.get("major_deal", False)),
+                "impact_theme": article.get("impact_theme") or "",
+            })
+
+    record = {
+        "version": 2,
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "article_count": len(articles),
+        "articles": articles,
+        # 기존 기록을 읽는 도구와 사람이 그대로 확인할 수 있도록 본문도 유지한다.
+        "text": message_text,
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a", encoding="utf-8") as archive_file:
+        archive_file.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
 def send_aggregated_slack_news(articles) -> tuple:
     slack_webhook_url = os.environ.get("SLACK_WEBHOOK_URL")
     if not slack_webhook_url and not is_dry_run():
@@ -803,17 +841,6 @@ def send_aggregated_slack_news(articles) -> tuple:
         else f"VC 데일리 브리핑 · {datetime.now().strftime('%y.%m.%d')} · {len(sent_articles)}건"
     )
 
-    # ✅ 메시지 아카이브: 발송 전 로컬 파일에 기록(append, JSONL)
-    #    아카이브는 '실제로 나간 것'의 기록이므로 DRY RUN 은 남기지 않는다.
-    try:
-        archive_path = Path(__file__).parent.parent / "data" / "slack_archive.jsonl"
-        archive_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(archive_path, "a", encoding="utf-8") as af:
-            af.write(json.dumps({"ts": datetime.utcnow().isoformat(), "text": message_text}, ensure_ascii=False) + "\n")
-    except Exception as e:
-        # 아카이브 실패는 발송 실패로 간주하지 않음
-        print(f"⚠️ 슬랙 아카이브 저장 실패: {e}")
-
     # ✅ 링크 미리보기(unfurl) 끄기: 카드/썸네일이 딸려 나오지 않게 함
     resp = requests.post(
         slack_webhook_url,
@@ -826,6 +853,12 @@ def send_aggregated_slack_news(articles) -> tuple:
         },
     )
     if resp.status_code == 200:
+        # 주간 브리핑에는 실제 Slack 발송에 성공한 기사만 포함한다.
+        try:
+            _append_slack_archive(selected_by_category, message_text)
+        except Exception as e:
+            # 아카이브 실패는 이미 성공한 Slack 발송을 실패로 바꾸지 않는다.
+            print(f"⚠️ 슬랙 아카이브 저장 실패: {e}")
         print(f"슬랙 메시지 1건 통합 전송 성공! (Block Kit {len(slack_blocks)}개)")
         return True, sent_articles
     print(f"슬랙 전송 실패: {resp.status_code}, {resp.text}")
