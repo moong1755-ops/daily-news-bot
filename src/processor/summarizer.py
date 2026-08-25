@@ -63,7 +63,7 @@ _STRICT_MACRO_PATTERNS = [
     r"\b(?:fiscal policy|budget deficit|national debt|trade balance)\b",
     r"연방준비제도|연준|중앙은행|한국은행|유럽중앙은행|일본은행|중국인민은행|한은",
     r"통화정책|기준금리|정책금리|인플레이션|소비자물가|국내총생산|경제성장률|"
-    r"경기침체|환율|국채금리|실업률|고용률|고용동향|재정정책|국가채무|무역수지",
+    r"경기침체|환율|국채금리|실업률|고용률|고용동향|재정정책|국가채무|국가부채|정부부채|무역수지",
     # 정부·의회가 경제 전반을 다루는 경우에만 정책 기사로 인정
     r"\b(?:government|parliament|congress|ministry|regulator)\b.{0,80}"
     r"\b(?:economic policy|fiscal|tax reform|national budget|labor market|"
@@ -102,6 +102,7 @@ _FOREIGN_EVENT_SIGNALS = [
     "ukraine", "middle east", "g7", "g20",
     "미국", "미 연준", "연준", "유럽연합", "유로존", "유럽중앙은행", "ecb",
     "영국", "캐나다", "중국", "일본", "인도", "러시아", "우크라이나", "중동",
+    "美", "中", "日", "英", "歐", "俄", "美국채", "美연준", "美재무부", "美증시",
 ]
 
 # AI 데이터센터의 광섬유·네트워크·전력·냉각 인프라는 사용자의 편집 원칙에
@@ -139,6 +140,10 @@ _TITLE_NOISE_PATTERNS = [
     r"\bmou\b", r"\bmemorandum of understanding\b",
     r"업무협약", r"협약 체결", r"로드쇼", r"웨비나", r"세미나",
     r"인터뷰", r"대담", r"팟캐스트", r"설명회", r"캠페인",
+    # 회계기준 / 세무 단순 실무 공지 (글로벌 차단)
+    r"\b(?:fasb|ifrs|gaap|accounting standards?|effective dates?|tax alert|weekly accounting news)\b",
+    r"\baccounting for\b",
+    r"(?:회계기준|회계\s*처리|세무\s*알림|세법\s*개정\s*안내)\b",
 ]
 
 # MBB·Big4 공식 블로그는 인사이트로 인정하지만, 일반 매체의 블로그·게스트
@@ -450,13 +455,24 @@ def _official_aliases_for_feed(feed_name: str) -> tuple:
     return ()
 
 
+_OFFICIAL_MBB_BIG4_DOMAINS = (
+    "mckinsey.com", "bcg.com", "bain.com",
+    "deloitte.com", "pwc.com", "ey.com", "kpmg.com"
+)
+
+
 def _is_verified_official_insight(
     feed_name: str,
     source_name: str,
     source_category: str,
     insights_category: str,
+    article_link: str = "",
 ) -> bool:
     """Reject third-party stories that merely mention a consulting firm."""
+    link_lower = article_link.lower()
+    if any(domain in link_lower for domain in _OFFICIAL_MBB_BIG4_DOMAINS):
+        return True
+
     if source_category != insights_category or not source_name:
         return False
 
@@ -472,6 +488,8 @@ def summarize(article: dict):
     title = article.get("title", "")
     desc = article.get("description", "") or article.get("summary", "")
     text = (title + " " + desc).lower()
+    raw_link = article.get("link", "")
+    link = raw_link[0] if isinstance(raw_link, list) else str(raw_link or "")
 
     source = article.get("source", "")
     if isinstance(source, list):
@@ -509,6 +527,7 @@ def summarize(article: dict):
         source_clean,
         source_category,
         insights_category,
+        article_link=link,
     )
     verified_impact_source = source_category == impact_category
     specific_impact_business = _has_any(_SPECIFIC_IMPACT_BUSINESS_SIGNALS, text)
