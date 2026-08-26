@@ -30,6 +30,12 @@ _CANDIDATE_TOKEN_STOPWORDS = {
     "펀드", "확대", "회사",
 }
 
+_HEADLINE_EVENT_TOKEN_STOPWORDS = _CANDIDATE_TOKEN_STOPWORDS | {
+    "관련", "대해", "따라", "위해", "통해", "영향", "오늘", "올해",
+    "latest", "new", "update",
+}
+_KOREAN_PARTICLE_SUFFIXES = ("으로", "에서", "에게", "까지", "부터", "처럼", "보다", "은", "는", "이", "가", "을", "를", "에", "의", "와", "과", "로")
+
 _ENTITY_FAMILY_PATTERNS = {
     "securities": (
         r"증권(?:가|사|업계)", r"금융투자(?:업계|협회)", r"금투협",
@@ -399,6 +405,48 @@ def _candidate_tokens(title: str) -> set:
     }
 
 
+def _headline_event_tokens(article: dict) -> set:
+    """Extract short Korean/English anchors used to detect one reported event."""
+    tokens = set()
+    for raw_token in re.findall(
+        r"[a-z0-9가-힣]+",
+        _normalized_title(article),
+        re.IGNORECASE,
+    ):
+        token = raw_token.casefold()
+        for suffix in _KOREAN_PARTICLE_SUFFIXES:
+            if len(token) >= len(suffix) + 2 and token.endswith(suffix):
+                token = token[:-len(suffix)]
+                break
+        if len(token) >= 2 and token not in _HEADLINE_EVENT_TOKEN_STOPWORDS:
+            tokens.add(token)
+    return tokens
+
+
+def _same_headline_event(left: dict, right: dict) -> bool:
+    """Catch close-date paraphrases that Korean sentence embeddings can miss."""
+    date_gap = _publication_gap_days(left, right)
+    if date_gap is not None and date_gap > 1:
+        return False
+    if not _events_compatible(left, right):
+        return False
+
+    left_rates = _policy_rate_values(left)
+    right_rates = _policy_rate_values(right)
+    if left_rates and right_rates and left_rates.isdisjoint(right_rates):
+        return False
+
+    left_tokens = _headline_event_tokens(left)
+    right_tokens = _headline_event_tokens(right)
+    shared = left_tokens & right_tokens
+    smaller_size = min(len(left_tokens), len(right_tokens))
+    return (
+        len(shared) >= 4
+        and smaller_size >= 4
+        and len(shared) / smaller_size >= 0.65
+    )
+
+
 def _large_batch_candidate_pairs(articles: list) -> set:
     """Find plausible duplicate pairs cheaply before loading the AI model."""
     titles = [_normalized_title(article) for article in articles]
@@ -472,6 +520,9 @@ def _large_batch_candidate_pairs(articles: list) -> set:
 def _should_merge(left: dict, right: dict, similarity: float) -> bool:
     if not _events_compatible(left, right):
         return False
+
+    if _same_headline_event(left, right):
+        return True
 
     left_families = _entity_families(left)
     right_families = _entity_families(right)
@@ -657,7 +708,11 @@ def filter_near_duplicates(articles: list, threshold: float) -> list:
 
     kept_indexes = []
     for index in range(len(articles)):
-        if any(similarity[index][kept] >= threshold for kept in kept_indexes):
+        if any(
+            _same_headline_event(articles[index], articles[kept])
+            or similarity[index][kept] >= threshold
+            for kept in kept_indexes
+        ):
             continue
         kept_indexes.append(index)
 
