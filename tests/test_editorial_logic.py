@@ -324,6 +324,56 @@ class CategoryRoutingTests(unittest.TestCase):
         self.assertEqual(result["category"], ALTERNATIVE)
         self.assertTrue(result["major_deal"])
 
+    def test_hanja_country_signals_route_korean_article_to_global_region(self):
+        result, errors = summarize({
+            "title": "자산시장 숨통 조이는 美 국가부채",
+            "description": "미국 재무부 부채 부담이 자산시장에 영향을 주고 있다.",
+            "source": "한국경제",
+            "feed": "국내 거시/정책 (연합·한경)",
+            "region": "korea",
+        })
+
+        self.assertEqual(errors, [])
+        self.assertEqual(result["category"], MACRO)
+        self.assertEqual(result["region"], "global")
+        self.assertEqual(result["region_reason"], "foreign_event_in_korean_source")
+
+    def test_accounting_standard_notices_are_excluded(self):
+        titles = (
+            "Cash equivalents and digital assets, FASB effective dates",
+            "IFRS 20: new accounting for regulatory assets and liabilities",
+            "세법 개정 안내 및 회계 처리 지침",
+        )
+
+        for title in titles:
+            with self.subTest(title=title):
+                result, errors = summarize({
+                    "title": title,
+                    "description": "",
+                    "source": "EY",
+                    "feed": "EY Official Insights",
+                    "link": "https://www.ey.com/insights/accounting-update",
+                })
+                self.assertEqual(errors, [])
+                self.assertTrue(result["editorial_excluded"])
+                self.assertEqual(
+                    result["editorial_exclusion_reason"],
+                    "title_noise",
+                )
+
+    def test_official_big4_domain_link_routes_to_insights(self):
+        result, errors = summarize({
+            "title": "EY Global IPO Trends Q2 2026",
+            "description": "Global IPO activity and market forecast.",
+            "source": "EY",
+            "feed": "글로벌 VC/PE",
+            "link": "https://www.ey.com/en_th/insights/ipo/trends",
+        })
+
+        self.assertEqual(errors, [])
+        self.assertEqual(result["category"], INSIGHTS)
+        self.assertEqual(result["category_reason"], "official_insights_source")
+
 
 class DuplicateProtectionTests(unittest.TestCase):
     def test_same_mortgage_statistic_headlines_are_one_event(self):
