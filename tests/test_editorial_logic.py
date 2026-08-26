@@ -55,6 +55,7 @@ from src.processor import deduplicator as deduplicator_module
 from src.processor.deduplicator import (
     _events_compatible,
     _merge_group,
+    _same_headline_event,
     _should_merge,
     deduplicate_and_merge,
 )
@@ -223,6 +224,92 @@ class CategoryRoutingTests(unittest.TestCase):
         self.assertEqual(result["category"], INSIGHTS)
         self.assertEqual(result["category_reason"], "official_insights_source")
 
+    def test_official_mbb_domain_overrides_a_generic_feed(self):
+        result, errors = summarize({
+            "title": "2026 AI Jobs Barometer Global report findings",
+            "description": "A global labor-market report.",
+            "source": "PwC",
+            "feed": "TechCrunch AI",
+            "link": "https://www.pwc.com/gx/en/issues/artificial-intelligence/job-barometer.html",
+        })
+
+        self.assertEqual(errors, [])
+        self.assertEqual(result["category"], INSIGHTS)
+        self.assertEqual(result["category_reason"], "official_insights_source")
+
+    def test_roundups_and_official_person_views_are_excluded(self):
+        cases = (
+            (
+                "[뉴스모음] 삼전닉스 3복층 반도체팹 추진 外",
+                "compound_roundup",
+            ),
+            (
+                "McKinsey’s Fangning Zhang on China’s growing role in life sciences R&D",
+                "official_person_view",
+            ),
+        )
+
+        for title, reason in cases:
+            with self.subTest(title=title):
+                result, errors = summarize({
+                    "title": title,
+                    "description": "여러 소식 또는 임직원 견해를 소개한다.",
+                    "source": "McKinsey Insights",
+                    "feed": "McKinsey Insights",
+                })
+                self.assertEqual(errors, [])
+                self.assertTrue(result["editorial_excluded"])
+                self.assertEqual(result["editorial_exclusion_reason"], reason)
+
+    def test_impact_bond_is_kept_but_categoryless_contract_is_excluded(self):
+        impact_bond, bond_errors = summarize({
+            "title": "World Bank Issues $4 Billion Sustainable Development Bond",
+            "description": "The bond finances sustainable development projects.",
+            "source": "ESG Today",
+            "feed": "Example",
+        })
+        defense_contract, contract_errors = summarize({
+            "title": "Boeing awarded $131.2 billion F-15 contract",
+            "description": "The defense department awarded the company a contract.",
+            "source": "Reuters",
+            "feed": "Example",
+        })
+
+        self.assertEqual(bond_errors + contract_errors, [])
+        self.assertEqual(impact_bond["category"], IMPACT)
+        self.assertFalse(impact_bond["editorial_excluded"])
+        self.assertTrue(defense_contract["editorial_excluded"])
+        self.assertEqual(
+            defense_contract["editorial_exclusion_reason"],
+            "contract_without_category_fit",
+        )
+
+    def test_hanja_country_signal_routes_korean_report_to_global_macro(self):
+        result, errors = summarize({
+            "title": "美국채 금리 상승, 글로벌 금융시장 압박",
+            "description": "미국 정부부채 전망을 분석한다.",
+            "source": "연합뉴스",
+            "feed": "국내 거시/정책 (연합·한경)",
+            "region": "korea",
+        })
+
+        self.assertEqual(errors, [])
+        self.assertEqual(result["category"], MACRO)
+        self.assertEqual(result["region"], "global")
+
+    def test_routine_accounting_notice_is_excluded(self):
+        result, errors = summarize({
+            "title": "Weekly accounting news: IFRS effective dates",
+            "description": "A routine technical notice.",
+            "source": "PwC",
+            "feed": "Example",
+            "link": "https://www.pwc.com/example",
+        })
+
+        self.assertEqual(errors, [])
+        self.assertTrue(result["editorial_excluded"])
+        self.assertEqual(result["editorial_exclusion_reason"], "title_noise")
+
     def test_series_b_is_a_major_alternative_deal(self):
         article = {
             "title": "Whisper raises $200 million Series B",
@@ -239,6 +326,18 @@ class CategoryRoutingTests(unittest.TestCase):
 
 
 class DuplicateProtectionTests(unittest.TestCase):
+    def test_same_mortgage_statistic_headlines_are_one_event(self):
+        yonhap = {
+            "title": "2분기 신규 주담대 평균 2억829만원…대출 규제에 역대 최대폭↓",
+            "date": "2026-08-25",
+        }
+        hankyung = {
+            "title": "대출 규제 영향…2분기 신규 주담대 역대 최대폭↓",
+            "date": "2026-08-25",
+        }
+
+        self.assertTrue(_same_headline_event(yonhap, hankyung))
+
     def test_policy_decision_and_immediate_market_reaction_are_merged(self):
         decision = {
             "title": "Turkey's Central Bank Shifts Funding Back to 37% Policy Rate",
