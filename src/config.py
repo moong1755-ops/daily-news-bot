@@ -451,6 +451,18 @@ OFFICIAL_INSIGHTS_SOURCE_ALIASES = {
     ),
 }
 
+# 다른 주제 피드로 들어와도 공식 도메인 발행물은 👔 인사이트로 고정한다.
+OFFICIAL_INSIGHTS_DOMAINS = (
+    "mckinsey.com",
+    "bcg.com",
+    "bain.com",
+    "deloitte.com",
+    "pwc.com",
+    "strategy-business.com",
+    "ey.com",
+    "kpmg.com",
+)
+
 # 기사마다 개별 검색어를 추가하지 않고, 넓은 주제 하나를 설정해 수집과
 # 카테고리 연결에 함께 사용한다. query_clauses는 모든 표현의 목록이 아니라
 # 오탐을 막기 위해 반드시 함께 등장해야 하는 대표 개념 쌍이다.
