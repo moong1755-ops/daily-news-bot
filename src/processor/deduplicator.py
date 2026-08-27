@@ -388,6 +388,13 @@ def _normalized_title(article: dict) -> str:
     return " ".join(str(article.get("title") or "").casefold().split())
 
 
+def _same_editor_event(left: dict, right: dict) -> bool:
+    """Match the language-neutral event key produced by the editorial gate."""
+    left_key = str(left.get("editor_event_key") or "").strip()
+    right_key = str(right.get("editor_event_key") or "").strip()
+    return bool(left_key) and left_key == right_key
+
+
 def _candidate_tokens(title: str) -> set:
     """Return brand, organization, number, and Korean phrase tokens."""
     tokens = {
@@ -709,7 +716,8 @@ def filter_near_duplicates(articles: list, threshold: float) -> list:
     kept_indexes = []
     for index in range(len(articles)):
         if any(
-            _same_headline_event(articles[index], articles[kept])
+            _same_editor_event(articles[index], articles[kept])
+            or _same_headline_event(articles[index], articles[kept])
             or similarity[index][kept] >= threshold
             for kept in kept_indexes
         ):

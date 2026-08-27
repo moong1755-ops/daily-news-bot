@@ -52,6 +52,36 @@ class FilterNearDuplicatesTestCase(unittest.TestCase):
             kept = deduplicator.filter_near_duplicates(articles, 0.60)
         self.assertEqual([a["title"] for a in kept], ["A", "B", "C"])
 
+    def test_editor_event_key_collapses_cross_language_titles(self):
+        articles = [
+            {
+                "title": "Stability AI raises $76 million in fresh funding",
+                "editor_event_key": "stability_ai_funding_76m",
+            },
+            {
+                "title": "스태빌리티AI, 7,600만 달러 자금 조달했다",
+                "editor_event_key": "stability_ai_funding_76m",
+            },
+        ]
+        with self._with_similarity([[1.0, 0.1], [0.1, 1.0]]):
+            kept = deduplicator.filter_near_duplicates(articles, 0.60)
+        self.assertEqual(kept, [articles[0]])
+
+    def test_different_editor_event_keys_keep_distinct_company_events(self):
+        articles = [
+            {
+                "title": "Stability AI raises $76 million",
+                "editor_event_key": "stability_ai_funding_76m",
+            },
+            {
+                "title": "Stability AI launches a new image model",
+                "editor_event_key": "stability_ai_model_launch_2026_08",
+            },
+        ]
+        with self._with_similarity([[1.0, 0.1], [0.1, 1.0]]):
+            kept = deduplicator.filter_near_duplicates(articles, 0.60)
+        self.assertEqual(kept, articles)
+
     def test_model_failure_does_not_drop_articles(self):
         """중복 검사 실패가 발송을 막아서는 안 된다."""
         with mock.patch.object(deduplicator, "_get_model", side_effect=OSError("모델 없음")):
