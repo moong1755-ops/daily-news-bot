@@ -356,23 +356,20 @@ def _has_any(keywords: list, text: str) -> bool:
 
 
 def _content_region(article: dict, category: str, text: str) -> tuple[str, str]:
-    """Correct Korean-publisher stories whose actual event is clearly overseas."""
+    """Classify split sections by the event market, not the publisher country."""
     configured_region = (
         "korea" if article.get("region") == "korea" else "global"
     )
-    if (
-        configured_region != "korea"
-        or not str(category).startswith(_REGION_SPLIT_CATEGORY_PREFIXES)
-    ):
+    if not str(category).startswith(_REGION_SPLIT_CATEGORY_PREFIXES):
         return configured_region, "configured_source_region"
 
     has_korea_signal = _has_any(_KOREA_EVENT_SIGNALS, text)
     has_foreign_signal = _has_any(_FOREIGN_EVENT_SIGNALS, text)
+    if has_korea_signal and not has_foreign_signal:
+        return "korea", "korea_event_content"
     if has_foreign_signal and not has_korea_signal:
         return "global", "foreign_event_in_korean_source"
-    if has_korea_signal:
-        return "korea", "korea_event_content"
-    return "korea", "configured_source_region"
+    return configured_region, "configured_source_region"
 
 
 def _matches_any_pattern(patterns: list, text: str) -> bool:

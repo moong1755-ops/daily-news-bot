@@ -374,6 +374,21 @@ class CategoryRoutingTests(unittest.TestCase):
         self.assertEqual(result["category"], ALTERNATIVE)
         self.assertEqual(result["region"], "global")
         self.assertEqual(result["region_reason"], "foreign_event_in_korean_source")
+
+    def test_foreign_outlet_korean_macro_event_is_domestic(self):
+        result, errors = summarize({
+            "title": "South Korea central bank delivers back-to-back rate hike",
+            "description": "The Bank of Korea raised its policy rate.",
+            "source": "Reuters",
+            "feed": "Reuters 거시/정책",
+            "region": "global",
+        })
+
+        self.assertEqual(errors, [])
+        self.assertEqual(result["category"], MACRO)
+        self.assertEqual(result["region"], "korea")
+        self.assertEqual(result["region_reason"], "korea_event_content")
+
     def test_only_final_selected_articles_are_translated(self):
         topics = (
             "chip export rule",

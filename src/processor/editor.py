@@ -161,9 +161,18 @@ OpenAI·Google·Anthropic·Nvidia 같은 핵심 기업의 제품 출시는 소�
 - 5~6: 읽을 가치는 있지만 우선순위가 낮은 보완 기사
 keep=false 기사에는 점수를 부여하지 않는다.
 
+[사건키]
+- keep=true 기사에는 event_key를 반드시 붙인다. 서로 다른 언어·언론사가 같은
+  사건을 보도해도 같은 값이 되도록 핵심 주체 + 사건 종류 + 구분되는 숫자/라운드를
+  짧은 영문 스네이크케이스로 쓴다.
+- 같은 회사라도 서로 다른 투자·제품·정책 사건은 다른 키로 쓴다.
+- 예: Stability AI의 7,600만 달러 투자 유치는 언어와 무관하게
+  stability_ai_funding_76m, 한국은행의 같은 날 기준금리 인상은
+  bank_of_korea_rate_hike_2026_08_27 로 쓴다.
+
 [출력] 후보 전부에 대해 아래 형식의 JSON 만 반환한다. 설명 문장을 쓰지 마라.
 {{"verdicts": [
-  {{"id": 1, "keep": true, "category": "🤖 AI", "score": 8, "reason": "funding_round"}},
+  {{"id": 1, "keep": true, "category": "🤖 AI", "score": 8, "reason": "funding_round", "event_key": "example_ai_funding_series_b"}},
   {{"id": 2, "keep": false, "reason": "job_posting"}}
 ]}}
 
@@ -295,6 +304,13 @@ def _apply(article: dict, verdict: dict, valid_categories: set) -> None:
         return
 
     article["editorial_excluded"] = False
+    event_key = re.sub(
+        r"[^a-z0-9가-힣]+",
+        "_",
+        str(verdict.get("event_key", "") or "").casefold(),
+    ).strip("_")
+    if event_key:
+        article["editor_event_key"] = event_key[:120]
     category = verdict.get("category")
     official_insights_locked = (
         article.get("category_reason") == "official_insights_source"
