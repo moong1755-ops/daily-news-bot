@@ -76,6 +76,22 @@ _GEMINI_CONNECT_TIMEOUT = _env_int("GEMINI_CONNECT_TIMEOUT", 8, 3, 20)
 _GEMINI_READ_TIMEOUT = _env_int("GEMINI_READ_TIMEOUT", 30, 15, 60)
 _GEMINI_MAX_ATTEMPTS = _env_int("GEMINI_MAX_ATTEMPTS", 2, 1, 3)
 _GEMINI_RETRY_BASE_SECONDS = _env_int("GEMINI_RETRY_BASE_SECONDS", 2, 1, 5)
+# 기본 후보가 모두 실패했을 때 자동 탐색 모델까지 전부 시도하면 장애가 수 분간
+# 이어진다. 텍스트용 예비 모델 두 개까지만 확인하고 규칙 기반 결과로 복귀한다.
+_GEMINI_DISCOVERY_MAX_MODELS = _env_int(
+    "GEMINI_DISCOVERY_MAX_MODELS", 2, 0, 3
+)
+_NON_TEXT_MODEL_MARKERS = (
+    "image",
+    "tts",
+    "audio",
+    "vision",
+    "embedding",
+    "live",
+    "robotics",
+    "computer-use",
+    "omni",
+)
 
 
 def is_enabled():
@@ -160,11 +176,11 @@ def _post_generate(
 
 
 def _discover_models(api_key: str, timeout: int = 8) -> list:
-    """ListModels 로 쓸 수 있는 flash 계열 모델을 '전부' 찾아 순서대로 돌려준다.
+    """ListModels 에서 뉴스 편집에 쓸 수 있는 텍스트 flash 모델만 찾는다.
 
-    하나만 돌려주면 그게 이미 시도한 모델일 때 체인이 그대로 끝난다. 실제로
-    후보 목록의 gemini-2.5-flash-lite 가 이 키에서 404 라, 탐색이 같은 이름을
-    반환해 살아 있는 다른 모델을 못 써보고 실패하는 일이 있었다.
+    generateContent 를 지원해도 이미지·음성 전용 모델은 텍스트 JSON 요청에
+    부적합하다. 이런 모델을 제외하지 않으면 400/429/타임아웃을 연속으로 내며
+    일일 실행 시간이 수 분 늘어난다.
     """
     # 캐시 전용 모드에서는 탐색도 네트워크를 쓰므로 시도하지 않는다.
     llm_cache.guard_network("ListModels")
@@ -176,10 +192,22 @@ def _discover_models(api_key: str, timeout: int = 8) -> list:
     for m in models:
         name = m.get("name", "").split("/")[-1]
         methods = m.get("supportedGenerationMethods", [])
-        if "generateContent" in methods and "flash" in name and not name.startswith(_DEAD_PREFIXES):
+        is_text_flash = (
+            "generateContent" in methods
+            and "flash" in name
+            and not name.startswith(_DEAD_PREFIXES)
+            and not any(marker in name.lower() for marker in _NON_TEXT_MODEL_MARKERS)
+        )
+        if is_text_flash:
             flashes.append(name)
-    # lite(저비용) 우선, 그다음 이름 순
-    flashes.sort(key=lambda n: (0 if "lite" in n else 1, n))
+    # 안정 버전을 preview/experimental 보다 먼저, 같은 조건에서는 저비용 lite 우선.
+    flashes.sort(
+        key=lambda n: (
+            1 if "preview" in n or "exp" in n else 0,
+            0 if "lite" in n else 1,
+            n,
+        )
+    )
     return flashes
 
 
@@ -217,11 +245,17 @@ def _call_llm(instruction: str, api_key: str, timeout: int = 12):
     try:
         discovered = _discover_models(api_key)
         remaining = [m for m in discovered if m not in tried]
+        limited = remaining[:_GEMINI_DISCOVERY_MAX_MODELS]
         if not discovered:
             print("⚠️ ListModels 에서 사용 가능한 flash 계열 모델을 찾지 못함.")
         elif not remaining:
             print(f"⚠️ ListModels 결과({', '.join(discovered)})가 모두 이미 시도한 모델임.")
-        for disc in remaining:
+        if len(remaining) > len(limited):
+            print(
+                f"ℹ️ 자동 탐색 후보 {len(remaining)}개 중 텍스트 모델 "
+                f"{len(limited)}개만 시도합니다."
+            )
+        for disc in limited:
             print(f"🔎 ListModels 로 사용 가능한 모델 탐색 → {disc}")
             tried.append(disc)
             try:

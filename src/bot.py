@@ -815,6 +815,17 @@ def send_aggregated_slack_news(articles) -> tuple:
         selected_by_category[cat_name] = selected
         sent_articles.extend(selected)
 
+    # 선정·중복 제거를 원문 제목으로 모두 끝낸 뒤 실제 발송 기사만 번역한다.
+    # 수백 건의 후보를 미리 번역하면 API 호출이 느려지고, 번역된 표현 때문에
+    # 같은 사건 판정이 흔들릴 수 있다. translate_titles 는 기사 객체를 제자리에서
+    # 갱신하므로 selected_by_category 에도 번역 결과가 그대로 반영된다.
+    print(
+        f"🈯 최종 선정 후 번역: GEMINI_API_KEY="
+        f"{'있음' if os.environ.get('GEMINI_API_KEY') else '없음'}, "
+        f"대상 {len(sent_articles)}건"
+    )
+    translate_titles(sent_articles)
+
     message_text = render_digest(selected_by_category)
     print(f"ℹ️ Slack 메시지 {len(message_text):,}자, 선택 기사 {len(sent_articles)}건 전부 발송")
 
@@ -950,11 +961,6 @@ def main():
             load_store,
             float(SIMILARITY_THRESHOLD),
         )
-
-    # ✅ 발송 확정 후보만 제목 한글 번역(실패 시 원문 유지, 발송은 계속됨)
-    print(f"🈯 번역 단계 진입: GEMINI_API_KEY={'있음' if os.environ.get('GEMINI_API_KEY') else '없음'}, "
-          f"후보 {len(classified)}건")
-    classified = translate_titles(classified)
 
     sent_articles = []
     if classified:

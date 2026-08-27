@@ -392,6 +392,10 @@ def _google_news_url(query: str, language: str = "en-US", country: str = "US") -
 # MBB·Big4는 회사명이 언급된 외부 기사가 아니라 공식 도메인의 발행물만 수집한다.
 OFFICIAL_INSIGHTS_QUERIES = {
     "McKinsey Official Insights": "site:mckinsey.com/insights when:8d",
+    "McKinsey Korea Insights": (
+        "site:mckinsey.com/kr/our-insights "
+        "(인사이트 OR 보고서 OR 연구 OR 전망 OR 트렌드 OR 산업) when:14d"
+    ),
     "BCG Official Insights": "site:bcg.com/publications when:8d",
     "Bain Official Insights": "site:bain.com/insights when:8d",
     "Deloitte Official Insights": "site:deloitte.com/insights when:8d",
@@ -420,8 +424,16 @@ OFFICIAL_INSIGHTS_QUERIES = {
 OFFICIAL_INSIGHTS_FEEDS = {
     feed_name: _google_news_url(
         query,
-        language="ko" if feed_name.startswith("국내") else "en-US",
-        country="KR" if feed_name.startswith("국내") else "US",
+        language=(
+            "ko"
+            if feed_name.startswith("국내") or "Korea" in feed_name
+            else "en-US"
+        ),
+        country=(
+            "KR"
+            if feed_name.startswith("국내") or "Korea" in feed_name
+            else "US"
+        ),
     )
     for feed_name, query in OFFICIAL_INSIGHTS_QUERIES.items()
 }
@@ -550,6 +562,13 @@ SUPPLEMENTAL_NEWS_QUERIES = {
         "site:dealsite.co.kr/articles "
         "(투자유치 OR 펀드결성 OR 인수 OR 합병 OR 매각 OR IPO OR 상장 OR 출자) when:3d"
     ),
+    # 마켓인사이트 공개 목록은 GitHub Actions 요청을 403으로 차단한다.
+    # 기사 페이지는 Google News에 색인되므로 site: 검색으로만 보완한다.
+    "국내 한경 마켓인사이트": (
+        "site:marketinsight.hankyung.com/article "
+        "(투자유치 OR 자금조달 OR 펀드 OR 출자 OR 인수 OR 합병 OR 매각 OR "
+        "IPO OR 상장 OR 기업가치 OR 벤처캐피탈 OR 사모펀드) when:3d"
+    ),
     "국내 플래텀 VC/스타트업": (
         "site:platum.kr (투자 OR 투자유치 OR 펀드 OR 인수 OR 합병 OR 매각 OR "
         "IPO OR 상장 OR 벤처 OR 스타트업) when:3d"
@@ -595,6 +614,7 @@ SUPPLEMENTAL_NEWS_FEEDS = {
 # 다음 수집 단계는 아래 설정만 보고 목록·제목·요약·날짜를 추출하도록 구성한다.
 DIRECT_WEB_SOURCE_METADATA = {
     "McKinsey Korea Insights": {
+        "enabled": False,
         "url": "https://www.mckinsey.com/kr/our-insights/mckinsey-insights",
         "category": "👔 MBB·Big4 인사이트",
         "tier": "primary",
@@ -607,7 +627,11 @@ DIRECT_WEB_SOURCE_METADATA = {
         "lookback_days": 14,
         "require_date": True,
     },
+    # GitHub Actions에서는 공개 목록이 403을 반환하므로 실제 수집은 끈다.
+    # 파서 설정은 과거 데이터 재현과 회귀 테스트를 위해 보존하고, 위의
+    # Google News site: 검색이 신규 기사를 대신 수집한다.
     "국내 한경 마켓인사이트": {
+        "enabled": False,
         "url": "https://marketinsight.hankyung.com/freenews",
         "category": "📈 대체투자",
         "tier": "supplemental",

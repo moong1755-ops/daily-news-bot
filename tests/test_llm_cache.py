@@ -108,6 +108,57 @@ class LLMCacheTestCase(unittest.TestCase):
             self.assertEqual(post.call_count, 1, "live 는 항상 실제 호출이어야 한다")
         self.assertEqual(fresh, "v2")
 
+    def test_model_discovery_excludes_non_text_variants(self):
+        response = mock.Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {
+            "models": [
+                {
+                    "name": "models/gemini-3.1-flash-image",
+                    "supportedGenerationMethods": ["generateContent"],
+                },
+                {
+                    "name": "models/gemini-3.1-flash-tts-preview",
+                    "supportedGenerationMethods": ["generateContent"],
+                },
+                {
+                    "name": "models/gemini-3.5-flash-lite",
+                    "supportedGenerationMethods": ["generateContent"],
+                },
+                {
+                    "name": "models/gemini-3-flash-preview",
+                    "supportedGenerationMethods": ["generateContent"],
+                },
+            ]
+        }
+
+        with mock.patch.object(llm_cache, "guard_network"):
+            with mock.patch.object(reranker.requests, "get", return_value=response):
+                models = reranker._discover_models("key")
+
+        self.assertEqual(
+            models,
+            ["gemini-3.5-flash-lite", "gemini-3-flash-preview"],
+        )
+
+    def test_model_discovery_attempts_are_bounded(self):
+        with mock.patch.object(reranker, "_RESOLVED_MODEL", None):
+            with mock.patch.object(reranker, "_candidate_models", return_value=[]):
+                with mock.patch.object(
+                    reranker,
+                    "_discover_models",
+                    return_value=["text-one", "text-two", "text-three"],
+                ):
+                    with mock.patch.object(
+                        reranker,
+                        "_post_generate",
+                        side_effect=RuntimeError("unavailable"),
+                    ) as post:
+                        result = reranker._call_llm("prompt", "key")
+
+        self.assertEqual(result, (None, None))
+        self.assertEqual(post.call_count, 2)
+
 
 if __name__ == "__main__":
     unittest.main()

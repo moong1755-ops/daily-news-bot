@@ -43,7 +43,12 @@ def _install_optional_dependency_stubs():
 
 _install_optional_dependency_stubs()
 
-from src.bot import _build_slack_blocks, _select_category_articles, is_relevant
+from src.bot import (
+    _build_slack_blocks,
+    _select_category_articles,
+    is_relevant,
+    send_aggregated_slack_news,
+)
 from src.config import CATEGORIES, DIRECT_WEB_SOURCE_METADATA, GOOGLE_NEWS_FEEDS
 from src.fetchers.rss_feeds import (
     _ConfiguredArticleListParser,
@@ -323,6 +328,85 @@ class CategoryRoutingTests(unittest.TestCase):
         self.assertEqual(errors, [])
         self.assertEqual(result["category"], ALTERNATIVE)
         self.assertTrue(result["major_deal"])
+
+    def test_non_deal_legal_and_generic_business_are_not_alt_fallbacks(self):
+        legal, legal_errors = summarize({
+            "title": "KKR to Pay $250 Million to Resolve DOJ Merger Filing Lawsuit",
+            "description": "A legal settlement involving merger filing rules.",
+            "source": "Example",
+            "feed": "Example",
+        })
+        generic, generic_errors = summarize({
+            "title": "Company opens a new regional office",
+            "description": "The company expanded its office.",
+            "source": "Example",
+            "feed": "Example",
+        })
+        trend, trend_errors = summarize({
+            "title": "Private equity fundraising and exit market trends improve",
+            "description": "VC and PE capital flows, valuations and exits recover.",
+            "source": "Example",
+            "feed": "Example",
+        })
+
+        self.assertEqual(legal_errors + generic_errors + trend_errors, [])
+        self.assertTrue(legal["editorial_excluded"])
+        self.assertEqual(legal["editorial_exclusion_reason"], "non_deal_legal_event")
+        self.assertFalse(legal["major_deal"])
+        self.assertTrue(generic["editorial_excluded"])
+        self.assertEqual(
+            generic["editorial_exclusion_reason"],
+            "general_business_without_category_fit",
+        )
+        self.assertEqual(trend["category"], ALTERNATIVE)
+        self.assertFalse(trend["editorial_excluded"])
+
+    def test_korean_outlet_foreign_alt_deal_is_global(self):
+        result, errors = summarize({
+            "title": "United States startup raises $200 million Series B",
+            "description": "US financing round.",
+            "source": "국내 매체",
+            "feed": "Example",
+            "region": "korea",
+        })
+
+        self.assertEqual(errors, [])
+        self.assertEqual(result["category"], ALTERNATIVE)
+        self.assertEqual(result["region"], "global")
+        self.assertEqual(result["region_reason"], "foreign_event_in_korean_source")
+    def test_only_final_selected_articles_are_translated(self):
+        topics = (
+            "chip export rule",
+            "foundation model launch",
+            "data center financing",
+            "robotics acquisition",
+            "cloud regulation",
+            "agent benchmark",
+        )
+        articles = [
+            {
+                "category": AI,
+                "title": title,
+                "title_orig": title,
+                "link": [f"https://example.com/{index}"],
+                "source": ["Test Source"],
+                "date": "2026-08-27",
+                "relevance": 100 - index,
+            }
+            for index, title in enumerate(topics)
+        ]
+
+        with patch("src.bot.is_dry_run", return_value=True):
+            with patch(
+                "src.bot.translate_titles",
+                side_effect=lambda selected: selected,
+            ) as translate:
+                with patch("builtins.print"):
+                    success, sent = send_aggregated_slack_news(articles)
+
+        self.assertTrue(success)
+        self.assertEqual(len(sent), 3)
+        self.assertEqual(len(translate.call_args.args[0]), 3)
 
     def test_hanja_country_signals_route_korean_article_to_global_region(self):
         result, errors = summarize({
@@ -769,6 +853,21 @@ class RegionalBriefingTests(unittest.TestCase):
             ),
             ("2026-08-21", True),
         )
+
+    def test_blocked_direct_sources_have_google_news_replacements(self):
+        for feed_name in ("국내 한경 마켓인사이트", "McKinsey Korea Insights"):
+            with self.subTest(feed=feed_name):
+                self.assertFalse(DIRECT_WEB_SOURCE_METADATA[feed_name]["enabled"])
+                self.assertIn(feed_name, GOOGLE_NEWS_FEEDS)
+
+        market_query = parse_qs(
+            urlparse(GOOGLE_NEWS_FEEDS["국내 한경 마켓인사이트"]).query
+        )["q"][0]
+        mckinsey_query = parse_qs(
+            urlparse(GOOGLE_NEWS_FEEDS["McKinsey Korea Insights"]).query
+        )["q"][0]
+        self.assertIn("site:marketinsight.hankyung.com/article", market_query)
+        self.assertIn("site:mckinsey.com/kr/our-insights", mckinsey_query)
 
     def test_llm_selection_keeps_three_per_region(self):
         candidates = {
