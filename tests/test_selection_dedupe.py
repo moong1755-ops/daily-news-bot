@@ -82,6 +82,28 @@ class FilterNearDuplicatesTestCase(unittest.TestCase):
             kept = deduplicator.filter_near_duplicates(articles, 0.60)
         self.assertEqual(kept, articles)
 
+    def test_event_key_prefers_verified_original_over_domestic_repost(self):
+        domestic_repost = {
+            "title": "스태빌리티AI, 7,600만 달러 자금 조달했다",
+            "editor_event_key": "stability_ai_funding_76m",
+            "feed": "국내 스타트업레시피 VC",
+            "source": "스타트업레시피",
+            "link": "https://startuprecipe.co.kr/example",
+        }
+        overseas_original = {
+            "title": "Stability AI raises $76 million in fresh funding",
+            "editor_event_key": "stability_ai_funding_76m",
+            "feed": "TechCrunch AI",
+            "source": "TechCrunch AI",
+            "link": "https://techcrunch.com/example",
+        }
+        articles = [domestic_repost, overseas_original]
+
+        with self._with_similarity([[1.0, 0.1], [0.1, 1.0]]):
+            kept = deduplicator.filter_near_duplicates(articles, 0.60)
+
+        self.assertEqual(kept, [overseas_original])
+
     def test_model_failure_does_not_drop_articles(self):
         """중복 검사 실패가 발송을 막아서는 안 된다."""
         with mock.patch.object(deduplicator, "_get_model", side_effect=OSError("모델 없음")):

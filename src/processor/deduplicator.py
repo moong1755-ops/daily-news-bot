@@ -714,7 +714,18 @@ def filter_near_duplicates(articles: list, threshold: float) -> list:
         return list(articles)
 
     kept_indexes = []
+    event_key_positions = {}
     for index in range(len(articles)):
+        event_key = str(articles[index].get("editor_event_key") or "").strip()
+        if event_key and event_key in event_key_positions:
+            kept_position = event_key_positions[event_key]
+            representative_index = kept_indexes[kept_position]
+            if _representative_key(articles[index]) > _representative_key(
+                articles[representative_index]
+            ):
+                kept_indexes[kept_position] = index
+            continue
+
         if any(
             _same_editor_event(articles[index], articles[kept])
             or _same_headline_event(articles[index], articles[kept])
@@ -723,6 +734,8 @@ def filter_near_duplicates(articles: list, threshold: float) -> list:
         ):
             continue
         kept_indexes.append(index)
+        if event_key:
+            event_key_positions[event_key] = len(kept_indexes) - 1
 
     dropped = len(articles) - len(kept_indexes)
     if dropped:
