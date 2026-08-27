@@ -69,6 +69,49 @@ class EditorGateTestCase(unittest.TestCase):
         self.assertEqual(kept[0]["editor_score"], 9.0)
         self.assertEqual(kept[0]["relevance"], 9.0)
 
+    def test_official_insight_category_cannot_be_overwritten(self):
+        articles = [_article(
+            "2026 AI Jobs Barometer Global report findings",
+            category="👔 MBB·Big4 인사이트",
+            category_reason="official_insights_source",
+            source="PwC",
+            link="https://www.pwc.com/gx/en/issues/artificial-intelligence/job-barometer.html",
+        )]
+        verdict = {
+            "id": 1,
+            "keep": True,
+            "category": "🤖 AI",
+            "score": 8,
+            "reason": "ai_labor_market",
+        }
+
+        with _llm({"verdicts": [verdict]}):
+            kept, _ = editor.review(articles)
+
+        self.assertEqual(kept[0]["category"], "👔 MBB·Big4 인사이트")
+        self.assertEqual(kept[0]["category_reason"], "official_insights_source")
+        self.assertEqual(kept[0]["editor_score"], 8.0)
+
+    def test_official_insight_can_still_be_rejected_as_noise(self):
+        articles = [_article(
+            "Weekly accounting news: IFRS effective dates",
+            category="👔 MBB·Big4 인사이트",
+            category_reason="official_insights_source",
+            source="PwC",
+        )]
+        verdict = {
+            "id": 1,
+            "keep": False,
+            "reason": "routine_bulletin",
+        }
+
+        with _llm({"verdicts": [verdict]}):
+            kept, _ = editor.review(articles)
+
+        self.assertEqual(kept, [])
+        self.assertTrue(articles[0]["editorial_excluded"])
+        self.assertEqual(articles[0]["filter_reason"], "editor:routine_bulletin")
+
     def test_unknown_category_does_not_overwrite_existing(self):
         articles = [_article("어떤 기사", category="🤖 AI")]
         with _llm({"verdicts": [{"id": 1, "keep": True, "category": "존재하지 않는 분야", "score": 5}]}):

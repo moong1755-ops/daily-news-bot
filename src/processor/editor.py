@@ -240,7 +240,11 @@ def _apply(article: dict, verdict: dict, valid_categories: set) -> None:
 
     article["editorial_excluded"] = False
     category = verdict.get("category")
-    if category in valid_categories:
+    official_insights_locked = (
+        article.get("category_reason") == "official_insights_source"
+        and article.get("category") in valid_categories
+    )
+    if category in valid_categories and not official_insights_locked:
         article["category"] = category
         article["category_reason"] = "editor"
     try:

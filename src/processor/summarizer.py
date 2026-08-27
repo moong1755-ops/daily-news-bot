@@ -14,6 +14,7 @@ from ..config import (
     EDITORIAL_PRIORITY_WEIGHT,
     EDITORIAL_EXCLUSION_KEYWORDS,
     IMPACT_THEME_KEYWORDS,
+    OFFICIAL_INSIGHTS_DOMAINS,
     OFFICIAL_INSIGHTS_SOURCE_ALIASES,
 )
 
@@ -43,10 +44,13 @@ _SPECIFIC_IMPACT_BUSINESS_SIGNALS = [
     "climate finance", "climate tech", "clean energy", "renewable energy",
     "energy transition", "transition finance", "decarbonization", "low-carbon",
     "carbon accounting", "carbon credits", "sustainability reporting",
+    "sustainable development bond", "green bond", "social bond",
+    "sustainability bond", "transition bond",
     "circular economy", "financial inclusion", "affordable housing",
     "임팩트 투자", "임팩트투자", "임팩트 펀드", "기후 펀드", "기후금융",
     "기후테크", "청정에너지", "재생에너지", "에너지 전환", "전환금융",
     "탈탄소", "탄소회계", "탄소배출권", "지속가능성 보고", "순환경제",
+    "지속가능개발채권", "녹색채권", "사회적채권", "지속가능채권", "전환채권",
     "금융포용", "주거복지",
 ]
 
@@ -140,7 +144,7 @@ _TITLE_NOISE_PATTERNS = [
     r"\bmou\b", r"\bmemorandum of understanding\b",
     r"업무협약", r"협약 체결", r"로드쇼", r"웨비나", r"세미나",
     r"인터뷰", r"대담", r"팟캐스트", r"설명회", r"캠페인",
-    # 회계기준 / 세무 단순 실무 공지 (글로벌 차단)
+    # 회계기준·세무 단순 실무 공지는 시장 인사이트가 아니라서 제외한다.
     r"\b(?:fasb|ifrs|gaap|accounting standards?|effective dates?|tax alert|weekly accounting news)\b",
     r"\baccounting for\b",
     r"(?:회계기준|회계\s*처리|세무\s*알림|세법\s*개정\s*안내)\b",
@@ -171,6 +175,14 @@ _GENERIC_INSIGHT_PAGE_PATTERNS = [
     r"^latest insights$", r"^insights and publications$",
     r"^research and insights$", r"^인사이트$", r"^최신 인사이트$",
 ]
+
+_OFFICIAL_PERSON_VIEW_TITLE_PATTERN = (
+    r"^(?:McKinsey|BCG|Bain|Deloitte|PwC|EY|KPMG)(?:['’]s)\s+"
+    r"(?!Global\b|Annual\b|New\b|Latest\b|Report\b|Research\b|Survey\b|"
+    r"Analysis\b|State\b)"
+    r"[A-Z][A-Za-zÀ-ÖØ-öø-ÿ'’.-]+"
+    r"(?:\s+(?:[A-Z][A-Za-zÀ-ÖØ-öø-ÿ'’.-]+|de|van|von|da|di)){1,3}\s+on\b"
+)
 
 # 공식 도메인 검색에는 리포트뿐 아니라 임직원 약력, 채용, 서비스 소개,
 # 사무소 안내 페이지도 함께 노출된다. 일반 기사에는 적용하지 않고 검증된
@@ -205,7 +217,10 @@ _OFFICIAL_INSIGHT_NOISE_PATTERNS = [
 
 _COMPOUND_ROUNDUP_PATTERNS = [
     r"【\s*esg deal\s*】", r"^esg deal\s*[:：]", r"^deal roundup\b",
-    r"^the week in\b", r"\bweekly roundup\b", r"\bweek in review\b",
+    r"^the week in\b", r"\bweekly roundup\b", r"\bweekly recap\b",
+    r"\bweek in review\b", r"^news roundup\b", r"^the brief\s*[:：]",
+    r"\bthey said it\b",
+    r"^\s*[\[(（【]\s*뉴스\s*모음\s*[\])）】]",
     r"^\s*[\[(（]?\s*week ahead\b", r"^\s*[\[(（]?\s*weekly calendar\b",
     r"^주간\s*(?:모음|정리|리뷰)\b", r"^이번\s*주\s*(?:모음|정리|리뷰)\b",
     r"^\s*[\[(（]?\s*(?:다음|이번)\s*주\s*(?:경제|증시|산업|정책|일정)\s*[\])）]?",
@@ -382,6 +397,9 @@ def _event_state(title: str, text: str) -> tuple:
 
 def _title_exclusion_reason(title: str, official_insights: bool) -> str:
     """Return a stable reason for deterministic final editorial rejection."""
+    if official_insights and re.search(_OFFICIAL_PERSON_VIEW_TITLE_PATTERN, title):
+        return "official_person_view"
+
     normalized = " ".join(title.lower().split())
     if _matches_any_pattern(_COMPOUND_ROUNDUP_PATTERNS, normalized):
         return "compound_roundup"
@@ -455,12 +473,6 @@ def _official_aliases_for_feed(feed_name: str) -> tuple:
     return ()
 
 
-_OFFICIAL_MBB_BIG4_DOMAINS = (
-    "mckinsey.com", "bcg.com", "bain.com",
-    "deloitte.com", "pwc.com", "ey.com", "kpmg.com"
-)
-
-
 def _is_verified_official_insight(
     feed_name: str,
     source_name: str,
@@ -470,7 +482,7 @@ def _is_verified_official_insight(
 ) -> bool:
     """Reject third-party stories that merely mention a consulting firm."""
     link_lower = article_link.lower()
-    if any(domain in link_lower for domain in _OFFICIAL_MBB_BIG4_DOMAINS):
+    if any(domain in link_lower for domain in OFFICIAL_INSIGHTS_DOMAINS):
         return True
 
     if source_category != insights_category or not source_name:
@@ -606,6 +618,17 @@ def summarize(article: dict):
         assigned_category = alternative_category
         category_reason = "general_business_fallback"
 
+    category_fit_exclusion_reason = ""
+    if (
+        assigned_category == alternative_category
+        and "major_contract_or_technology" in editorial_groups
+        and not deal_event
+    ):
+        # 투자·M&A·펀드가 아닌 일반 기업 계약은 대체투자 칸에 억지로
+        # 넣지 않는다. 임팩트·AI·거시 근거가 있으면 앞 단계에서 이미
+        # 해당 카테고리로 배정되므로 이 조건에 걸리지 않는다.
+        category_fit_exclusion_reason = "contract_without_category_fit"
+
     if assigned_category in category_scores:
         base_score += float(category_scores[assigned_category])
 
@@ -631,7 +654,8 @@ def summarize(article: dict):
     # 최종 안전검사는 rescue 신호보다 우선한다. 행사·인터뷰·MOU·일반 목록
     # 페이지·복수 사건 종합기사는 Gemini가 실패해도 발송하지 않는다.
     title_exclusion_reason = _title_exclusion_reason(title, official_insights)
-    if title_exclusion_reason:
+    final_exclusion_reason = title_exclusion_reason or category_fit_exclusion_reason
+    if final_exclusion_reason:
         excluded = True
     base_score += editorial_score + deal_score + _EVENT_STATUS_WEIGHTS[event_status]
 
@@ -644,7 +668,7 @@ def summarize(article: dict):
     article["category_reason"] = category_reason
     article["region"] = article_region
     article["region_reason"] = region_reason
-    article["editorial_exclusion_reason"] = title_exclusion_reason
+    article["editorial_exclusion_reason"] = final_exclusion_reason
     article["source_priority"] = source_priority
     article["impact_themes"] = impact_themes
     article["editorial_signals"] = sorted(editorial_groups)
