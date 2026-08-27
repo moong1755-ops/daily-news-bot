@@ -1,6 +1,7 @@
 import os
 import re
 import socket
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
@@ -63,6 +64,18 @@ KOREA_TIMEZONE = timezone(timedelta(hours=9))
 LONG_FORM_SOURCES = frozenset({"SSIR", "The Batch"})
 
 _GN_URL_CACHE = {}
+
+
+def _bounded_worker_count() -> int:
+    """동시 요청 수를 운영 환경에서 조절하되 과도한 접속은 막는다."""
+    try:
+        configured = int(os.environ.get("RSS_FETCH_WORKERS", "6"))
+    except (TypeError, ValueError):
+        configured = 6
+    return max(1, min(configured, 10))
+
+
+_RSS_FETCH_WORKERS = _bounded_worker_count()
 
 
 def resolve_gnews_url(url: str) -> str:
@@ -553,6 +566,91 @@ def _fetch_direct_web_source(
     return articles
 
 
+def _fetch_feed_source(
+    source_name: str,
+    original_url: str,
+    now_utc: datetime,
+    target_date,
+) -> tuple:
+    """RSS 한 곳을 독립적으로 수집해 기사·오류·안내문을 반환한다."""
+    articles = []
+    errors = []
+    notices = []
+    url = rewrite_for_as_of(original_url, target_date)
+    is_gnews = "news.google.com" in url
+    via_fallback = False
+
+    try:
+        feed = _get_feed(url)
+    except Exception as first_err:
+        if is_gnews:
+            return [], [f"{source_name} ({url}): {first_err}"], []
+
+        discovered = _discover_feed_url(url)
+        if discovered:
+            try:
+                feed = _get_feed(discovered)
+                notices.append(
+                    f"🔍 {source_name}: 발견된 대체 피드로 수집({discovered})"
+                )
+            except Exception:
+                discovered = None
+        if not discovered:
+            try:
+                fallback_url = _gnews_site_fallback_url(url, source_name)
+                feed = _get_feed(fallback_url)
+                if not feed.entries:
+                    raise ValueError("fallback empty")
+                via_fallback = True
+                notices.append(
+                    f"🔁 {source_name}: 원본 RSS 실패 → Google News site: 폴백으로 수집"
+                )
+            except Exception as fallback_error:
+                errors.append(
+                    f"{source_name} ({url}): {first_err} | "
+                    f"폴백 실패: {fallback_error}"
+                )
+                return articles, errors, notices
+
+    parse_as_gnews = is_gnews or via_fallback
+
+    # feedparser가 읽은 전체 항목에서 실제 수집 기간에 해당하는 기사만 남긴다.
+    for entry in feed.entries:
+        raw_title = entry.get("title", "").strip()
+        link = entry.get("link", "").strip()
+        if not raw_title or not link:
+            continue
+
+        gnews_link = ""
+        if parse_as_gnews:
+            title, display_source = extract_gnews(entry, raw_title, source_name)
+            gnews_link = link
+            link = resolve_gnews_url(link)
+        else:
+            title = raw_title
+            display_source = source_name
+
+        date_str, include_article = _article_date(entry, source_name, now_utc)
+        if not include_article:
+            continue
+
+        description = clean_html(
+            entry.get("summary") or entry.get("description") or ""
+        )
+        articles.append({
+            "title": title,
+            "link": link,
+            "date": date_str,
+            "source": display_source,
+            "feed": source_name,
+            "region": source_region(source_name),
+            "gnews_link": gnews_link,
+            "description": description,
+        })
+
+    return articles, errors, notices
+
+
 def fetch() -> tuple:
     articles = []
     errors = []
@@ -562,91 +660,66 @@ def fetch() -> tuple:
         print(f"🕰 재현 모드: {target_date} 발행 기사만 수집합니다 "
               "(Google News 는 해당 날짜로 재검색, 직접 RSS 는 남아 있는 만큼).")
 
-    for source_name, url in FEEDS.items():
-        if not url or url.startswith("<"):
-            continue
+    feed_sources = [
+        (source_name, url)
+        for source_name, url in FEEDS.items()
+        if url and not url.startswith("<")
+    ]
+    direct_sources = [
+        (source_name, metadata)
+        for source_name, metadata in DIRECT_WEB_SOURCE_METADATA.items()
+        if metadata.get("enabled", True)
+    ]
+    total_sources = len(feed_sources) + len(direct_sources)
+    if total_sources:
+        print(
+            f"⚡ 뉴스 소스 {total_sources}곳을 최대 "
+            f"{_RSS_FETCH_WORKERS}곳씩 동시에 수집합니다."
+        )
 
-        url = rewrite_for_as_of(url, target_date)
-        is_gnews = "news.google.com" in url
-        via_fallback = False
+    # 결과는 설정 순서대로 합친다. 요청만 동시에 보내므로 같은 입력에서는
+    # 기사 순서와 대표 기사 선택이 기존 실행과 달라지지 않는다.
+    with ThreadPoolExecutor(max_workers=_RSS_FETCH_WORKERS) as executor:
+        feed_futures = [
+            executor.submit(
+                _fetch_feed_source,
+                source_name,
+                url,
+                now_utc,
+                target_date,
+            )
+            for source_name, url in feed_sources
+        ]
+        for (source_name, url), future in zip(feed_sources, feed_futures):
+            try:
+                source_articles, source_errors, notices = future.result()
+                articles.extend(source_articles)
+                errors.extend(source_errors)
+                for notice in notices:
+                    print(notice)
+            except Exception as exc:
+                errors.append(f"{source_name} ({url}): 동시 수집 오류: {exc}")
 
-        try:
-            feed = _get_feed(url)
-        except Exception as first_err:
-            if is_gnews:
-                errors.append(f"{source_name} ({url}): {first_err}")
-                continue
-            # Try to discover an alternate feed URL heuristically
-            discovered = _discover_feed_url(url)
-            if discovered:
-                try:
-                    feed = _get_feed(discovered)
-                    print(f"🔍 {source_name}: 발견된 대체 피드로 수집({discovered})")
-                except Exception as d_err:
-                    discovered = None
-            if not discovered:
-                # ✅ 원본 RSS 실패 → site: 구글뉴스 폴백
-                try:
-                    fb_url = _gnews_site_fallback_url(url, source_name)
-                    feed = _get_feed(fb_url)
-                    if not feed.entries:
-                        raise ValueError("fallback empty")
-                    via_fallback = True
-                    print(f"🔁 {source_name}: 원본 RSS 실패 → Google News site: 폴백으로 수집")
-                except Exception as fb_err:
-                    errors.append(f"{source_name} ({url}): {first_err} | 폴백 실패: {fb_err}")
-                    continue
-
-        parse_as_gnews = is_gnews or via_fallback
-
-        # 발행량이 많은 매체는 3일 이내 기사도 20번째 뒤로 밀릴 수 있다.
-        # feedparser가 이미 피드 전체를 읽은 상태이므로 여기서 먼저 자르지 않고,
-        # 아래 _article_date()가 실제 수집 기간에 해당하는 기사만 남기게 한다.
-        for entry in feed.entries:
-            raw_title = entry.get("title", "").strip()
-            link = entry.get("link", "").strip()
-            if not raw_title or not link:
-                continue
-
-            gnews_link = ""
-            if parse_as_gnews:
-                title, display_source = extract_gnews(entry, raw_title, source_name)
-                gnews_link = link                  # 디코딩 전 원링크 보존(seen 이중키)
-                link = resolve_gnews_url(link)
-            else:
-                title = raw_title
-                display_source = source_name
-
-            date_str, include_article = _article_date(entry, source_name, now_utc)
-            if not include_article:
-                continue
-
-            description = clean_html(entry.get("summary") or entry.get("description") or "")
-
-            articles.append({
-                "title": title,
-                "link": link,
-                "date": date_str,
-                "source": display_source,      # 표시용(실제 언론사)
-                "feed": source_name,           # 라우팅/메타데이터 매칭용 원 피드명
-                "region": source_region(source_name),
-                "gnews_link": gnews_link,
-                "description": description,
-            })
-
-    for source_name, metadata in DIRECT_WEB_SOURCE_METADATA.items():
-        try:
-            direct_articles = _fetch_direct_web_source(
+        direct_futures = [
+            executor.submit(
+                _fetch_direct_web_source,
                 source_name,
                 metadata,
                 now_utc,
             )
-            articles.extend(direct_articles)
-            print(
-                f"📰 {source_name}: 공개 기사 목록에서 "
-                f"{len(direct_articles)}건 수집"
-            )
-        except Exception as exc:
-            errors.append(f"{source_name} ({metadata.get('url', '')}): {exc}")
+            for source_name, metadata in direct_sources
+        ]
+        for (source_name, metadata), future in zip(direct_sources, direct_futures):
+            try:
+                direct_articles = future.result()
+                articles.extend(direct_articles)
+                print(
+                    f"📰 {source_name}: 공개 기사 목록에서 "
+                    f"{len(direct_articles)}건 수집"
+                )
+            except Exception as exc:
+                errors.append(
+                    f"{source_name} ({metadata.get('url', '')}): {exc}"
+                )
 
     return articles, errors

@@ -69,6 +69,55 @@ class EditorGateTestCase(unittest.TestCase):
         self.assertEqual(kept[0]["editor_score"], 9.0)
         self.assertEqual(kept[0]["relevance"], 9.0)
 
+    def test_hacker_news_is_capped_but_corroborated_source_is_not(self):
+        hn_impact = _article(
+            "Actinide produces HALEU",
+            source="Hacker News",
+            category="🌱 임팩트",
+        )
+        corroborated = _article(
+            "Verified AI launch",
+            source=["Hacker News", "Reuters"],
+            category="🤖 AI",
+        )
+        verdicts = {
+            "verdicts": [
+                {"id": 1, "keep": True, "category": "🌱 임팩트", "score": 9},
+                {"id": 2, "keep": True, "category": "🤖 AI", "score": 9},
+            ]
+        }
+
+        with _llm(verdicts):
+            kept, _ = editor.review([hn_impact, corroborated])
+
+        self.assertEqual(kept[0]["editor_score"], 3.0)
+        self.assertEqual(
+            kept[0]["editor_score_adjustment"],
+            "hacker_news_discovery_only",
+        )
+        self.assertEqual(kept[1]["editor_score"], 9.0)
+
+    def test_legal_settlement_amount_is_not_treated_as_deal_size(self):
+        article = _article(
+            "Deloitte to Pay Over $20 Million to Settle U.S. Anti-DEI Case",
+            category="📈 대체투자",
+        )
+        verdict = {
+            "verdicts": [{
+                "id": 1,
+                "keep": True,
+                "category": "📈 대체투자",
+                "score": 9,
+                "reason": "legal_risk",
+            }]
+        }
+
+        with _llm(verdict):
+            kept, _ = editor.review([article])
+
+        self.assertEqual(kept[0]["editor_score"], 4.0)
+        self.assertIn("non_deal_legal_amount", kept[0]["editor_score_adjustment"])
+
     def test_official_insight_category_cannot_be_overwritten(self):
         articles = [_article(
             "2026 AI Jobs Barometer Global report findings",
@@ -152,6 +201,7 @@ class EditorGateTestCase(unittest.TestCase):
         self.assertIn("사건상태: in_progress", prompt)
         self.assertIn("보도근거: direct_source", prompt)
         self.assertIn("public_procurement, 돌봄", prompt)
+        self.assertIn("원문도메인: x", prompt)
 
     def test_single_metadata_signal_is_not_split_into_characters(self):
         block = editor._candidate_block([

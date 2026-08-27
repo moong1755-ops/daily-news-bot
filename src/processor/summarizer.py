@@ -92,7 +92,7 @@ _STRICT_MACRO_PATTERNS = [
 
 # 대체투자·거시 브리핑의 '국내/해외'는 언론사 소재지가 아니라
 # 사건이 실제로 발생했거나 직접 영향을 받는 시장을 기준으로 한다.
-_REGION_SPLIT_CATEGORY_PREFIXES = ("💼", "🌐")
+_REGION_SPLIT_CATEGORY_PREFIXES = ("📈", "🌐")
 _KOREA_EVENT_SIGNALS = [
     "south korea", "korean", "bank of korea", "seoul", "kospi", "kosdaq",
     "한국", "국내", "우리나라", "한은", "한국은행", "원화", "코스피", "코스닥",
@@ -132,6 +132,16 @@ _PUBLIC_MARKET_EVENT_PATTERNS = [
 ]
 _PRE_IPO_EVENT_PATTERNS = [
     r"\bpre[- ]?ipo\b", r"프리\s*ipo", r"상장\s*전\s*투자\s*유치",
+]
+
+# 제목의 중심 사건이 소송·벌금·합의인 경우, 본문이나 법률 용어 속의
+# 'merger/investment' 한 단어를 실제 거래로 오인하지 않는다. 편집 게이트는
+# 시장 전체에 중요한 규제 선례라면 다시 살릴 수 있지만, LLM 장애 시에는
+# 일반 법률 기사가 대체투자 칸을 차지하지 않는 쪽이 안전하다.
+_NON_DEAL_LEGAL_EVENT_PATTERNS = [
+    r"\b(?:settles?|settlement|lawsuit|litigation|fines?|penalt(?:y|ies)|damages)\b",
+    r"\b(?:agrees?|ordered) to pay\b",
+    r"소송|합의금|벌금|과징금|손해배상|배상금",
 ]
 
 # 제목만으로 확실하게 판별할 수 있는 편집 제외 대상. 설명문에 우연히 같은
@@ -533,7 +543,13 @@ def summarize(article: dict):
     deal_groups = _matched_groups(DEAL_PRIORITY_SIGNALS, text)
     event_status, reporting_basis = _event_state(title.lower(), text)
     early_stage = _has_any(DEAL_EARLY_STAGE_SIGNALS, text)
-    deal_event = bool(deal_groups & {"transaction", "financing"}) or early_stage
+    non_deal_legal_event = _matches_any_pattern(
+        _NON_DEAL_LEGAL_EVENT_PATTERNS,
+        title.lower(),
+    )
+    deal_event = (
+        bool(deal_groups & {"transaction", "financing"}) or early_stage
+    ) and not non_deal_legal_event
     official_insights = _is_verified_official_insight(
         feed_name,
         source_clean,
@@ -619,7 +635,9 @@ def summarize(article: dict):
         category_reason = "general_business_fallback"
 
     category_fit_exclusion_reason = ""
-    if (
+    if assigned_category == alternative_category and non_deal_legal_event:
+        category_fit_exclusion_reason = "non_deal_legal_event"
+    elif (
         assigned_category == alternative_category
         and "major_contract_or_technology" in editorial_groups
         and not deal_event
@@ -628,6 +646,16 @@ def summarize(article: dict):
         # 넣지 않는다. 임팩트·AI·거시 근거가 있으면 앞 단계에서 이미
         # 해당 카테고리로 배정되므로 이 조건에 걸리지 않는다.
         category_fit_exclusion_reason = "contract_without_category_fit"
+    elif category_reason == "general_business_fallback":
+        # 카테고리 근거가 전혀 없는 일반 기업 뉴스를 대체투자의 기본값으로
+        # 발송하지 않는다. Gemini가 중요한 기사로 판정하면 이후 단계에서 구제된다.
+        category_fit_exclusion_reason = "general_business_without_category_fit"
+    elif (
+        category_reason == "enterprise_risk"
+        and assigned_category == alternative_category
+        and source_category != alternative_category
+    ):
+        category_fit_exclusion_reason = "enterprise_risk_without_investment_context"
 
     if assigned_category in category_scores:
         base_score += float(category_scores[assigned_category])
