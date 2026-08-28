@@ -495,6 +495,26 @@ class CategoryRoutingTests(unittest.TestCase):
                 self.assertTrue(result["editorial_excluded"])
                 self.assertEqual(result["editorial_exclusion_reason"], "title_noise")
 
+    def test_carbon_market_merger_routes_to_impact(self):
+        result, errors = summarize({
+            "title": (
+                "Environmental, Carbon Markets Platforms Climate Impact X, "
+                "Carbonplace to Merge"
+            ),
+            "description": "",
+            "source": "ESG Today",
+            "feed": "글로벌 임팩트 주요 사건",
+            "link": (
+                "https://www.esgtoday.com/environmental-carbon-markets-platforms-"
+                "climate-impact-x-carbonplace-to-merge/"
+            ),
+        })
+
+        self.assertEqual(errors, [])
+        self.assertEqual(result["category"], IMPACT)
+        self.assertEqual(result["category_reason"], "impact_content")
+        self.assertFalse(result["editorial_excluded"])
+
     def test_editor_gate_cannot_revive_deterministic_noise(self):
         noise = {
             "title": "한은, 9월 최대 7조원 규모 통화안정증권 발행",
