@@ -247,6 +247,12 @@ def _published_rank(article: dict) -> int:
         return 0
 
 
+def _publisher_origin_priority(article: dict) -> int:
+    """Prefer overseas originals when source quality is otherwise tied."""
+    feed = _first_text(article.get("feed")).strip()
+    return 0 if feed.startswith("국내") else 1
+
+
 def _publication_gap_days(left: dict, right: dict) -> int | None:
     left_rank = _published_rank(left)
     right_rank = _published_rank(right)
@@ -294,6 +300,7 @@ def _representative_key(article: dict) -> tuple:
     description_length = len(str(article.get("description") or ""))
     return (
         _source_priority(article),
+        _publisher_origin_priority(article),
         _link_quality(article),
         _comprehensive_article_score(article),
         _fact_detail_score(article),
@@ -393,6 +400,69 @@ def _same_editor_event(left: dict, right: dict) -> bool:
     left_key = str(left.get("editor_event_key") or "").strip()
     right_key = str(right.get("editor_event_key") or "").strip()
     return bool(left_key) and left_key == right_key
+
+
+def collapse_editor_event_duplicates(
+    articles: list,
+    category_priority: dict,
+) -> list:
+    """Keep one trusted representative for an event split across categories."""
+    grouped = {}
+    order = []
+    for index, article in enumerate(articles):
+        event_key = str(article.get("editor_event_key") or "").strip()
+        group_key = ("event", event_key) if event_key else ("article", index)
+        if group_key not in grouped:
+            grouped[group_key] = []
+            order.append(group_key)
+        grouped[group_key].append(article)
+
+    collapsed = []
+    for group_key in order:
+        group = grouped[group_key]
+        if group_key[0] != "event" or len(group) == 1:
+            collapsed.append(group[0])
+            continue
+
+        representative = max(group, key=_representative_key)
+        category_owner = max(
+            group,
+            key=lambda article: (
+                article.get("category_reason") == "official_insights_source",
+                int(category_priority.get(article.get("category"), 0)),
+                float(article.get("relevance") or 0),
+            ),
+        )
+        representative["category"] = category_owner.get("category")
+        representative["category_reason"] = "editor_event_key_consensus"
+        representative["region"] = category_owner.get("region", representative.get("region"))
+        representative["region_reason"] = category_owner.get(
+            "region_reason",
+            representative.get("region_reason"),
+        )
+        representative["relevance"] = max(
+            float(article.get("relevance") or 0)
+            for article in group
+        )
+        editor_scores = [
+            float(article.get("editor_score") or 0)
+            for article in group
+            if article.get("editor_score") is not None
+        ]
+        if editor_scores:
+            representative["editor_score"] = max(editor_scores)
+        representative["major_deal"] = any(
+            article.get("major_deal", False) for article in group
+        )
+        representative["impact_must_read"] = any(
+            article.get("impact_must_read", False) for article in group
+        )
+        collapsed.append(representative)
+
+    dropped = len(articles) - len(collapsed)
+    if dropped:
+        print(f"   ↪ 카테고리 간 같은 사건 {dropped}건을 통합")
+    return collapsed
 
 
 def _candidate_tokens(title: str) -> set:

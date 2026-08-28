@@ -238,7 +238,7 @@ HARD_EXCLUSION_KEYWORDS = [
 OPINION_FORMAT_KEYWORDS = [
     "opinion", "op-ed", "editorial", "guest essay", "commentary", "viewpoint",
     "columnist", "사설", "오피니언", "기고", "기고문", "칼럼", "시론", "논단",
-    "기자수첩", "데스크칼럼",
+    "기자수첩", "데스크칼럼", "논설", "논설실",
 ]
 OPINION_URL_PATTERNS = ["/opinion/", "/editorial/", "/column/", "/commentary/"]
 

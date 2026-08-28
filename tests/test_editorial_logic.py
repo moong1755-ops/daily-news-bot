@@ -110,6 +110,17 @@ class ArticleQualificationTests(unittest.TestCase):
         self.assertFalse(is_relevant(article))
         self.assertTrue(article["filter_reason"].startswith("opinion:"))
 
+    def test_korean_editorial_section_is_excluded(self):
+        article = {
+            "title": "[여기는 논설실] 기준금리와 성장률의 함수",
+            "description": "한국 경제의 향후 방향을 전망한다.",
+            "source": "한국경제",
+            "link": "https://www.hankyung.com/economy/example",
+        }
+
+        self.assertFalse(is_relevant(article))
+        self.assertEqual(article["filter_reason"], "opinion:논설")
+
     def test_material_press_release_is_rescued(self):
         article = {
             "title": "Press release: Acme closes Series B",
@@ -423,6 +434,65 @@ class CategoryRoutingTests(unittest.TestCase):
         self.assertTrue(success)
         self.assertEqual(len(sent), 3)
         self.assertEqual(len(translate.call_args.args[0]), 3)
+
+    def test_same_event_in_two_categories_is_sent_only_once(self):
+        domestic_impact = {
+            "category": IMPACT,
+            "category_reason": "editor",
+            "title": "CIX와 Carbonplace 합병",
+            "title_orig": "CIX와 Carbonplace 합병",
+            "editor_event_key": "cix_carbonplace_merger",
+            "link": "https://impacton.net/example",
+            "source": "임팩트온",
+            "feed": "국내 임팩트온",
+            "date": "2026-08-28",
+            "region": "global",
+            "relevance": 9,
+        }
+        overseas_original = {
+            "category": ALTERNATIVE,
+            "category_reason": "editor",
+            "title": "Climate Impact X and Carbonplace to merge",
+            "title_orig": "Climate Impact X and Carbonplace to merge",
+            "editor_event_key": "cix_carbonplace_merger",
+            "link": "https://www.esgtoday.com/example",
+            "source": "ESG Today",
+            "feed": "ESG Today",
+            "date": "2026-08-28",
+            "region": "global",
+            "relevance": 8,
+        }
+
+        with patch("src.bot.is_dry_run", return_value=True):
+            with patch("src.bot.translate_titles", side_effect=lambda selected: selected):
+                with patch("src.bot.filter_near_duplicates", side_effect=lambda items, _: items):
+                    with patch("builtins.print"):
+                        success, sent = send_aggregated_slack_news([
+                            domestic_impact,
+                            overseas_original,
+                        ])
+
+        self.assertTrue(success)
+        self.assertEqual(sent, [overseas_original])
+        self.assertEqual(sent[0]["category"], IMPACT)
+
+    def test_graphic_and_routine_central_bank_notice_are_excluded(self):
+        titles = (
+            "[그래픽] 한국은행 2026년 성장률 전망",
+            "한국은행, 9월 통화안정증권 발행 계획",
+        )
+
+        for title in titles:
+            with self.subTest(title=title):
+                result, errors = summarize({
+                    "title": title,
+                    "description": "정례 자료를 안내한다.",
+                    "source": "한국은행",
+                    "feed": "국내 거시/정책 (연합·한경)",
+                })
+                self.assertEqual(errors, [])
+                self.assertTrue(result["editorial_excluded"])
+                self.assertEqual(result["editorial_exclusion_reason"], "title_noise")
 
     def test_hanja_country_signals_route_korean_article_to_global_region(self):
         result, errors = summarize({

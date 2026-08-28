@@ -21,7 +21,11 @@ except ImportError:
         print("ℹ️ 뉴스레터/Gmail 모듈을 찾을 수 없어 수집 단계에서 제외합니다.")
 
 from .processor import editor
-from .processor.deduplicator import deduplicate_and_merge, filter_near_duplicates
+from .processor.deduplicator import (
+    collapse_editor_event_duplicates,
+    deduplicate_and_merge,
+    filter_near_duplicates,
+)
 from .processor.summarizer import summarize, keyword_hit
 from .processor.reranker import rerank_by_category, is_enabled as llm_enabled
 try:
@@ -64,8 +68,17 @@ except ImportError:
 from .utils.file_handler import load_lines, save_lines, SEEN_FILE, SEEN_TITLES_FILE
 CATEGORY_ORDER = list(CATEGORIES.keys())
 IMPACT_CATEGORY = next(category for category in CATEGORY_ORDER if category.startswith("🌱"))
+AI_CATEGORY = next(category for category in CATEGORY_ORDER if category.startswith("🤖"))
 ALTERNATIVE_CATEGORY = next(category for category in CATEGORY_ORDER if category.startswith("📈"))
 MACRO_CATEGORY = next(category for category in CATEGORY_ORDER if category.startswith("🌐"))
+INSIGHTS_CATEGORY = next(category for category in CATEGORY_ORDER if category.startswith("👔"))
+EDITOR_EVENT_CATEGORY_PRIORITY = {
+    IMPACT_CATEGORY: 50,
+    AI_CATEGORY: 40,
+    ALTERNATIVE_CATEGORY: 30,
+    MACRO_CATEGORY: 20,
+    INSIGHTS_CATEGORY: 10,
+}
 REGION_SPLIT_CATEGORIES = {ALTERNATIVE_CATEGORY, MACRO_CATEGORY}
 REGION_DISPLAY_ORDER = (("global", "해외"), ("korea", "국내"))
 IMPACT_SOURCE_SOFT_CAP = max(1, IMPACT_MUST_READ_MAX // 2)
@@ -810,7 +823,12 @@ def send_aggregated_slack_news(articles) -> tuple:
         print("SLACK_WEBHOOK_URL 이 설정되지 않았습니다.")
         return False, []
 
-    buckets = bucket_by_category(a for a in articles if _is_sendable(a))
+    sendable_articles = [article for article in articles if _is_sendable(article)]
+    sendable_articles = collapse_editor_event_duplicates(
+        sendable_articles,
+        EDITOR_EVENT_CATEGORY_PRIORITY,
+    )
+    buckets = bucket_by_category(sendable_articles)
 
     sent_articles = []          # ✅ 실제 슬랙에 나간 기사만 수집(seen 처리용)
     selected_by_category = {}

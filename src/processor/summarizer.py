@@ -154,6 +154,9 @@ _TITLE_NOISE_PATTERNS = [
     r"\bmou\b", r"\bmemorandum of understanding\b",
     r"업무협약", r"협약 체결", r"로드쇼", r"웨비나", r"세미나",
     r"인터뷰", r"대담", r"팟캐스트", r"설명회", r"캠페인",
+    # 설명 없는 단독 그래픽과 정례 시장조작 공지는 주요 변화 기사로 보지 않는다.
+    r"^\s*[\[(（【]\s*그래픽\s*[\])）】]",
+    r"(?:한은|한국은행).{0,20}통화안정증권.{0,20}발행",
     # 회계기준·세무 단순 실무 공지는 시장 인사이트가 아니라서 제외한다.
     r"\b(?:fasb|ifrs|gaap|accounting standards?|effective dates?|tax alert|weekly accounting news)\b",
     r"\baccounting for\b",
