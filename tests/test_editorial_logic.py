@@ -48,6 +48,7 @@ from src.bot import (
     _decision_record,
     _select_category_articles,
     is_relevant,
+    select_for_briefing,
     send_aggregated_slack_news,
 )
 from src.config import CATEGORIES, DIRECT_WEB_SOURCE_METADATA, GOOGLE_NEWS_FEEDS
@@ -444,7 +445,7 @@ class CategoryRoutingTests(unittest.TestCase):
             "editor_event_key": "cix_carbonplace_merger",
             "link": "https://impacton.net/example",
             "source": "임팩트온",
-            "feed": "국내 임팩트온",
+            "feed": "ImpactOn (임팩트온)",
             "date": "2026-08-28",
             "region": "global",
             "relevance": 9,
@@ -454,10 +455,10 @@ class CategoryRoutingTests(unittest.TestCase):
             "category_reason": "editor",
             "title": "Climate Impact X and Carbonplace to merge",
             "title_orig": "Climate Impact X and Carbonplace to merge",
-            "editor_event_key": "cix_carbonplace_merger",
+            "editor_event_key": "climate_impact_x_carbonplace_merge",
             "link": "https://www.esgtoday.com/example",
             "source": "ESG Today",
-            "feed": "ESG Today",
+            "feed": "글로벌 임팩트 주요 사건",
             "date": "2026-08-28",
             "region": "global",
             "relevance": 8,
@@ -493,6 +494,31 @@ class CategoryRoutingTests(unittest.TestCase):
                 self.assertEqual(errors, [])
                 self.assertTrue(result["editorial_excluded"])
                 self.assertEqual(result["editorial_exclusion_reason"], "title_noise")
+
+    def test_editor_gate_cannot_revive_deterministic_noise(self):
+        noise = {
+            "title": "한은, 9월 최대 7조원 규모 통화안정증권 발행",
+            "category": MACRO,
+            "editorial_excluded": True,
+            "editorial_exclusion_reason": "title_noise",
+            "relevance": 7,
+        }
+        useful = {
+            "title": "한은, 기준금리 인하",
+            "category": MACRO,
+            "editorial_excluded": False,
+            "relevance": 8,
+        }
+
+        with patch("src.bot.editor_gate_enabled", return_value=True):
+            with patch("src.bot.editor.review", return_value=([useful], [])) as review:
+                with patch("builtins.print"):
+                    selected, rejected, errors = select_for_briefing([noise, useful])
+
+        self.assertEqual(errors, [])
+        self.assertEqual(selected, [useful])
+        self.assertEqual(rejected, [noise])
+        review.assert_called_once_with([useful])
 
     def test_hanja_country_signals_route_korean_article_to_global_region(self):
         result, errors = summarize({

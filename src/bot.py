@@ -569,6 +569,26 @@ def select_for_briefing(classified: list) -> tuple:
     rejected, errors = [], []
     gate_applied = False
 
+    # summarize 단계의 확정 제외는 LLM이 되살릴 수 없다. 정례 공지·단독
+    # 그래픽처럼 규칙으로 이미 판별된 노이즈를 모델에 보내지 않으면 비용과
+    # 실행 시간도 줄고, 모델 응답이 editorial_excluded 값을 덮어쓰지 않는다.
+    deterministic_rejected = [
+        article
+        for article in classified
+        if article.get("editorial_excluded", False)
+    ]
+    if deterministic_rejected:
+        rejected.extend(deterministic_rejected)
+        classified = [
+            article
+            for article in classified
+            if not article.get("editorial_excluded", False)
+        ]
+        print(
+            f"🧹 확정 제외 규칙으로 {len(deterministic_rejected)}건을 "
+            "편집 게이트 전에 제외했습니다."
+        )
+
     if editor_gate_enabled():
         reviewed, gate_errors = editor.review(classified)
         errors.extend(gate_errors)

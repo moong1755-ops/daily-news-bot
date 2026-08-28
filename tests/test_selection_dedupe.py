@@ -111,18 +111,18 @@ class FilterNearDuplicatesTestCase(unittest.TestCase):
             "category": "🌱 임팩트",
             "category_reason": "editor",
             "relevance": 9,
-            "feed": "국내 임팩트온",
+            "feed": "ImpactOn (임팩트온)",
             "source": "임팩트온",
             "link": "https://impacton.net/example",
             "region": "global",
         }
         overseas_original = {
             "title": "Climate Impact X and Carbonplace to merge",
-            "editor_event_key": "cix_carbonplace_merger",
+            "editor_event_key": "climate_impact_x_carbonplace_merge",
             "category": "📈 대체투자",
             "category_reason": "editor",
             "relevance": 8,
-            "feed": "ESG Today",
+            "feed": "글로벌 임팩트 주요 사건",
             "source": "ESG Today",
             "link": "https://www.esgtoday.com/example",
             "region": "global",
@@ -136,6 +136,7 @@ class FilterNearDuplicatesTestCase(unittest.TestCase):
         self.assertEqual(collapsed, [overseas_original])
         self.assertEqual(collapsed[0]["category"], "🌱 임팩트")
         self.assertEqual(collapsed[0]["relevance"], 9)
+        self.assertEqual(collapsed[0]["source"], "ESG Today")
 
     def test_model_failure_does_not_drop_articles(self):
         """중복 검사 실패가 발송을 막아서는 안 된다."""
