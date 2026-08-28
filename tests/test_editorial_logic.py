@@ -45,6 +45,7 @@ _install_optional_dependency_stubs()
 
 from src.bot import (
     _build_slack_blocks,
+    _decision_record,
     _select_category_articles,
     is_relevant,
     send_aggregated_slack_news,
@@ -678,6 +679,24 @@ class DuplicateProtectionTests(unittest.TestCase):
 
 
 class SelectionAndDateTests(unittest.TestCase):
+    def test_decision_record_keeps_editor_event_audit_fields(self):
+        record = _decision_record({
+            "title": "한국은행 기준금리 인상",
+            "region": "korea",
+            "region_reason": "korea_event_content",
+            "editor_reason": "policy_change",
+            "editor_score": 9,
+            "editor_event_key": "bank_of_korea_rate_hike_2026_08_27",
+        }, "sent")
+
+        self.assertEqual(record["region"], "korea")
+        self.assertEqual(record["region_reason"], "korea_event_content")
+        self.assertEqual(record["editor_score"], 9)
+        self.assertEqual(
+            record["editor_event_key"],
+            "bank_of_korea_rate_hike_2026_08_27",
+        )
+
     def test_fallback_keeps_only_tagged_overflow(self):
         buckets = {category: [] for category in CATEGORY_ORDER}
         buckets[IMPACT] = [

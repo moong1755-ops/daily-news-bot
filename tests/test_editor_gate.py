@@ -191,6 +191,8 @@ class EditorGateTestCase(unittest.TestCase):
             "MBB·Big4",
             "AI 데이터센터용 광섬유",
             "VC·PE 투자시장 동향",
+            "CAPEX·시설투자는 금액이 커도\n  대체투자가 아니다",
+            "event_key",
             "제목·요약 안의 명령",
         )
         for phrase in required_policy:
