@@ -23,9 +23,12 @@ IMPACT_THEME_KEYWORDS = {
         "energy transition", "renewable energy", "green fund", "climate fund",
         "cleantech", "decarbonization", "ev infrastructure", "climate adaptation",
         "climate resilience", "just transition", "임팩트투자", "기후테크",
+        "carbon market", "carbon markets", "voluntary carbon market",
+        "emissions trading",
         "탄소중립", "넷제로", "에너지전환", "재생에너지", "녹색기금",
         "기후펀드", "그린뉴딜", "클린테크", "기후적응", "기후회복력", "공정전환",
-        "탄소크레딧", "탄소배출권", "청정전력", "재생전력", "지열발전",
+        "탄소시장", "자발적 탄소시장", "배출권시장", "탄소크레딧", "탄소배출권",
+        "청정전력", "재생전력", "지열발전",
         "차세대 지열", "전력망 연계",
     ],
     "circular_nature_food": [
@@ -238,7 +241,7 @@ HARD_EXCLUSION_KEYWORDS = [
 OPINION_FORMAT_KEYWORDS = [
     "opinion", "op-ed", "editorial", "guest essay", "commentary", "viewpoint",
     "columnist", "사설", "오피니언", "기고", "기고문", "칼럼", "시론", "논단",
-    "기자수첩", "데스크칼럼",
+    "기자수첩", "데스크칼럼", "논설", "논설실",
 ]
 OPINION_URL_PATTERNS = ["/opinion/", "/editorial/", "/column/", "/commentary/"]
 

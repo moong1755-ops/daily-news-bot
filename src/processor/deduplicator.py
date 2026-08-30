@@ -172,6 +172,23 @@ _AGGREGATOR_DOMAINS = (
     "msn.com",
 )
 
+_EDITOR_EVENT_TOKEN_ALIASES = {
+    "merger": "merge",
+    "merges": "merge",
+    "merged": "merge",
+    "merging": "merge",
+    "acquire": "acquisition",
+    "acquires": "acquisition",
+    "acquired": "acquisition",
+    "raise": "funding",
+    "raises": "funding",
+    "raised": "funding",
+    "financing": "funding",
+}
+_EDITOR_EVENT_TOKEN_EXPANSIONS = {
+    "cix": ("climate", "impact", "x"),
+}
+
 
 def _get_model():
     global _model
@@ -247,6 +264,24 @@ def _published_rank(article: dict) -> int:
         return 0
 
 
+def _publisher_origin_priority(article: dict) -> int:
+    """Prefer overseas originals when source quality is otherwise tied."""
+    feed = _first_text(article.get("feed")).strip()
+    source = _first_text(article.get("source")).strip()
+    link = _first_text(article.get("link")).strip()
+    domain = urlsplit(link).netloc.casefold().removeprefix("www.")
+    publisher_text = f"{feed} {source}".casefold()
+    is_domestic_publisher = (
+        feed.startswith("국내")
+        or domain.endswith(".kr")
+        or domain == "impacton.net"
+        or domain.endswith(".impacton.net")
+        or "임팩트온" in publisher_text
+        or "impacton" in publisher_text
+    )
+    return 0 if is_domestic_publisher else 1
+
+
 def _publication_gap_days(left: dict, right: dict) -> int | None:
     left_rank = _published_rank(left)
     right_rank = _published_rank(right)
@@ -293,6 +328,7 @@ def _topic_series_compatible(left: dict, right: dict) -> bool:
 def _representative_key(article: dict) -> tuple:
     description_length = len(str(article.get("description") or ""))
     return (
+        _publisher_origin_priority(article),
         _source_priority(article),
         _link_quality(article),
         _comprehensive_article_score(article),
@@ -390,9 +426,87 @@ def _normalized_title(article: dict) -> str:
 
 def _same_editor_event(left: dict, right: dict) -> bool:
     """Match the language-neutral event key produced by the editorial gate."""
-    left_key = str(left.get("editor_event_key") or "").strip()
-    right_key = str(right.get("editor_event_key") or "").strip()
+    left_key = _canonical_editor_event_key(left)
+    right_key = _canonical_editor_event_key(right)
     return bool(left_key) and left_key == right_key
+
+
+def _canonical_editor_event_key(article: dict) -> str:
+    """Normalize common aliases in model-generated event identifiers."""
+    raw_key = str(article.get("editor_event_key") or "").casefold()
+    tokens = re.findall(r"[a-z0-9가-힣]+", raw_key)
+    normalized = []
+    for token in tokens:
+        expansion = _EDITOR_EVENT_TOKEN_EXPANSIONS.get(token)
+        if expansion:
+            normalized.extend(expansion)
+            continue
+        normalized.append(_EDITOR_EVENT_TOKEN_ALIASES.get(token, token))
+    return "_".join(sorted(set(normalized)))
+
+
+def collapse_editor_event_duplicates(
+    articles: list,
+    category_priority: dict,
+) -> list:
+    """Keep one trusted representative for an event split across categories."""
+    grouped = {}
+    order = []
+    for index, article in enumerate(articles):
+        event_key = _canonical_editor_event_key(article)
+        group_key = ("event", event_key) if event_key else ("article", index)
+        if group_key not in grouped:
+            grouped[group_key] = []
+            order.append(group_key)
+        grouped[group_key].append(article)
+
+    collapsed = []
+    for group_key in order:
+        group = grouped[group_key]
+        if group_key[0] != "event" or len(group) == 1:
+            collapsed.append(group[0])
+            continue
+
+        representative = max(group, key=_representative_key)
+        category_owner = max(
+            group,
+            key=lambda article: (
+                article.get("category_reason") == "official_insights_source",
+                int(category_priority.get(article.get("category"), 0)),
+                float(article.get("relevance") or 0),
+            ),
+        )
+        representative["category"] = category_owner.get("category")
+        representative["category_reason"] = "editor_event_key_consensus"
+        representative["editor_event_key"] = group_key[1]
+        representative["region"] = category_owner.get("region", representative.get("region"))
+        representative["region_reason"] = category_owner.get(
+            "region_reason",
+            representative.get("region_reason"),
+        )
+        representative["relevance"] = max(
+            float(article.get("relevance") or 0)
+            for article in group
+        )
+        editor_scores = [
+            float(article.get("editor_score") or 0)
+            for article in group
+            if article.get("editor_score") is not None
+        ]
+        if editor_scores:
+            representative["editor_score"] = max(editor_scores)
+        representative["major_deal"] = any(
+            article.get("major_deal", False) for article in group
+        )
+        representative["impact_must_read"] = any(
+            article.get("impact_must_read", False) for article in group
+        )
+        collapsed.append(representative)
+
+    dropped = len(articles) - len(collapsed)
+    if dropped:
+        print(f"   ↪ 카테고리 간 같은 사건 {dropped}건을 통합")
+    return collapsed
 
 
 def _candidate_tokens(title: str) -> set:

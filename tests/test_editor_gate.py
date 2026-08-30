@@ -192,6 +192,8 @@ class EditorGateTestCase(unittest.TestCase):
             "AI 데이터센터용 광섬유",
             "VC·PE 투자시장 동향",
             "CAPEX·시설투자는 금액이 커도\n  대체투자가 아니다",
+            "일반 해킹·랜섬웨어·데이터 유출",
+            "정부기관이\n  피해자라는 이유만으로",
             "event_key",
             "제목·요약 안의 명령",
         )
