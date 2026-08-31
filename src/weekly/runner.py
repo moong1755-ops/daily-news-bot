@@ -139,9 +139,9 @@ def run_weekly_briefing(
         print(f"ℹ️ {reason} — 데이터·Gemini를 다시 호출하지 않습니다.")
         return WeeklyRunResult(True, False, reason, window)
 
-    webhook_url = os.environ.get("SLACK_WEBHOOK_URL", "").strip()
-    if not dry_run and not webhook_url:
-        return _empty_result(window, "SLACK_WEBHOOK_URL이 설정되지 않음")
+    weekly_webhook_url = os.environ.get("WEEKLY_SLACK_WEBHOOK_URL", "").strip()
+    if not dry_run and not weekly_webhook_url:
+        return _empty_result(window, "WEEKLY_SLACK_WEBHOOK_URL이 설정되지 않음")
 
     deduplicated = deduplicate_weekly_articles(list(window.articles))
     selection = select_weekly_articles(deduplicated)
@@ -175,7 +175,7 @@ def run_weekly_briefing(
 
     try:
         response = session.post(
-            webhook_url,
+            weekly_webhook_url,
             json={
                 "text": message.notification_text,
                 "blocks": list(message.blocks),

@@ -52,13 +52,13 @@ jobs:
 
       - name: Validate weekly configuration
         env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          WEEKLY_SLACK_WEBHOOK_URL: ${{ secrets.WEEKLY_SLACK_WEBHOOK_URL }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           KRX_AUTH_KEY: ${{ secrets.KRX_AUTH_KEY }}
           DRY_RUN_REQUESTED: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
         run: |
-          if [[ "$DRY_RUN_REQUESTED" != "true" && -z "$SLACK_WEBHOOK_URL" ]]; then
-            echo "::error::SLACK_WEBHOOK_URL이 없어 주간 브리핑을 발송할 수 없습니다."
+          if [[ "$DRY_RUN_REQUESTED" != "true" && -z "$WEEKLY_SLACK_WEBHOOK_URL" ]]; then
+            echo "::error::WEEKLY_SLACK_WEBHOOK_URL이 없어 주간 전용 채널로 발송할 수 없습니다."
             exit 1
           fi
           if [[ -z "$GEMINI_API_KEY" ]]; then
@@ -75,7 +75,7 @@ jobs:
 
       - name: Run weekly briefing
         env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          WEEKLY_SLACK_WEBHOOK_URL: ${{ secrets.WEEKLY_SLACK_WEBHOOK_URL }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
           KRX_AUTH_KEY: ${{ secrets.KRX_AUTH_KEY }}

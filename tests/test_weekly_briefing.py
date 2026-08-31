@@ -278,7 +278,7 @@ class WeeklyRunnerTests(unittest.TestCase):
             source_path = Path(temp_dir) / "daily.jsonl"
             delivery_path = Path(temp_dir) / "weekly.jsonl"
             source_path.write_text(json.dumps(source_record, ensure_ascii=False) + "\n", encoding="utf-8")
-            env = {"SLACK_WEBHOOK_URL": "https://hooks.slack.test/services/test"}
+            env = {"WEEKLY_SLACK_WEBHOOK_URL": "https://hooks.slack.test/services/weekly"}
             with patch.dict(os.environ, env, clear=True):
                 first = run_weekly_briefing(
                     now=MONDAY_RUN,
@@ -300,7 +300,41 @@ class WeeklyRunnerTests(unittest.TestCase):
         self.assertTrue(second.success and not second.delivered)
         self.assertEqual((len(session.get_calls), len(session.post_calls)), calls_after_first)
         self.assertEqual(calls_after_first[1], 1)
+        self.assertEqual(
+            session.post_calls[0][0],
+            "https://hooks.slack.test/services/weekly",
+        )
         self.assertEqual(archived["articles"][0]["url"], "https://example.com/impact")
+
+    def test_daily_webhook_is_never_used_for_weekly_delivery(self):
+        source_record = {
+            "version": 3,
+            "edition_date": "2026-08-30",
+            "articles": [article(IMPACT, "impact", "기후 투자", source="ImpactAlpha")],
+        }
+        session = FakeSession()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source_path = Path(temp_dir) / "daily.jsonl"
+            delivery_path = Path(temp_dir) / "weekly.jsonl"
+            source_path.write_text(
+                json.dumps(source_record, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+            with patch.dict(
+                os.environ,
+                {"SLACK_WEBHOOK_URL": "https://hooks.slack.test/services/daily"},
+                clear=True,
+            ):
+                result = run_weekly_briefing(
+                    now=MONDAY_RUN,
+                    source_archive_path=source_path,
+                    delivery_archive_path=delivery_path,
+                    session=session,
+                )
+
+        self.assertFalse(result.success)
+        self.assertIn("WEEKLY_SLACK_WEBHOOK_URL", result.reason)
+        self.assertEqual(session.post_calls, [])
 
     def test_json_summary_parser_never_truncates_line_text(self):
         long_line = "중요한 시장 변화 " * 30
