@@ -141,6 +141,28 @@ class EditorGateTestCase(unittest.TestCase):
         self.assertEqual(kept[0]["category_reason"], "official_insights_source")
         self.assertEqual(kept[0]["editor_score"], 8.0)
 
+    def test_ai_public_procurement_category_cannot_be_overwritten(self):
+        articles = [_article(
+            "정부, 국산 휴머노이드 1,080대 공공구매",
+            category="🤖 AI",
+            category_reason="ai_public_procurement",
+        )]
+        verdict = {
+            "id": 1,
+            "keep": True,
+            "category": "🌐 거시·정책·지정학",
+            "score": 8,
+            "reason": "public_procurement",
+            "event_key": "korea_humanoid_public_procurement_1080",
+        }
+
+        with _llm({"verdicts": [verdict]}):
+            kept, errors = editor.review(articles)
+
+        self.assertEqual(errors, [])
+        self.assertEqual(kept[0]["category"], "🤖 AI")
+        self.assertEqual(kept[0]["category_reason"], "ai_public_procurement")
+
     def test_official_insight_can_still_be_rejected_as_noise(self):
         articles = [_article(
             "Weekly accounting news: IFRS effective dates",
