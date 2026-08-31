@@ -138,6 +138,62 @@ class FilterNearDuplicatesTestCase(unittest.TestCase):
         self.assertEqual(collapsed[0]["relevance"], 9)
         self.assertEqual(collapsed[0]["source"], "ESG Today")
 
+    def test_anthropic_pentagon_ruling_aliases_collapse_to_one_event(self):
+        reuters = {
+            "title": "US court blocks Pentagon blacklisting of Anthropic",
+            "description": "The court ruled on the Pentagon supply-chain risk designation.",
+            "editor_event_key": "anthropic_pentagon_blacklist_ruling",
+            "category": "🤖 AI",
+            "category_reason": "editor",
+            "relevance": 9,
+            "feed": "Reuters 거시/정책",
+            "source": "Reuters",
+            "link": "https://www.reuters.com/example",
+            "date": "2026-08-30",
+        }
+        techcrunch = {
+            "title": "Anthropic wins first ruling over Pentagon supply-chain risk label",
+            "description": "A judge blocked the same Pentagon designation.",
+            "editor_event_key": "anthropic_pentagon_supply_chain_risk_ruling",
+            "category": "🤖 AI",
+            "category_reason": "editor",
+            "relevance": 8,
+            "feed": "TechCrunch AI",
+            "source": "TechCrunch AI",
+            "link": "https://techcrunch.com/example",
+            "date": "2026-08-30",
+        }
+
+        collapsed = deduplicator.collapse_editor_event_duplicates(
+            [reuters, techcrunch],
+            {"🤖 AI": 40},
+        )
+
+        self.assertEqual(len(collapsed), 1)
+        self.assertEqual(collapsed[0]["source"], "Reuters")
+        self.assertEqual(collapsed[0]["relevance"], 9)
+
+    def test_same_company_different_counterparty_events_stay_separate(self):
+        cursor = {
+            "title": "OpenAI ends model supply to Cursor",
+            "editor_event_key": "openai_cursor_model_supply_stop",
+            "category": "🤖 AI",
+            "date": "2026-08-30",
+        }
+        microsoft = {
+            "title": "OpenAI changes model supply agreement with Microsoft",
+            "editor_event_key": "openai_microsoft_model_supply_stop",
+            "category": "🤖 AI",
+            "date": "2026-08-30",
+        }
+
+        collapsed = deduplicator.collapse_editor_event_duplicates(
+            [cursor, microsoft],
+            {"🤖 AI": 40},
+        )
+
+        self.assertEqual(collapsed, [cursor, microsoft])
+
     def test_model_failure_does_not_drop_articles(self):
         """중복 검사 실패가 발송을 막아서는 안 된다."""
         with mock.patch.object(deduplicator, "_get_model", side_effect=OSError("모델 없음")):

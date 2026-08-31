@@ -47,6 +47,7 @@ from src.bot import (
     _build_slack_blocks,
     _decision_record,
     _select_category_articles,
+    _selection_score,
     is_relevant,
     select_for_briefing,
     send_aggregated_slack_news,
@@ -401,6 +402,94 @@ class CategoryRoutingTests(unittest.TestCase):
         self.assertEqual(result["category"], MACRO)
         self.assertEqual(result["region"], "korea")
         self.assertEqual(result["region_reason"], "korea_event_content")
+
+    def test_korea_national_pension_event_is_domestic(self):
+        result, errors = summarize({
+            "title": "Korea National Pension Service posts 27% first-half return",
+            "description": "The fund disclosed its first-half investment performance.",
+            "source": "Bloomberg",
+            "feed": "글로벌 VC/PE",
+            "region": "global",
+        })
+
+        self.assertEqual(errors, [])
+        self.assertEqual(result["category"], ALTERNATIVE)
+        self.assertEqual(result["region"], "korea")
+        self.assertEqual(result["region_reason"], "korea_event_content")
+
+    def test_humanoid_public_procurement_routes_to_ai(self):
+        result, errors = summarize({
+            "title": "정부, 2030년까지 국산 휴머노이드 1,080대 공공구매",
+            "description": "정부가 로봇 산업의 초기 시장을 만들기 위한 공공조달 계획을 발표했다.",
+            "source": "플래텀",
+            "feed": "국내 스타트업/VC",
+            "region": "korea",
+        })
+
+        self.assertEqual(errors, [])
+        self.assertEqual(result["category"], AI)
+        self.assertFalse(result["editorial_excluded"])
+
+    def test_tactical_war_casualty_without_market_impact_is_excluded(self):
+        result, errors = summarize({
+            "title": "Russian strike near Kyiv ammunition depot kills 37",
+            "description": "Officials reported casualties after the overnight attack.",
+            "source": "Reuters",
+            "feed": "Reuters 거시/정책",
+            "region": "global",
+        })
+
+        self.assertEqual(errors, [])
+        self.assertEqual(result["category"], MACRO)
+        self.assertTrue(result["editorial_excluded"])
+        self.assertEqual(
+            result["editorial_exclusion_reason"],
+            "tactical_conflict_without_market_impact",
+        )
+
+    def test_corporate_factory_deal_with_tariff_context_gets_rank_penalty(self):
+        result, errors = summarize({
+            "title": "GM union deal invests C$1.1 billion in Canadian factories amid US tariffs",
+            "description": "The labor agreement includes factory investment while tariffs affect automakers.",
+            "source": "Reuters",
+            "feed": "Reuters 거시/정책",
+            "region": "global",
+        })
+
+        self.assertEqual(errors, [])
+        self.assertEqual(result["category"], MACRO)
+        self.assertIn("corporate_operating_macro", result["selection_adjustments"])
+
+    def test_branded_daily_roundup_is_eligible_but_ranked_lower(self):
+        result, errors = summarize({
+            "title": "[DailyRecipe] 중복 지원사업 폐지·축소…4조 줄여 재투자",
+            "description": "정부가 지원사업을 구조조정하고 기후테크 등 전략 분야에 재투자한다.",
+            "source": "StartupRecipe",
+            "feed": "국내 스타트업레시피 VC",
+            "region": "korea",
+        })
+
+        self.assertEqual(errors, [])
+        self.assertFalse(result["editorial_excluded"])
+        self.assertIn("branded_roundup", result["selection_adjustments"])
+
+    def test_bare_official_regulation_reference_page_is_excluded(self):
+        result, errors = summarize({
+            "title": "Disclosures Delegated Act / Commission Delegated Regulation (EU) 2021/2178",
+            "description": "Commission Delegated Regulation reference text.",
+            "source": "PwC",
+            "feed": "PwC Official Insights",
+            "link": "https://viewpoint.pwc.com/example",
+            "region": "global",
+        })
+
+        self.assertEqual(errors, [])
+        self.assertEqual(result["category"], INSIGHTS)
+        self.assertTrue(result["editorial_excluded"])
+        self.assertEqual(
+            result["editorial_exclusion_reason"],
+            "official_reference_page",
+        )
 
     def test_only_final_selected_articles_are_translated(self):
         topics = (
@@ -795,6 +884,155 @@ class DuplicateProtectionTests(unittest.TestCase):
 
 
 class SelectionAndDateTests(unittest.TestCase):
+    def test_today_ai_mix_replaces_duplicate_with_market_structure_news(self):
+        candidates = [
+            {
+                "title": "US court blocks Pentagon blacklisting of Anthropic",
+                "editor_event_key": "anthropic_pentagon_blacklist_ruling",
+                "category": AI,
+                "category_reason": "editor",
+                "relevance": 9,
+                "source": "Reuters",
+                "feed": "Reuters 거시/정책",
+                "link": "https://www.reuters.com/example",
+                "date": "2026-08-30",
+            },
+            {
+                "title": "Anthropic wins over Pentagon supply-chain risk label",
+                "editor_event_key": "anthropic_pentagon_supply_chain_risk_ruling",
+                "category": AI,
+                "category_reason": "editor",
+                "relevance": 8,
+                "source": "TechCrunch AI",
+                "feed": "TechCrunch AI",
+                "link": "https://techcrunch.com/anthropic",
+                "date": "2026-08-30",
+            },
+            {
+                "title": "Nvidia reportedly agrees to acquire Hugging Face",
+                "editor_event_key": "nvidia_huggingface_acquisition",
+                "category": AI,
+                "category_reason": "editor",
+                "relevance": 9,
+                "source": "Platum",
+                "date": "2026-08-30",
+            },
+            {
+                "title": "OpenAI ends model supply to Cursor after acquisition",
+                "editor_event_key": "openai_cursor_model_supply_stop",
+                "category": AI,
+                "category_reason": "editor",
+                "relevance": 8,
+                "source": "Platum",
+                "date": "2026-08-30",
+            },
+            {
+                "title": "AI data centers seek gas turbines",
+                "editor_event_key": "ai_datacenter_gas_turbine_supply",
+                "category": AI,
+                "category_reason": "editor",
+                "relevance": 7,
+                "source": "TechCrunch AI",
+                "date": "2026-08-30",
+            },
+        ]
+
+        collapsed = deduplicator_module.collapse_editor_event_duplicates(
+            candidates,
+            {AI: 40},
+        )
+        ranked = sorted(
+            collapsed,
+            key=lambda article: _selection_score(article, AI),
+            reverse=True,
+        )
+        with patch(
+            "src.bot.filter_near_duplicates",
+            side_effect=lambda articles, _threshold: list(articles),
+        ):
+            selected = _select_category_articles(ranked, AI)
+
+        self.assertEqual(len(selected), 3)
+        self.assertEqual(
+            [article["title"] for article in selected],
+            [
+                "US court blocks Pentagon blacklisting of Anthropic",
+                "Nvidia reportedly agrees to acquire Hugging Face",
+                "OpenAI ends model supply to Cursor after acquisition",
+            ],
+        )
+
+    def test_selection_score_applies_editorial_adjustment_after_llm_score(self):
+        article = {
+            "title": "Corporate factory article",
+            "llm_score": 8,
+            "selection_score_adjustment": -2,
+        }
+
+        self.assertEqual(_selection_score(article, MACRO), 6)
+
+    def test_insights_include_close_scoring_domestic_official_report(self):
+        ranked = [
+            {
+                "title": "Global supply chain survey",
+                "category": INSIGHTS,
+                "region": "global",
+                "llm_score": 8,
+            },
+            {
+                "title": "Global data center outlook",
+                "category": INSIGHTS,
+                "region": "global",
+                "llm_score": 8,
+            },
+            {
+                "title": "Global fintech report",
+                "category": INSIGHTS,
+                "region": "global",
+                "llm_score": 7,
+            },
+            {
+                "title": "한국 조선업 경쟁력 분석",
+                "category": INSIGHTS,
+                "region": "korea",
+                "llm_score": 6,
+            },
+        ]
+
+        with patch(
+            "src.bot.filter_near_duplicates",
+            side_effect=lambda articles, _threshold: list(articles),
+        ):
+            selected = _select_category_articles(ranked, INSIGHTS)
+
+        self.assertEqual(len(selected), 3)
+        self.assertEqual([article["region"] for article in selected], ["global", "global", "korea"])
+
+    def test_insights_do_not_force_a_weak_domestic_page(self):
+        ranked = [
+            {
+                "title": f"Global insight {index}",
+                "category": INSIGHTS,
+                "region": "global",
+                "llm_score": score,
+            }
+            for index, score in enumerate((9, 8, 7))
+        ] + [{
+            "title": "Weak domestic page",
+            "category": INSIGHTS,
+            "region": "korea",
+            "llm_score": 4,
+        }]
+
+        with patch(
+            "src.bot.filter_near_duplicates",
+            side_effect=lambda articles, _threshold: list(articles),
+        ):
+            selected = _select_category_articles(ranked, INSIGHTS)
+
+        self.assertEqual(len(selected), 3)
+        self.assertTrue(all(article["region"] == "global" for article in selected))
+
     def test_decision_record_keeps_editor_event_audit_fields(self):
         record = _decision_record({
             "title": "한국은행 기준금리 인상",

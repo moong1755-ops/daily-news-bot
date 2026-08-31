@@ -16,6 +16,7 @@ from ..config import (
     IMPACT_THEME_KEYWORDS,
     OFFICIAL_INSIGHTS_DOMAINS,
     OFFICIAL_INSIGHTS_SOURCE_ALIASES,
+    SELECTION_SCORE_ADJUSTMENTS,
 )
 
 
@@ -94,8 +95,11 @@ _STRICT_MACRO_PATTERNS = [
 # 사건이 실제로 발생했거나 직접 영향을 받는 시장을 기준으로 한다.
 _REGION_SPLIT_CATEGORY_PREFIXES = ("📈", "🌐")
 _KOREA_EVENT_SIGNALS = [
-    "south korea", "korean", "bank of korea", "seoul", "kospi", "kosdaq",
+    "south korea", "republic of korea", "korea", "korean", "bank of korea",
+    "national pension service", "korea national pension service",
+    "seoul", "kospi", "kosdaq",
     "한국", "국내", "우리나라", "한은", "한국은행", "원화", "코스피", "코스닥",
+    "국민연금", "국민연금공단",
     "기획재정부", "산업통상자원부", "중소벤처기업부", "금융위원회",
     "금융감독원", "공정거래위원회", "국회", "서울", "부산",
 ]
@@ -226,6 +230,47 @@ _OFFICIAL_INSIGHT_NOISE_PATTERNS = [
     r"\binsights?\s*&\s*services\b",
     r"(?:서비스|솔루션|채용|사무소|오피스|조직)\s*(?:소개|안내)?\s*"
     r"(?:\||[-–—])\s*(?:ey|pwc|deloitte|kpmg|맥킨지|베인|bcg)\b",
+]
+
+_PUBLIC_PROCUREMENT_SIGNALS = [
+    "public procurement", "government procurement", "government purchase",
+    "공공조달", "공공구매", "정부 구매", "정부구매",
+]
+
+# 새 분석이나 해설이 아니라 법령명만 제목으로 내건 정적 참고 페이지.
+# 'amendment', 'update', 'impact'처럼 변화와 분석이 명시된 글은 이 패턴에
+# 걸리지 않도록 제목 전체 형태가 법령명인 경우로 좁힌다.
+_OFFICIAL_REFERENCE_PAGE_PATTERNS = [
+    r"^(?:disclosures?\s+)?delegated act\s*/\s*commission delegated regulation"
+    r"(?:\s*\(eu\))?\s*\d{4}/\d+\s*$",
+    r"^commission delegated regulation\s*\(eu\)\s*\d{4}/\d+\s*$",
+]
+
+_BRANDED_ROUNDUP_PATTERNS = [
+    r"^\s*[\[(（【]?\s*(?:daily\s*recipe|dailyrecipe|데일리\s*레시피)\s*[\])）】]?",
+]
+
+# 전쟁은 국가 간 충돌이라는 이유만으로 모두 거시 주요기사가 되지 않는다.
+# 전술적 사상자 보도는 시장·정책·에너지·공급망 또는 확전 신호가 있을 때만 남긴다.
+_TACTICAL_CONFLICT_TITLE_PATTERNS = [
+    r"\b(?:air\s*strike|missile\s*strike|strike|attack|shelling)\b"
+    r".{0,100}\b(?:kills?|dead|deaths?|casualt(?:y|ies)|wounds?|wounded)\b",
+    r"(?:공습|미사일\s*공격|포격|공격).{0,50}(?:사망|숨져|희생|부상)",
+]
+_SYSTEMIC_CONFLICT_SIGNALS = [
+    r"\b(?:oil|gas|energy|pipeline|shipping|trade route|supply chain|market|"
+    r"bond|currency|sanctions?|blockade|nuclear|nato|ceasefire|invasion|"
+    r"mobilization|escalation|critical infrastructure)\b",
+    r"유가|원유|가스|에너지|송유관|해운|무역로|공급망|금융시장|국채|환율|"
+    r"제재|봉쇄|핵|나토|휴전|침공|동원령|확전|기간시설",
+]
+
+# 관세가 언급돼도 제목의 중심이 노사협상·공장 투자 같은 한 기업의 운영
+# 결정이면 거시 자격은 유지하되 직접 정책 기사보다 아래에 둔다.
+_CORPORATE_OPERATING_MACRO_PATTERNS = [
+    r"\b(?:union|labor|labour)\s+(?:deal|agreement)\b",
+    r"\b(?:invests?|investment)\b.{0,60}\b(?:factor(?:y|ies)|plant|facility)\b",
+    r"(?:노사|노조).{0,20}(?:합의|협상)|(?:공장|생산시설).{0,30}(?:투자|증설)",
 ]
 
 _COMPOUND_ROUNDUP_PATTERNS = [
@@ -431,6 +476,11 @@ def _title_exclusion_reason(title: str, official_insights: bool) -> str:
     ):
         return "generic_insight_page"
     if official_insights and _matches_any_pattern(
+        _OFFICIAL_REFERENCE_PAGE_PATTERNS,
+        normalized,
+    ):
+        return "official_reference_page"
+    if official_insights and _matches_any_pattern(
         _OFFICIAL_INSIGHT_NOISE_PATTERNS,
         normalized,
     ):
@@ -576,6 +626,10 @@ def summarize(article: dict):
         )
         and _has_any(_AI_INFRASTRUCTURE_SIGNALS, text)
     )
+    ai_public_procurement = (
+        category_scores[ai_category] > 0
+        and _has_any(_PUBLIC_PROCUREMENT_SIGNALS, text)
+    )
     public_market_event = _matches_any_pattern(
         _PUBLIC_MARKET_EVENT_PATTERNS,
         title.lower(),
@@ -595,6 +649,9 @@ def summarize(article: dict):
     elif impact_content:
         assigned_category = impact_category
         category_reason = "impact_content"
+    elif ai_public_procurement:
+        assigned_category = ai_category
+        category_reason = "ai_public_procurement"
     elif public_market_event:
         assigned_category = alternative_category
         category_reason = "ipo_or_listing_event"
@@ -657,6 +714,27 @@ def summarize(article: dict):
     ):
         category_fit_exclusion_reason = "enterprise_risk_without_investment_context"
 
+    tactical_conflict = _matches_any_pattern(
+        _TACTICAL_CONFLICT_TITLE_PATTERNS,
+        title.lower(),
+    )
+    systemic_conflict = _matches_any_pattern(_SYSTEMIC_CONFLICT_SIGNALS, text)
+    if (
+        assigned_category == macro_category
+        and tactical_conflict
+        and not systemic_conflict
+    ):
+        category_fit_exclusion_reason = "tactical_conflict_without_market_impact"
+
+    selection_adjustments = []
+    if _matches_any_pattern(_BRANDED_ROUNDUP_PATTERNS, title.lower()):
+        selection_adjustments.append("branded_roundup")
+    if (
+        assigned_category == macro_category
+        and _matches_any_pattern(_CORPORATE_OPERATING_MACRO_PATTERNS, title.lower())
+    ):
+        selection_adjustments.append("corporate_operating_macro")
+
     if assigned_category in category_scores:
         base_score += float(category_scores[assigned_category])
 
@@ -697,6 +775,11 @@ def summarize(article: dict):
     article["region"] = article_region
     article["region_reason"] = region_reason
     article["editorial_exclusion_reason"] = final_exclusion_reason
+    article["selection_adjustments"] = selection_adjustments
+    article["selection_score_adjustment"] = sum(
+        float(SELECTION_SCORE_ADJUSTMENTS.get(reason, 0.0))
+        for reason in selection_adjustments
+    )
     article["source_priority"] = source_priority
     article["impact_themes"] = impact_themes
     article["editorial_signals"] = sorted(editorial_groups)
