@@ -1,7 +1,7 @@
 import os
 import re
 import requests
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 import json
 from pathlib import Path
@@ -85,6 +85,7 @@ REGION_DISPLAY_ORDER = (("global", "해외"), ("korea", "국내"))
 IMPACT_SOURCE_SOFT_CAP = max(1, IMPACT_MUST_READ_MAX // 2)
 TRACKING_QUERY_KEYS = {"fbclid", "gclid", "mc_cid", "mc_eid", "ref", "referrer"}
 SLACK_ARCHIVE_PATH = Path(__file__).parent.parent / "data" / "slack_archive.jsonl"
+KOREA_TIMEZONE = timezone(timedelta(hours=9))
 
 
 def normalize_url(url: str) -> str:
@@ -859,23 +860,51 @@ def _append_slack_archive(
     articles = []
     for category in CATEGORY_ORDER:
         for article in selected_by_category.get(category, []):
+            primary_url = get_primary_link(article) or ""
             articles.append({
                 "category": category,
                 "region": _article_region(article),
+                "region_reason": article.get("region_reason") or "",
                 "title": article.get("title", "제목 없음").strip(),
                 "title_orig": (article.get("title_orig") or "").strip(),
-                "url": get_primary_link(article) or "",
+                "url": primary_url,
+                "normalized_url": normalize_url(primary_url),
                 "source": clean_source_name(get_primary_source(article) or "출처미상"),
+                "feed": article.get("feed") or "",
                 "date": fmt_date(article.get("date", "")),
+                "category_reason": article.get("category_reason") or "",
                 "event_type": article.get("event_type") or "",
                 "deal_status": article.get("deal_status") or "",
                 "major_deal": bool(article.get("major_deal", False)),
                 "impact_theme": article.get("impact_theme") or "",
+                "editor_event_key": article.get("editor_event_key") or "",
+                "editor_score": article.get("editor_score"),
+                "editor_reason": article.get("editor_reason") or "",
+                "selection_score": _selection_score(article, category),
+                "selection_reason": article.get("selection_reason") or "",
+                "selection_adjustments": list(article.get("selection_adjustments") or []),
+                "selection_score_adjustment": article.get("selection_score_adjustment", 0),
+                "editorial_signals": list(article.get("editorial_signals") or []),
+                "deal_signals": list(article.get("deal_signals") or []),
             })
 
+    sent_at = datetime.now(timezone.utc)
+    sent_at_korea = sent_at.astimezone(KOREA_TIMEZONE)
+    iso_year, iso_week, _ = sent_at_korea.isocalendar()
     record = {
-        "version": 2,
-        "ts": datetime.now(timezone.utc).isoformat(),
+        "version": 3,
+        "ts": sent_at.isoformat(),
+        "timezone": "Asia/Seoul",
+        "edition_date": sent_at_korea.date().isoformat(),
+        "edition_week": f"{iso_year}-W{iso_week:02d}",
+        "github": {
+            "repository": os.environ.get("GITHUB_REPOSITORY", ""),
+            "workflow": os.environ.get("GITHUB_WORKFLOW", ""),
+            "event_name": os.environ.get("GITHUB_EVENT_NAME", ""),
+            "run_id": os.environ.get("GITHUB_RUN_ID", ""),
+            "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT", ""),
+            "head_sha": os.environ.get("GITHUB_SHA", ""),
+        },
         "article_count": len(articles),
         "articles": articles,
         # 기존 기록을 읽는 도구와 사람이 그대로 확인할 수 있도록 본문도 유지한다.

@@ -270,6 +270,19 @@ def _call_llm(instruction: str, api_key: str, timeout: int = 12):
     return None, None
 
 
+def generate_editor_json(instruction: str, timeout: int = 12):
+    """Run the configured VC editor and return ``(json_text, model)``.
+
+    Weekly and future briefing modules use this public boundary instead of
+    depending on Gemini URLs or model-selection internals. Replacing the LLM
+    therefore remains isolated to this module.
+    """
+    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if not api_key:
+        return None, None
+    return _call_llm(instruction, api_key, timeout=timeout)
+
+
 def _article_text(article: dict) -> str:
     return f"{article.get('title', '')} {article.get('description', '')}".lower()
 

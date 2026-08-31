@@ -165,6 +165,95 @@ SLACK_HEADER = ""           # 예: "📰 *ISQ Daily News | {date}*"  (빈 문자
 MIN_CATEGORY_NEWS = 0       # 최소 개수 없음: 부족분을 낮은 품질 기사로 강제 보충하지 않음
 TRANSLATE_TITLES = True     # 발송 기사 제목 한글 번역(영문만, 실패 시 원문 유지)
 
+# ── 주간 브리핑 운영 설정 ──
+# GitHub Actions 실행 시간은 weekly.yml에서도 같은 값으로 맞춘다. 여기의 값은
+# 수집 범위·선정·표시 정책의 단일 기준이며, 시간대는 항상 한국 시간이다.
+WEEKLY_BRIEFING_CONFIG = {
+    "enabled": True,
+    "timezone": "Asia/Seoul",
+    "send_weekday": "monday",
+    "send_time": "08:30",
+    "lookback_days": 7,
+    "headline_summary_max": 3,
+    "total_article_max": 12,
+    "article_summaries": False,
+    "next_week_watchlist": False,
+    "single_slack_message": True,
+    # 메시지가 길어지면 글자를 자르지 않고 선정 기사 수를 줄인다.
+    "truncate_text": False,
+}
+
+# 주간판은 카테고리별 최대치만 정한다. 좋은 기사가 부족하면 강제 보충하지
+# 않으며, 전체 합계가 12건을 넘으면 주간 상대 순위가 낮은 기사부터 제외한다.
+WEEKLY_CATEGORY_LIMITS = {
+    "🌱 임팩트": 3,
+    "🤖 AI": 2,
+    "📈 대체투자": 4,
+    "🌐 거시·정책·지정학": 2,
+    "👔 MBB·Big4 인사이트": 2,
+}
+
+WEEKLY_REGION_LIMITS = {
+    "📈 대체투자": {"global": 2, "korea": 2},
+    "🌐 거시·정책·지정학": {"global": 1, "korea": 1},
+}
+
+# 시장 데이터의 실제 API 주소와 인증은 market_data 모듈이 담당한다. config에는
+# 어떤 지표를 어떤 방식으로 보여줄지만 둬서 제공처 교체가 선정 로직에 번지지 않는다.
+WEEKLY_MARKET_SPARKLINE_POINTS = 5
+WEEKLY_MARKET_INDICATORS = (
+    {
+        "key": "kospi",
+        "label": "KOSPI",
+        "provider": "krx",
+        "index_name": "코스피",
+        "change_unit": "percent",
+    },
+    {
+        "key": "kosdaq",
+        "label": "KOSDAQ",
+        "provider": "krx",
+        "index_name": "코스닥",
+        "change_unit": "percent",
+    },
+    {
+        "key": "usd_krw",
+        "label": "원/달러",
+        "provider": "fred",
+        "series_id": "DEXKOUS",
+        "change_unit": "percent",
+        "interpretation": "down_is_krw_strength",
+    },
+    {
+        "key": "sp500",
+        "label": "S&P 500",
+        "provider": "fred",
+        "series_id": "SP500",
+        "change_unit": "percent",
+    },
+    {
+        "key": "nasdaq",
+        "label": "NASDAQ",
+        "provider": "fred",
+        "series_id": "NASDAQCOM",
+        "change_unit": "percent",
+    },
+    {
+        "key": "us_10y",
+        "label": "미 10년물",
+        "provider": "fred",
+        "series_id": "DGS10",
+        "change_unit": "basis_points",
+    },
+    {
+        "key": "brent",
+        "label": "Brent",
+        "provider": "fred",
+        "series_id": "DCOILBRENTEU",
+        "change_unit": "percent",
+    },
+)
+
 SIMILARITY_THRESHOLD = 0.72
 # 선정 단계에서 '같은 사건' 을 걸러낼 때 쓰는 임계값. 수집 단계보다 낮다.
 # 잘못 걸러도 비슷한 기사 하나를 덜 보여줄 뿐이지만, 놓치면 한 카테고리가

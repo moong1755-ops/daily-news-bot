@@ -2,7 +2,7 @@
 - GEMINI_API_KEY 없거나 TRANSLATE_TITLES=False 면 그대로 통과.
 - 한글 제목은 로컬에서 스킵(토큰 절약). 영문만 id 매핑 JSON으로 일괄 번역.
 - id 누락/파싱 실패/타임아웃 → 해당 건(또는 전체) 원문 유지. 번역 실패가 발송을 막지 않음.
-- 모델 선택/폴백은 reranker 의 _call_llm 을 재사용(한 곳에서 관리).
+- 모델 선택/폴백은 reranker 의 공개 편집 인터페이스를 재사용(한 곳에서 관리).
 """
 import os
 import re
@@ -13,7 +13,7 @@ try:
 except ImportError:
     TRANSLATE_TITLES = True
 
-from .reranker import _call_llm
+from .reranker import generate_editor_json
 
 _HANGUL = re.compile(r"[가-힣]")
 
@@ -39,7 +39,7 @@ def translate_titles(articles: list) -> list:
     )
 
     try:
-        raw, _model = _call_llm(prompt, os.environ["GEMINI_API_KEY"])
+        raw, _model = generate_editor_json(prompt)
         if raw is None:
             return articles
         raw = re.sub(r"^```(?:json)?|```$", "", raw.strip(), flags=re.M).strip()
