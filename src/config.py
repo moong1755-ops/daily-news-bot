@@ -68,7 +68,9 @@ AI_KW = [
     "grok", "deepseek", "mistral", "qwen", "kimi", "cursor", "windsurf", "codex",
     "ai startup", "ai investment", "ai fund", "ai chip", "gpu", "semiconductor",
     "ai agent", "autonomous agent", "copilot", "multimodal", "data center",
-    "인공지능", "생성형", "거대언어모델", "에이전트", "ai 반도체", "엔비디아", "데이터센터"
+    "robotics", "robot", "humanoid", "foundation model",
+    "인공지능", "생성형", "거대언어모델", "에이전트", "ai 반도체", "엔비디아", "데이터센터",
+    "로보틱스", "로봇", "휴머노이드", "파운데이션 모델",
 ]
 
 ALT_KW = [
@@ -140,6 +142,22 @@ IMPACT_CANDIDATES_PER_THEME = 3
 OVERSEAS_PREFERRED_DOMAINS = ["🌱 임팩트", "🤖 AI", "📈 대체투자", "👔 MBB·Big4 인사이트"]
 REGION_WEIGHT = {"global": 1.35, "korea": 1.0}
 LLM_SEND_MIN_SCORE = 0
+
+# MBB·Big4는 해외 원문을 우선하되, 국내 공식 인사이트가 마지막 해외 기사와
+# 이 점수 차이 안에 있으면 국내 자료 1건을 포함할 수 있다.
+INSIGHTS_DOMESTIC_SCORE_TOLERANCE = 1.0
+
+# 기사 자격은 유지하지만 상대 순위만 낮출 항목. 값은 최종 선정 점수에 더한다.
+SELECTION_SCORE_ADJUSTMENTS = {
+    "branded_roundup": -1.0,
+    "corporate_operating_macro": -2.0,
+}
+
+# 동일 사건을 여러 매체가 보도했을 때 대표 기사로 우선할 원 보도 출처.
+# Google News 보완 피드로 수집돼도 이 값은 유지된다.
+ORIGINAL_NEWSWIRE_PRIORITY = {
+    "reuters": 6,
+}
 
 # ── 운영 노브(팀 운영자가 조정하는 값) ──
 SLACK_MAX_LENGTH = 3900     # 슬랙 자동분할(~4000자) 방지 상한

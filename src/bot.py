@@ -46,6 +46,7 @@ from .config import (
     ALTERNATIVE_MAJOR_DEAL_MAX,
     OVERSEAS_PREFERRED_DOMAINS,
     REGION_WEIGHT,
+    INSIGHTS_DOMESTIC_SCORE_TOLERANCE,
     SELECTION_SIMILARITY_THRESHOLD,
     HARD_EXCLUSION_KEYWORDS,
     SOFT_EDITORIAL_EXCLUSION_KEYWORDS,
@@ -389,11 +390,16 @@ def _article_source_key(article: dict) -> str:
 def _selection_score(article: dict, category: str) -> float:
     llm = article.get("llm_score")
     if llm is not None:
-        return float(llm)
-    score = float(article.get("relevance", 0))
-    if category in OVERSEAS_PREFERRED_DOMAINS and _article_region(article) == "global":
+        score = float(llm)
+    else:
+        score = float(article.get("relevance", 0))
+    if (
+        llm is None
+        and category in OVERSEAS_PREFERRED_DOMAINS
+        and _article_region(article) == "global"
+    ):
         score *= REGION_WEIGHT.get("global", 1.0)
-    return score
+    return score + float(article.get("selection_score_adjustment", 0.0))
 
 
 def _is_sendable(article: dict) -> bool:
@@ -490,6 +496,47 @@ def _select_category_articles(ranked: list, category: str) -> list:
                 break
             add(article)
         return selected
+
+    if category == INSIGHTS_CATEGORY:
+        # 해외 공식 보고서를 먼저 두되, 국내 공식자료가 마지막 해외기사와
+        # 품질 차이가 작으면 1건을 포함한다. 국내 자료가 약한 날에는 억지로
+        # 채우지 않는다.
+        selected = list(ranked[:base_limit])
+        if len(selected) < base_limit or any(
+            _article_region(article) == "korea" for article in selected
+        ):
+            return selected
+
+        domestic_candidates = [
+            article for article in ranked
+            if _article_region(article) == "korea" and article not in selected
+        ]
+        if not domestic_candidates:
+            return selected
+
+        best_domestic = max(
+            domestic_candidates,
+            key=lambda article: _selection_score(article, category),
+        )
+        weakest_selected = min(
+            selected,
+            key=lambda article: _selection_score(article, category),
+        )
+        if (
+            _selection_score(best_domestic, category)
+            + INSIGHTS_DOMESTIC_SCORE_TOLERANCE
+            >= _selection_score(weakest_selected, category)
+        ):
+            selected.remove(weakest_selected)
+            selected.append(best_domestic)
+
+        return [
+            article for article in selected
+            if _article_region(article) == "global"
+        ] + [
+            article for article in selected
+            if _article_region(article) == "korea"
+        ]
 
     overflow_flag = ""
     final_limit = base_limit
@@ -640,6 +687,8 @@ def _decision_record(article: dict, verdict: str) -> dict:
         "relevance_signal": article.get("relevance_signal"),
         "editorial_signals": article.get("editorial_signals"),
         "deal_signals": article.get("deal_signals"),
+        "selection_adjustments": article.get("selection_adjustments"),
+        "selection_score_adjustment": article.get("selection_score_adjustment"),
     }
 
 
