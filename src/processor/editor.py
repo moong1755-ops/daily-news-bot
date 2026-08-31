@@ -318,11 +318,14 @@ def _apply(article: dict, verdict: dict, valid_categories: set) -> None:
     if event_key:
         article["editor_event_key"] = event_key[:120]
     category = verdict.get("category")
-    official_insights_locked = (
-        article.get("category_reason") == "official_insights_source"
+    deterministic_category_locked = (
+        article.get("category_reason") in {
+            "official_insights_source",
+            "ai_public_procurement",
+        }
         and article.get("category") in valid_categories
     )
-    if category in valid_categories and not official_insights_locked:
+    if category in valid_categories and not deterministic_category_locked:
         article["category"] = category
         article["category_reason"] = "editor"
     try:

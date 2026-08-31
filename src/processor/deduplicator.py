@@ -7,7 +7,12 @@ from sentence_transformers import SentenceTransformer
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
-from ..config import DISCOVERY_TOPICS, RSS_SOURCE_METADATA, SIMILARITY_THRESHOLD
+from ..config import (
+    DISCOVERY_TOPICS,
+    ORIGINAL_NEWSWIRE_PRIORITY,
+    RSS_SOURCE_METADATA,
+    SIMILARITY_THRESHOLD,
+)
 
 _model = None
 
@@ -189,6 +194,28 @@ _EDITOR_EVENT_TOKEN_EXPANSIONS = {
     "cix": ("climate", "impact", "x"),
 }
 
+# 편집 모델은 같은 사건도 매체 표현에 따라 blacklist와
+# supply_chain_risk처럼 다른 키를 만들 수 있다. 문구 자체가 동일한 제도적
+# 사건을 뜻하는 경우에만 먼저 한 표현으로 정규화한다.
+_EDITOR_EVENT_PHRASE_ALIASES = (
+    (
+        r"(?:blacklist(?:ing)?|supply[_\s-]*chain[_\s-]*risk"
+        r"(?:[_\s-]*(?:designation|label))?)",
+        "supplier_risk",
+    ),
+)
+
+# 아래 단어는 사건의 종류·상태를 설명한다. 이를 제외하고 남는 토큰을
+# 핵심 주체로 간주해, 같은 회사의 서로 다른 상대방 사건을 잘못 합치지 않는다.
+_EDITOR_EVENT_GENERIC_TOKENS = {
+    "acquisition", "agreement", "blacklist", "block", "blocks", "court",
+    "deal", "designation", "end", "funding", "investment", "ipo", "label",
+    "launch", "lawsuit", "merge", "model", "order", "partnership", "policy",
+    "regulation", "regulatory", "report", "reported", "risk", "round", "rule",
+    "ruling", "series", "stop", "supplier", "supply", "talks", "termination",
+    "update", "win", "wins",
+}
+
 
 def _get_model():
     global _model
@@ -220,7 +247,9 @@ def _source_priority(article: dict) -> int:
     feed = _first_text(article.get("feed"))
     source = _first_text(article.get("source"))
     metadata = RSS_SOURCE_METADATA.get(feed) or RSS_SOURCE_METADATA.get(source) or {}
-    return int(metadata.get("priority", 0))
+    configured_priority = int(metadata.get("priority", 0))
+    original_priority = ORIGINAL_NEWSWIRE_PRIORITY.get(source.casefold(), 0)
+    return max(configured_priority, original_priority)
 
 
 def _link_quality(article: dict) -> int:
@@ -425,15 +454,47 @@ def _normalized_title(article: dict) -> str:
 
 
 def _same_editor_event(left: dict, right: dict) -> bool:
-    """Match the language-neutral event key produced by the editorial gate."""
+    """Match editor keys without merging different counterparties by accident."""
     left_key = _canonical_editor_event_key(left)
     right_key = _canonical_editor_event_key(right)
-    return bool(left_key) and left_key == right_key
+    if not left_key or not right_key:
+        return False
+    if left_key == right_key:
+        return True
+
+    date_gap = _publication_gap_days(left, right)
+    if date_gap is None or date_gap > 1 or not _events_compatible(left, right):
+        return False
+
+    left_tokens = set(left_key.split("_"))
+    right_tokens = set(right_key.split("_"))
+    left_entities = {
+        token for token in left_tokens
+        if token not in _EDITOR_EVENT_GENERIC_TOKENS and not token.isdigit()
+    }
+    right_entities = {
+        token for token in right_tokens
+        if token not in _EDITOR_EVENT_GENERIC_TOKENS and not token.isdigit()
+    }
+    if not left_entities or left_entities != right_entities:
+        return False
+
+    left_event = left_tokens - left_entities
+    right_event = right_tokens - right_entities
+    shared_event = left_event & right_event
+    smaller_event_size = min(len(left_event), len(right_event))
+    return bool(
+        shared_event
+        and smaller_event_size
+        and len(shared_event) / smaller_event_size >= 0.5
+    )
 
 
 def _canonical_editor_event_key(article: dict) -> str:
     """Normalize common aliases in model-generated event identifiers."""
     raw_key = str(article.get("editor_event_key") or "").casefold()
+    for pattern, replacement in _EDITOR_EVENT_PHRASE_ALIASES:
+        raw_key = re.sub(pattern, replacement, raw_key)
     tokens = re.findall(r"[a-z0-9가-힣]+", raw_key)
     normalized = []
     for token in tokens:
@@ -450,20 +511,25 @@ def collapse_editor_event_duplicates(
     category_priority: dict,
 ) -> list:
     """Keep one trusted representative for an event split across categories."""
-    grouped = {}
-    order = []
-    for index, article in enumerate(articles):
+    groups = []
+    for article in articles:
         event_key = _canonical_editor_event_key(article)
-        group_key = ("event", event_key) if event_key else ("article", index)
-        if group_key not in grouped:
-            grouped[group_key] = []
-            order.append(group_key)
-        grouped[group_key].append(article)
+        matching_group = next(
+            (
+                group
+                for group in groups
+                if event_key and _same_editor_event(article, group[0])
+            ),
+            None,
+        )
+        if matching_group is None:
+            groups.append([article])
+        else:
+            matching_group.append(article)
 
     collapsed = []
-    for group_key in order:
-        group = grouped[group_key]
-        if group_key[0] != "event" or len(group) == 1:
+    for group in groups:
+        if len(group) == 1:
             collapsed.append(group[0])
             continue
 
@@ -478,7 +544,7 @@ def collapse_editor_event_duplicates(
         )
         representative["category"] = category_owner.get("category")
         representative["category_reason"] = "editor_event_key_consensus"
-        representative["editor_event_key"] = group_key[1]
+        representative["editor_event_key"] = _canonical_editor_event_key(group[0])
         representative["region"] = category_owner.get("region", representative.get("region"))
         representative["region_reason"] = category_owner.get(
             "region_reason",
