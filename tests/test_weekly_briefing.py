@@ -11,7 +11,7 @@ import requests
 from src.config import CATEGORIES
 from src.weekly.archive import KOREA_TIMEZONE, load_weekly_archive, weekly_date_window
 from src.weekly.deduplicator import deduplicate_weekly_articles
-from src.weekly.editor import WeeklyHeadlines, _parse_lines
+from src.weekly.editor import WeeklyHeadlines, _parse_lines, _prompt
 from src.weekly.market_data import MarketPoint, MarketSnapshot, collect_market_snapshots
 from src.weekly.renderer import render_weekly_briefing
 from src.weekly.runner import run_weekly_briefing
@@ -267,9 +267,24 @@ class WeeklyMarketTests(unittest.TestCase):
         )
 
 
+class WeeklyHeadlineTests(unittest.TestCase):
+    def test_prompt_forbids_combining_unrelated_events(self):
+        candidates = [
+            article(MACRO, "rate", "한국은행 기준금리 인상", region="korea", score=9),
+            article(AI, "memory", "AI 메모리 투자 확대", score=8),
+            article(IMPACT, "health", "헬스케어 임팩트 투자 확대", score=7),
+        ]
+        prompt = _prompt(candidates, 3)
+
+        self.assertIn("서로 무관한 기사를 한 줄로 묶지 않는다", prompt)
+        self.assertIn("본 결정을 먼저 쓴다", prompt)
+        self.assertIn("weekly_score", prompt)
+
+
 class WeeklyRendererTests(unittest.TestCase):
     def test_uses_one_block_message_and_native_slack_lists(self):
         impact_article = article(IMPACT, "impact-link", "기후테크 투자")
+        impact_article["date"] = "26.08.26"
         selection = WeeklySelection(
             {category: ((impact_article,) if category == IMPACT else ()) for category in CATEGORIES},
             (impact_article,),
@@ -302,9 +317,57 @@ class WeeklyRendererTests(unittest.TestCase):
         self.assertNotIn("•", encoded)
         self.assertIn("https://example.com/impact-link", encoded)
         self.assertIn("https://fred.stlouisfed.org/series/SP500", encoded)
-        self.assertIn("전주 마지막 거래일 08.21 대비", encoded)
+        self.assertIn("08.21→08.28", encoded)
+        self.assertIn("(Reuters, 08.26)", encoded)
+        self.assertIn(
+            '"url": "https://example.com/impact-link", "text": "기후테크 투자", '
+            '"style": {"bold": true}',
+            encoded,
+        )
         self.assertNotIn("임팩트 VC 투자심사역용", encoded)
         self.assertLess(encoded.index("시장지표"), encoded.index("한 주 한눈에"))
+
+
+    def test_stale_market_observation_is_labeled(self):
+        impact_article = article(IMPACT, "impact-stale", "기후 투자")
+        selection = WeeklySelection(
+            {category: ((impact_article,) if category == IMPACT else ()) for category in CATEGORIES},
+            (impact_article,),
+            1,
+        )
+        markets = (
+            MarketSnapshot(
+                "sp500",
+                "S&P 500",
+                "fred",
+                "percent",
+                (MarketPoint(date(2026, 8, 21), 100), MarketPoint(date(2026, 8, 28), 105)),
+                5.0,
+                "",
+                comparison=MarketPoint(date(2026, 8, 21), 100),
+            ),
+            MarketSnapshot(
+                "brent",
+                "Brent",
+                "fred",
+                "percent",
+                (MarketPoint(date(2026, 8, 21), 96.92), MarketPoint(date(2026, 8, 25), 88.24)),
+                -9.0,
+                "",
+                comparison=MarketPoint(date(2026, 8, 21), 96.92),
+            ),
+        )
+
+        message = render_weekly_briefing(
+            date(2026, 8, 24),
+            date(2026, 8, 30),
+            WeeklyHeadlines(("핵심 변화",), None, True),
+            selection,
+            markets,
+        )
+        encoded = json.dumps(message.blocks, ensure_ascii=False)
+
+        self.assertIn("08.21→08.25 · 데이터 갱신 지연", encoded)
 
 
 class WeeklyRunnerTests(unittest.TestCase):

@@ -403,6 +403,135 @@ def _selection_score(article: dict, category: str) -> float:
     return score + float(article.get("selection_score_adjustment", 0.0))
 
 
+_MACRO_RATE_ACTORS = (
+    (
+        "bank_of_korea",
+        re.compile(
+            r"\bbank of korea\b|\bbok\b|한국은행|한은|금통위|금통위원",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "federal_reserve",
+        re.compile(
+            r"\bfederal reserve\b|\bthe fed\b|\bfed\b|\bfomc\b|연준|warsh",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "ecb",
+        re.compile(r"\beuropean central bank\b|\becb\b|유럽중앙은행", re.IGNORECASE),
+    ),
+    (
+        "bank_of_japan",
+        re.compile(r"\bbank of japan\b|\bboj\b|일본은행", re.IGNORECASE),
+    ),
+    (
+        "pboc",
+        re.compile(
+            r"\bpeople'?s bank of china\b|\bpboc\b|중국인민은행",
+            re.IGNORECASE,
+        ),
+    ),
+)
+_MACRO_RATE_TOPIC = re.compile(
+    r"\b(?:interest|policy|benchmark) rates?\b|\brate (?:hike|cut|path|outlook)\b|"
+    r"기준금리|정책금리|금리(?:인상|인하|전망)?|통화정책|금통위",
+    re.IGNORECASE,
+)
+_MACRO_RATE_DECISION = re.compile(
+    r"\b(?:rate hike|rate cut)\b|"
+    r"\b(?:raises?|raised|hikes?|hiked|cuts?|cut|lowers?|lowered|holds?|held|"
+    r"keeps?|kept|leaves?|left)\b.{0,40}\b(?:interest|policy|benchmark)?\s*rates?\b|"
+    r"\b(?:interest|policy|benchmark)?\s*rates?\b.{0,40}"
+    r"\b(?:raised|hiked|cut|lowered|held|unchanged)\b|"
+    r"기준금리.{0,30}(?:인상|인하|동결|유지|결정)|"
+    r"(?:인상|인하|동결|유지).{0,30}기준금리",
+    re.IGNORECASE,
+)
+_MACRO_RATE_OUTLOOK = re.compile(
+    r"\b(?:outlook|forecast|projection|guidance|dot plot|signals?|expects?|"
+    r"may|might|could)\b|전망|향후|추가\s*(?:인상|인하)|시사|예상|가능성",
+    re.IGNORECASE,
+)
+
+
+def _macro_rate_text(article: dict) -> str:
+    return " ".join(
+        str(article.get(field) or "")
+        for field in (
+            "title",
+            "title_orig",
+            "description",
+            "editor_event_key",
+            "editor_reason",
+        )
+    )
+
+
+def _macro_rate_family(article: dict) -> str:
+    text = _macro_rate_text(article)
+    if not _MACRO_RATE_TOPIC.search(text):
+        return ""
+    event_date = str(article.get("date") or "").strip()
+    for actor, pattern in _MACRO_RATE_ACTORS:
+        if pattern.search(text):
+            return f"{actor}:rates:{event_date}"
+    return ""
+
+
+def _macro_story_priority(article: dict) -> int:
+    text = _macro_rate_text(article)
+    if _MACRO_RATE_DECISION.search(text):
+        return 3
+    if _MACRO_RATE_OUTLOOK.search(text):
+        return 2
+    return 1
+
+
+def _collapse_macro_rate_stories(ranked: list) -> list:
+    """Use one representative per central-bank rate event in the daily macro page."""
+    groups = {}
+    passthrough = []
+    for article in ranked:
+        family = _macro_rate_family(article)
+        if not family:
+            passthrough.append(article)
+            continue
+        groups.setdefault(family, []).append(article)
+
+    representatives = []
+    for group in groups.values():
+        representative = dict(
+            max(
+                group,
+                key=lambda article: (
+                    _macro_story_priority(article),
+                    _selection_score(article, MACRO_CATEGORY),
+                ),
+            )
+        )
+        representative["_macro_event_score"] = max(
+            _selection_score(article, MACRO_CATEGORY) for article in group
+        )
+        representatives.append(representative)
+
+    combined = passthrough + representatives
+    return sorted(
+        combined,
+        key=lambda article: (
+            float(
+                article.get("_macro_event_score")
+                if article.get("_macro_event_score") is not None
+                else _selection_score(article, MACRO_CATEGORY)
+            ),
+            _macro_story_priority(article),
+            _selection_score(article, MACRO_CATEGORY),
+        ),
+        reverse=True,
+    )
+
+
 def _is_sendable(article: dict) -> bool:
     if article.get("editorial_excluded", False):
         return False
@@ -414,6 +543,11 @@ def _is_sendable(article: dict) -> bool:
 def _select_category_articles(ranked: list, category: str) -> list:
     """Keep normal caps while preserving tagged impact and major-deal overflow."""
     base_limit = MAX_PER_CATEGORY_DICT.get(category, MAX_PER_CATEGORY)
+
+    # 거시는 같은 중앙은행 금리 이벤트의 본 결정/전망/코멘트가 서로
+    # 슬롯을 잡아먹기 전에 대표기사 하나로 접는다. 대표는 본 결정이 우선한다.
+    if category == MACRO_CATEGORY:
+        ranked = _collapse_macro_rate_stories(ranked)
 
     # 같은 사건이 한 카테고리를 다 차지하지 않도록 발송 직전에 한 번 더 솎는다.
     ranked = filter_near_duplicates(ranked, SELECTION_SIMILARITY_THRESHOLD)

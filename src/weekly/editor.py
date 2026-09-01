@@ -31,11 +31,7 @@ def _title(article: dict) -> str:
 def _fallback_lines(articles: list[dict], limit: int) -> tuple[str, ...]:
     """Keep impact visible while covering more than one category when possible."""
     ranked = sorted(articles, key=_score, reverse=True)
-    chosen: list[dict] = []
-    impact_category = next(category for category in CATEGORIES if category.startswith("🌱"))
-    impact = next((article for article in ranked if article.get("category") == impact_category), None)
-    if impact is not None:
-        chosen.append(impact)
+    chosen: list[dict] = ranked[:1]
 
     represented = {article.get("category") for article in chosen}
     for article in ranked:
@@ -63,6 +59,7 @@ def _prompt(articles: list[dict], limit: int) -> str:
             "source": article.get("source"),
             "status": article.get("deal_status"),
             "signals": article.get("weekly_rank_reasons") or [],
+            "weekly_score": article.get("weekly_score"),
         }
         for index, article in enumerate(articles)
     ]
@@ -71,9 +68,13 @@ def _prompt(articles: list[dict], limit: int) -> str:
 아래는 이미 중복 제거와 상대 순위 선별을 마친 기사다.
 
 이번 주 투자 판단에 가장 중요한 변화를 정확히 {limit}줄 이내로 정리하라.
-- 임팩트 투자 기회·리스크를 최소 1줄 포함한다.
-- 시장 변화, 정책·규제, 투자·M&A, 산업 구조 변화 순으로 우선한다.
-- 서로 다른 기사를 한 흐름으로 묶어도 되지만 기사에 없는 사실은 만들지 않는다.
+- 각 줄은 하나의 독립된 사건·변화만 다룬다. 서로 무관한 기사를 한 줄로 묶지 않는다.
+- 같은 사건의 후속 보도가 여러 건이면 하나의 변화로만 요약한다.
+- 시장 결정·정책 확정·대형 투자·M&A·산업 구조 변화 순으로 우선한다.
+- 카테고리 안배보다 weekly_score와 투자 판단 중요도를 우선한다.
+- 임팩트 투자 기회·리스크가 주간 핵심급이면 우선 포함하되 약한 사건을 억지로 넣지 않는다.
+- 본 결정이 있는 사건에서는 전망·관계자 발언·시장 반응보다 본 결정을 먼저 쓴다.
+- 기사에 없는 사실은 만들지 않는다.
 - 루머·전망·검토 단계는 반드시 가능성 또는 전망임을 드러낸다.
 - 행사·홍보 문구와 일반론은 쓰지 않는다.
 - 뉴스 해설문이 아니라 15~32자 안팎의 보고서 제목형 문구로 쓴다.
