@@ -72,9 +72,19 @@ class FakeSession:
             }
             base = values[series]
             rows = [f"observation_date,{series}"]
-            for offset in range(5):
-                rows.append(f"2026-08-{24 + offset:02d},{base + offset}")
+            dates = ("2026-08-21", "2026-08-24", "2026-08-25", "2026-08-26", "2026-08-27", "2026-08-28")
+            for offset, observed_on in enumerate(dates):
+                rows.append(f"{observed_on},{base + offset}")
             return FakeResponse(text="\n".join(rows))
+
+        if "api.finance.naver.com" in url:
+            base = 3200 if params["symbol"] == "KOSPI" else 900
+            rows = [["날짜", "시가", "고가", "저가", "종가", "거래량"]]
+            for offset, observed_on in enumerate(
+                ("20260821", "20260824", "20260825", "20260826", "20260827", "20260828")
+            ):
+                rows.append([observed_on, 0, 0, 0, base + offset, 0])
+            return FakeResponse(text=repr(rows))
 
         observed = str(params["basDd"])
         is_kospi = "kospi" in url
@@ -95,7 +105,7 @@ class FakeSession:
 
 class BadKrxSession(FakeSession):
     def get(self, url, **kwargs):
-        if "fredgraph.csv" in url:
+        if "fredgraph.csv" in url or "api.finance.naver.com" in url:
             return super().get(url, **kwargs)
         self.get_calls.append((url, kwargs))
         return FakeResponse(payload=[])
@@ -161,32 +171,38 @@ class WeeklySelectorTests(unittest.TestCase):
             *(article(
                 IMPACT, f"impact-{index}", f"Climate investment {index}",
                 score=9 - index, source="ImpactAlpha",
-            ) for index in range(3)),
+            ) for index in range(4)),
             *(article(
                 AI, f"ai-{index}", f"AI infrastructure {index}",
                 score=8 - index, source="TechCrunch",
-            ) for index in range(2)),
+            ) for index in range(4)),
             *(article(
                 ALTERNATIVE, f"alt-g-{index}", f"Global acquisition {index}",
                 score=10 - index,
-            ) for index in range(3)),
+            ) for index in range(4)),
             *(article(
                 ALTERNATIVE, f"alt-k-{index}", f"국내 투자 유치 {index}",
                 region="korea", score=10 - index, source="딜사이트",
-            ) for index in range(3)),
-            *(article(MACRO, f"macro-g-{index}", f"Fed policy shift {index}", score=7 - index) for index in range(2)),
+            ) for index in range(4)),
+            *(article(MACRO, f"macro-g-{index}", f"Fed policy shift {index}", score=7 - index) for index in range(4)),
             *(article(
                 MACRO, f"macro-k-{index}", f"한국은행 금리 정책 {index}",
                 region="korea", score=7 - index, source="연합뉴스",
-            ) for index in range(2)),
+            ) for index in range(4)),
             article(INSIGHTS, "insight-1", "The state of AI in 2026", score=5, source="McKinsey"),
-            article(INSIGHTS, "insight-2", "IFRS 20 accounting update", score=5, source="PwC"),
+            article(INSIGHTS, "insight-2", "Global private equity outlook", score=4, source="Bain"),
+            article(INSIGHTS, "insight-3", "Energy transition survey", score=3, source="BCG"),
+            article(INSIGHTS, "insight-4", "IFRS 20 accounting update", score=5, source="PwC"),
         ]
 
         selection = select_weekly_articles(candidates)
 
-        self.assertEqual(len(selection.articles), 12)
+        self.assertEqual(len(selection.articles), 21)
         self.assertEqual(len(selection.by_category[IMPACT]), 3)
+        self.assertEqual(len(selection.by_category[AI]), 3)
+        self.assertEqual(len(selection.by_category[ALTERNATIVE]), 6)
+        self.assertEqual(len(selection.by_category[MACRO]), 6)
+        self.assertEqual(len(selection.by_category[INSIGHTS]), 3)
         self.assertEqual({item["region"] for item in selection.by_category[ALTERNATIVE]}, {"global", "korea"})
         self.assertEqual({item["region"] for item in selection.by_category[MACRO]}, {"global", "korea"})
         insight_titles = {item["title"] for item in selection.by_category[INSIGHTS]}
@@ -206,24 +222,49 @@ class WeeklyMarketTests(unittest.TestCase):
         treasury = next(snapshot for snapshot in snapshots if snapshot.key == "us_10y")
         self.assertEqual(treasury.change_unit, "basis_points")
 
-    def test_missing_krx_key_does_not_block_fred_indicators(self):
+    def test_missing_krx_key_uses_naver_finance_fallback(self):
         session = FakeSession()
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("KRX_AUTH_KEY", None)
-            snapshots = collect_market_snapshots(date(2026, 8, 28), session=session)
-
-        self.assertFalse(next(item for item in snapshots if item.key == "kospi").available)
-        self.assertTrue(next(item for item in snapshots if item.key == "sp500").available)
-
-    def test_malformed_krx_response_is_isolated(self):
-        session = BadKrxSession()
-        with patch.dict(os.environ, {"KRX_AUTH_KEY": "test-key"}, clear=False):
-            snapshots = collect_market_snapshots(date(2026, 8, 28), session=session)
+            snapshots = collect_market_snapshots(
+                date(2026, 8, 24), date(2026, 8, 30), session=session
+            )
 
         kospi = next(item for item in snapshots if item.key == "kospi")
-        self.assertFalse(kospi.available)
-        self.assertIn("JSON 객체", kospi.error)
+        self.assertTrue(kospi.available)
+        self.assertEqual(kospi.provider, "naver")
+        self.assertIn("finance.naver.com", kospi.source_url)
         self.assertTrue(next(item for item in snapshots if item.key == "sp500").available)
+
+    def test_malformed_krx_response_uses_naver_fallback(self):
+        session = BadKrxSession()
+        with patch.dict(os.environ, {"KRX_AUTH_KEY": "test-key"}, clear=False):
+            snapshots = collect_market_snapshots(
+                date(2026, 8, 24), date(2026, 8, 30), session=session
+            )
+
+        kospi = next(item for item in snapshots if item.key == "kospi")
+        self.assertTrue(kospi.available)
+        self.assertEqual(kospi.provider, "naver")
+        self.assertTrue(next(item for item in snapshots if item.key == "sp500").available)
+
+    def test_compares_previous_and_current_week_last_trading_days(self):
+        session = FakeSession()
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("KRX_AUTH_KEY", None)
+            snapshots = collect_market_snapshots(
+                date(2026, 8, 24), date(2026, 8, 30), session=session
+            )
+
+        self.assertTrue(all(item.comparison for item in snapshots))
+        self.assertEqual(
+            {item.comparison.observed_on for item in snapshots},
+            {date(2026, 8, 21)},
+        )
+        self.assertEqual(
+            {item.latest.observed_on for item in snapshots},
+            {date(2026, 8, 28)},
+        )
 
 
 class WeeklyRendererTests(unittest.TestCase):
@@ -242,12 +283,14 @@ class WeeklyRendererTests(unittest.TestCase):
             (MarketPoint(date(2026, 8, 24), 100), MarketPoint(date(2026, 8, 28), 105)),
             5.0,
             "▁█",
+            source_url="https://fred.stlouisfed.org/series/SP500",
+            comparison=MarketPoint(date(2026, 8, 21), 100),
         ),)
 
         message = render_weekly_briefing(
             date(2026, 8, 24),
             date(2026, 8, 30),
-            WeeklyHeadlines(("임팩트 투자가 확대됐다.",), None, True),
+            WeeklyHeadlines(("임팩트 투자 확대",), None, True),
             selection,
             markets,
         )
@@ -258,6 +301,10 @@ class WeeklyRendererTests(unittest.TestCase):
         self.assertIn('"type": "link"', encoded)
         self.assertNotIn("•", encoded)
         self.assertIn("https://example.com/impact-link", encoded)
+        self.assertIn("https://fred.stlouisfed.org/series/SP500", encoded)
+        self.assertIn("전주 마지막 거래일 08.21 대비", encoded)
+        self.assertNotIn("임팩트 VC 투자심사역용", encoded)
+        self.assertLess(encoded.index("시장지표"), encoded.index("한 주 한눈에"))
 
 
 class WeeklyRunnerTests(unittest.TestCase):

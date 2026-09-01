@@ -107,7 +107,7 @@ def _format_number(snapshot: MarketSnapshot) -> str:
     if snapshot.key == "us_10y":
         return f"{latest.value:.2f}%"
     if snapshot.key in {"kospi", "kosdaq", "sp500", "nasdaq", "usd_krw"}:
-        return f"{latest.value:,.2f}"
+        return f"{latest.value:,.1f}"
     return f"${latest.value:,.2f}"
 
 
@@ -116,8 +116,21 @@ def _format_change(snapshot: MarketSnapshot) -> str:
         return ""
     arrow = "▲" if snapshot.change > 0 else "▼" if snapshot.change < 0 else "→"
     magnitude = abs(snapshot.change)
-    suffix = "bp" if snapshot.change_unit == "basis_points" else "%"
-    return f"{arrow}{magnitude:.1f}{suffix}"
+    if snapshot.change_unit == "basis_points":
+        formatted = f"{magnitude:.0f}" if magnitude.is_integer() else f"{magnitude:.1f}"
+        return f"{arrow}{formatted}bp"
+    return f"{arrow}{magnitude:.1f}%"
+
+
+def _comparison_label(snapshot: MarketSnapshot) -> str:
+    latest = snapshot.latest
+    comparison = snapshot.comparison
+    if latest is None or comparison is None:
+        return ""
+    return (
+        f"(전주 마지막 거래일 {comparison.observed_on:%m.%d} 대비 · "
+        f"{latest.observed_on:%m.%d} 종가)"
+    )
 
 
 def _market_block(markets: tuple[MarketSnapshot, ...]) -> dict:
@@ -125,10 +138,15 @@ def _market_block(markets: tuple[MarketSnapshot, ...]) -> dict:
     for snapshot in markets:
         value = _format_number(snapshot)
         change = _format_change(snapshot)
-        suffix = "  ".join(part for part in (change, snapshot.sparkline) if part)
-        lines.append(f"{snapshot.label}: {value}" + (f"  {suffix}" if suffix else ""))
+        linked_text = " ".join(
+            part for part in (snapshot.label, value, change) if part
+        )
+        if snapshot.source_url:
+            linked_text = f"<{snapshot.source_url}|{linked_text}>"
+        comparison = _comparison_label(snapshot)
+        lines.append(" ".join(part for part in (linked_text, comparison) if part))
     text = "\n".join(lines) if lines else "시장지표 수집 결과 없음"
-    return {"type": "section", "text": {"type": "mrkdwn", "text": f"```{text}```"}}
+    return {"type": "section", "text": {"type": "mrkdwn", "text": text}}
 
 
 def _heading(text: str) -> dict:
@@ -164,29 +182,44 @@ def _plain_text(
     selection: WeeklySelection,
     markets: tuple[MarketSnapshot, ...],
 ) -> str:
-    lines = [f"VC 주간 브리핑 | {start_date:%Y.%m.%d}–{end_date:%m.%d}", "", "한 주 한눈에"]
-    lines.extend(f"{index}. {line}" for index, line in enumerate(headlines.lines, 1))
-    lines.extend(("", "시장지표"))
+    lines = [
+        f"VC 주간 브리핑 | {start_date:%Y.%m.%d}–{end_date:%m.%d}",
+        "",
+        "시장지표 · 전주 마지막 거래일 대비",
+    ]
     for market in markets:
+        source = f" {market.source_url}" if market.source_url else ""
         lines.append(
-            f"{market.label}: {_format_number(market)} "
-            f"{_format_change(market)} {market.sparkline}".rstrip()
+            f"{market.label} {_format_number(market)} {_format_change(market)} "
+            f"{_comparison_label(market)}{source}".rstrip()
         )
+    lines.extend(("", "한 주 한눈에"))
+    lines.extend(f"{index}. {line}" for index, line in enumerate(headlines.lines, 1))
     for category in CATEGORIES:
         lines.extend(("", category))
         articles = selection.by_category.get(category, ())
         if not articles:
             lines.append("(이번 주 해당 분야 주요 뉴스 없음)")
             continue
-        for article in articles:
-            title = str(article.get("title") or article.get("title_orig") or "제목 없음")
-            url = str(
-                article.get("link")
-                or article.get("normalized_url")
-                or article.get("url")
-                or ""
+        regions = ("global", "korea") if category.startswith(("📈", "🌐")) else (None,)
+        for region in regions:
+            region_articles = tuple(
+                article for article in articles
+                if region is None or article.get("region") == region
             )
-            lines.append(f"- {title} {url}".rstrip())
+            if not region_articles:
+                continue
+            if region is not None:
+                lines.append("해외" if region == "global" else "국내")
+            for article in region_articles:
+                title = str(article.get("title") or article.get("title_orig") or "제목 없음")
+                url = str(
+                    article.get("link")
+                    or article.get("normalized_url")
+                    or article.get("url")
+                    or ""
+                )
+                lines.append(f"- {title} {url}".rstrip())
     return "\n".join(lines)
 
 
@@ -200,18 +233,11 @@ def render_weekly_briefing(
     title = f"VC 주간 브리핑 | {start_date:%Y.%m.%d}–{end_date:%m.%d}"
     blocks: list[dict] = [
         {"type": "header", "text": {"type": "plain_text", "text": title, "emoji": True}},
-        {
-            "type": "context",
-            "elements": [{
-                "type": "mrkdwn",
-                "text": f"임팩트 VC 투자심사역용 · {selection.candidate_count}건 검토 → {len(selection.articles)}건 선정",
-            }],
-        },
+        _heading("시장지표 · 전주 마지막 거래일 대비"),
+        _market_block(markets),
+        {"type": "divider"},
         _heading("한 주 한눈에"),
         _headline_block(headlines),
-        {"type": "divider"},
-        _heading("시장지표 · 주간 변화 / 최근 5개 관측치"),
-        _market_block(markets),
         {"type": "divider"},
     ]
     for index, category in enumerate(CATEGORIES):

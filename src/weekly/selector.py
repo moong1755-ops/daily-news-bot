@@ -213,8 +213,21 @@ def _ranked(articles: list[dict]) -> list[dict]:
     )
 
 
+def _is_weekly_eligible(article: dict) -> bool:
+    """Reject structural noise without introducing an absolute score cutoff."""
+    text = _article_text(article)
+    if LOW_VALUE_FORMAT.search(text):
+        return False
+    if (
+        str(article.get("category") or "").startswith("👔")
+        and TECHNICAL_INSIGHT_FORMAT.search(text)
+    ):
+        return False
+    return True
+
+
 def _select_category(articles: list[dict], category: str) -> list[dict]:
-    ranked = _ranked(articles)
+    ranked = _ranked([article for article in articles if _is_weekly_eligible(article)])
     category_limit = int(WEEKLY_CATEGORY_LIMITS.get(category, 0))
     region_limits = WEEKLY_REGION_LIMITS.get(category)
     if not region_limits:

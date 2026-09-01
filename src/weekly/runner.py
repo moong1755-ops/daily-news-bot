@@ -153,7 +153,11 @@ def run_weekly_briefing(
     print(f"🈯 주간 최종 선정 후 번역: 대상 {len(selection.articles)}건")
     translate_titles(list(selection.articles))
 
-    markets = collect_market_snapshots(window.end_date, session=session)
+    markets = collect_market_snapshots(
+        window.start_date,
+        window.end_date,
+        session=session,
+    )
     headlines = build_weekly_headlines(selection.articles)
     message = render_weekly_briefing(
         window.start_date,

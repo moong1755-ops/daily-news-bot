@@ -175,7 +175,7 @@ WEEKLY_BRIEFING_CONFIG = {
     "send_time": "08:30",
     "lookback_days": 7,
     "headline_summary_max": 3,
-    "total_article_max": 12,
+    "total_article_max": 21,
     "article_summaries": False,
     "next_week_watchlist": False,
     "single_slack_message": True,
@@ -184,18 +184,18 @@ WEEKLY_BRIEFING_CONFIG = {
 }
 
 # 주간판은 카테고리별 최대치만 정한다. 좋은 기사가 부족하면 강제 보충하지
-# 않으며, 전체 합계가 12건을 넘으면 주간 상대 순위가 낮은 기사부터 제외한다.
+# 않으며, 같은 사건은 주간 중복 제거를 통과한 대표 기사 하나만 남긴다.
 WEEKLY_CATEGORY_LIMITS = {
     "🌱 임팩트": 3,
-    "🤖 AI": 2,
-    "📈 대체투자": 4,
-    "🌐 거시·정책·지정학": 2,
-    "👔 MBB·Big4 인사이트": 2,
+    "🤖 AI": 3,
+    "📈 대체투자": 6,
+    "🌐 거시·정책·지정학": 6,
+    "👔 MBB·Big4 인사이트": 3,
 }
 
 WEEKLY_REGION_LIMITS = {
-    "📈 대체투자": {"global": 2, "korea": 2},
-    "🌐 거시·정책·지정학": {"global": 1, "korea": 1},
+    "📈 대체투자": {"global": 3, "korea": 3},
+    "🌐 거시·정책·지정학": {"global": 3, "korea": 3},
 }
 
 # 시장 데이터의 실제 API 주소와 인증은 market_data 모듈이 담당한다. config에는
@@ -208,6 +208,10 @@ WEEKLY_MARKET_INDICATORS = (
         "provider": "krx",
         "index_name": "코스피",
         "change_unit": "percent",
+        "fallback_provider": "naver",
+        "fallback_symbol": "KOSPI",
+        "fallback_source_url": "https://finance.naver.com/sise/sise_index.naver?code=KOSPI",
+        "source_url": "https://data.krx.co.kr/contents/MDC/MAIN/main/index.cmd",
     },
     {
         "key": "kosdaq",
@@ -215,14 +219,19 @@ WEEKLY_MARKET_INDICATORS = (
         "provider": "krx",
         "index_name": "코스닥",
         "change_unit": "percent",
+        "fallback_provider": "naver",
+        "fallback_symbol": "KOSDAQ",
+        "fallback_source_url": "https://finance.naver.com/sise/sise_index.naver?code=KOSDAQ",
+        "source_url": "https://data.krx.co.kr/contents/MDC/MAIN/main/index.cmd",
     },
     {
         "key": "usd_krw",
-        "label": "원/달러",
+        "label": "USD/KRW",
         "provider": "fred",
         "series_id": "DEXKOUS",
         "change_unit": "percent",
         "interpretation": "down_is_krw_strength",
+        "source_url": "https://fred.stlouisfed.org/series/DEXKOUS",
     },
     {
         "key": "sp500",
@@ -230,6 +239,7 @@ WEEKLY_MARKET_INDICATORS = (
         "provider": "fred",
         "series_id": "SP500",
         "change_unit": "percent",
+        "source_url": "https://fred.stlouisfed.org/series/SP500",
     },
     {
         "key": "nasdaq",
@@ -237,6 +247,7 @@ WEEKLY_MARKET_INDICATORS = (
         "provider": "fred",
         "series_id": "NASDAQCOM",
         "change_unit": "percent",
+        "source_url": "https://fred.stlouisfed.org/series/NASDAQCOM",
     },
     {
         "key": "us_10y",
@@ -244,6 +255,7 @@ WEEKLY_MARKET_INDICATORS = (
         "provider": "fred",
         "series_id": "DGS10",
         "change_unit": "basis_points",
+        "source_url": "https://fred.stlouisfed.org/series/DGS10",
     },
     {
         "key": "brent",
@@ -251,6 +263,7 @@ WEEKLY_MARKET_INDICATORS = (
         "provider": "fred",
         "series_id": "DCOILBRENTEU",
         "change_unit": "percent",
+        "source_url": "https://fred.stlouisfed.org/series/DCOILBRENTEU",
     },
 )
 

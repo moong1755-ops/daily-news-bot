@@ -51,11 +51,7 @@ def _fallback_lines(articles: list[dict], limit: int) -> tuple[str, ...]:
         if article not in chosen:
             chosen.append(article)
 
-    return tuple(
-        f"{article.get('category', '주요 뉴스')} — {_title(article)}"
-        for article in chosen
-        if _title(article)
-    )
+    return tuple(_title(article).rstrip(".。") for article in chosen if _title(article))
 
 
 def _prompt(articles: list[dict], limit: int) -> str:
@@ -80,7 +76,12 @@ def _prompt(articles: list[dict], limit: int) -> str:
 - 서로 다른 기사를 한 흐름으로 묶어도 되지만 기사에 없는 사실은 만들지 않는다.
 - 루머·전망·검토 단계는 반드시 가능성 또는 전망임을 드러낸다.
 - 행사·홍보 문구와 일반론은 쓰지 않는다.
-- 짧고 구체적인 한국어 한 문장으로 쓴다.
+- 뉴스 해설문이 아니라 15~32자 안팎의 보고서 제목형 문구로 쓴다.
+- 핵심 주체와 변화만 남기고 짧고 단정한 명사형·단문형 어미를 사용한다.
+- '~했습니다', '~로 나타났습니다', '~하고 있습니다' 같은 긴 서술형을 쓰지 않는다.
+- 문장 끝 마침표를 붙이지 않는다.
+- 좋은 예: '미 연준, 금리 인상 기조 재확인', 'AI 인프라 투자 경쟁 확대',
+  '국내 Pre-IPO 대형 딜 증가'.
 - JSON 이외의 문장은 출력하지 않는다.
 
 출력 형식:
