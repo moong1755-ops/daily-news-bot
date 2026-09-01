@@ -962,6 +962,110 @@ class SelectionAndDateTests(unittest.TestCase):
             ],
         )
 
+    def test_macro_prefers_rate_decision_over_same_event_followups(self):
+        ranked = [
+            {
+                "title": '한은 총재 "통화정책, 거시건전성 정책과 상호 보완적"',
+                "category": MACRO,
+                "region": "korea",
+                "llm_score": 9,
+            },
+            {
+                "title": "금통위원 6개월 금리전망 최고 3.50%…1∼2회 추가 인상 우세",
+                "category": MACRO,
+                "region": "korea",
+                "llm_score": 8,
+            },
+            {
+                "title": "한은, 기준금리 3%로 연속 인상…물가 우려에 긴축 속도",
+                "category": MACRO,
+                "region": "korea",
+                "llm_score": 7,
+            },
+            {
+                "title": "AI 데이터센터 세제 사각지대 국회 토론",
+                "category": MACRO,
+                "region": "korea",
+                "llm_score": 7,
+            },
+            {
+                "title": "2분기 신규 주담대 평균 감소",
+                "category": MACRO,
+                "region": "korea",
+                "llm_score": 6,
+            },
+        ]
+
+        with patch(
+            "src.bot.filter_near_duplicates",
+            side_effect=lambda articles, _threshold: list(articles),
+        ):
+            selected = _select_category_articles(ranked, MACRO)
+
+        titles = [article["title"] for article in selected]
+        self.assertEqual(len(selected), 3)
+        self.assertIn("한은, 기준금리 3%로 연속 인상…물가 우려에 긴축 속도", titles)
+        self.assertNotIn(
+            '한은 총재 "통화정책, 거시건전성 정책과 상호 보완적"',
+            titles,
+        )
+        self.assertNotIn(
+            "금통위원 6개월 금리전망 최고 3.50%…1∼2회 추가 인상 우세",
+            titles,
+        )
+
+    def test_macro_rate_representative_preserves_original_identity(self):
+        commentary = {
+            "title": '한은 총재 "통화정책, 거시건전성 정책과 상호 보완적"',
+            "category": MACRO,
+            "region": "korea",
+            "llm_score": 9,
+        }
+        decision = {
+            "title": "한은, 기준금리 3%로 연속 인상",
+            "category": MACRO,
+            "region": "korea",
+            "llm_score": 7,
+        }
+
+        with patch(
+            "src.bot.filter_near_duplicates",
+            side_effect=lambda articles, _threshold: list(articles),
+        ):
+            selected = _select_category_articles([commentary, decision], MACRO)
+
+        self.assertEqual(len(selected), 1)
+        self.assertIs(selected[0], decision)
+    def test_macro_keeps_different_central_bank_rate_events_separate(self):
+        ranked = [
+            {
+                "title": "한국은행 기준금리 3%로 인상",
+                "category": MACRO,
+                "region": "korea",
+                "llm_score": 8,
+            },
+            {
+                "title": "Federal Reserve holds policy rate unchanged",
+                "category": MACRO,
+                "region": "global",
+                "llm_score": 8,
+            },
+        ]
+
+        with patch(
+            "src.bot.filter_near_duplicates",
+            side_effect=lambda articles, _threshold: list(articles),
+        ):
+            selected = _select_category_articles(ranked, MACRO)
+
+        self.assertEqual(
+            {article["title"] for article in selected},
+            {
+                "한국은행 기준금리 3%로 인상",
+                "Federal Reserve holds policy rate unchanged",
+            },
+        )
+
     def test_selection_score_applies_editorial_adjustment_after_llm_score(self):
         article = {
             "title": "Corporate factory article",

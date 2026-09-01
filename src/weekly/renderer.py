@@ -24,23 +24,29 @@ def _date_label(value: object) -> str:
         return ""
     try:
         parsed = datetime.fromisoformat(raw.replace("Z", "+00:00")).date()
+        return parsed.strftime("%m.%d")
     except ValueError:
+        pass
+    for fmt in ("%y.%m.%d", "%Y.%m.%d"):
         try:
-            parsed = date.fromisoformat(raw[:10])
+            return datetime.strptime(raw, fmt).strftime("%m.%d")
         except ValueError:
-            return raw
-    return parsed.strftime("%m.%d")
+            continue
+    try:
+        return date.fromisoformat(raw[:10]).strftime("%m.%d")
+    except ValueError:
+        return raw
 
 
 def _article_date(article: dict) -> str:
-    for field in ("weekly_last_seen", "published", "_archive_edition_date"):
+    for field in ("date", "published", "weekly_last_seen", "_archive_edition_date"):
         label = _date_label(article.get(field))
         if label:
             return label
     return ""
 
 
-def _rich_article(article: dict) -> dict:
+def _rich_article(article: dict, *, bold: bool = False) -> dict:
     title = str(article.get("title") or article.get("title_orig") or "제목 없음")
     url = str(
         article.get("link")
@@ -51,17 +57,24 @@ def _rich_article(article: dict) -> dict:
     source = str(article.get("source") or "출처 미상")
     published = _article_date(article)
     elements = []
-    if url:
-        elements.append({"type": "link", "url": url, "text": title})
-    else:
-        elements.append({"type": "text", "text": title})
+    title_element = {"type": "link", "url": url, "text": title} if url else {
+        "type": "text",
+        "text": title,
+    }
+    if bold:
+        title_element["style"] = {"bold": True}
+    elements.append(title_element)
     meta = ", ".join(value for value in (source, published) if value)
     if meta:
         elements.append({"type": "text", "text": f" ({meta})"})
     return {"type": "rich_text_section", "elements": elements}
 
 
-def _rich_list(articles: tuple[dict, ...] | list[dict]) -> dict:
+def _rich_list(
+    articles: tuple[dict, ...] | list[dict],
+    *,
+    highlight_article: dict | None = None,
+) -> dict:
     return {
         "type": "rich_text",
         "elements": [
@@ -69,7 +82,10 @@ def _rich_list(articles: tuple[dict, ...] | list[dict]) -> dict:
                 "type": "rich_text_list",
                 "style": "bullet",
                 "indent": 0,
-                "elements": [_rich_article(article) for article in articles],
+                "elements": [
+                    _rich_article(article, bold=article is highlight_article)
+                    for article in articles
+                ],
             }
         ],
     }
@@ -122,19 +138,29 @@ def _format_change(snapshot: MarketSnapshot) -> str:
     return f"{arrow}{magnitude:.1f}%"
 
 
-def _comparison_label(snapshot: MarketSnapshot) -> str:
+def _comparison_label(
+    snapshot: MarketSnapshot,
+    freshest_observation: date | None = None,
+) -> str:
     latest = snapshot.latest
     comparison = snapshot.comparison
     if latest is None or comparison is None:
         return ""
-    return (
-        f"(전주 마지막 거래일 {comparison.observed_on:%m.%d} 대비 · "
-        f"{latest.observed_on:%m.%d} 종가)"
-    )
+    label = f"· {comparison.observed_on:%m.%d}→{latest.observed_on:%m.%d}"
+    if (
+        freshest_observation is not None
+        and (freshest_observation - latest.observed_on).days >= 2
+    ):
+        label += " · 데이터 갱신 지연"
+    return label
 
 
 def _market_block(markets: tuple[MarketSnapshot, ...]) -> dict:
     lines = []
+    freshest_observation = max(
+        (snapshot.latest.observed_on for snapshot in markets if snapshot.latest),
+        default=None,
+    )
     for snapshot in markets:
         value = _format_number(snapshot)
         change = _format_change(snapshot)
@@ -143,7 +169,7 @@ def _market_block(markets: tuple[MarketSnapshot, ...]) -> dict:
         )
         if snapshot.source_url:
             linked_text = f"<{snapshot.source_url}|{linked_text}>"
-        comparison = _comparison_label(snapshot)
+        comparison = _comparison_label(snapshot, freshest_observation)
         lines.append(" ".join(part for part in (linked_text, comparison) if part))
     text = "\n".join(lines) if lines else "시장지표 수집 결과 없음"
     return {"type": "section", "text": {"type": "mrkdwn", "text": text}}
@@ -162,16 +188,23 @@ def _category_blocks(category: str, articles: tuple[dict, ...]) -> list[dict]:
         })
         return blocks
 
+    highlight_article = articles[0]
     if category.startswith(("📈", "🌐")):
         global_articles = tuple(article for article in articles if article.get("region") != "korea")
         korea_articles = tuple(article for article in articles if article.get("region") == "korea")
         if global_articles:
-            blocks.extend((_heading("해외"), _rich_list(global_articles)))
+            blocks.extend((
+                _heading("해외"),
+                _rich_list(global_articles, highlight_article=highlight_article),
+            ))
         if korea_articles:
-            blocks.extend((_heading("국내"), _rich_list(korea_articles)))
+            blocks.extend((
+                _heading("국내"),
+                _rich_list(korea_articles, highlight_article=highlight_article),
+            ))
         return blocks
 
-    blocks.append(_rich_list(articles))
+    blocks.append(_rich_list(articles, highlight_article=highlight_article))
     return blocks
 
 
@@ -187,11 +220,15 @@ def _plain_text(
         "",
         "시장지표 · 전주 마지막 거래일 대비",
     ]
+    freshest_observation = max(
+        (market.latest.observed_on for market in markets if market.latest),
+        default=None,
+    )
     for market in markets:
         source = f" {market.source_url}" if market.source_url else ""
         lines.append(
             f"{market.label} {_format_number(market)} {_format_change(market)} "
-            f"{_comparison_label(market)}{source}".rstrip()
+            f"{_comparison_label(market, freshest_observation)}{source}".rstrip()
         )
     lines.extend(("", "한 주 한눈에"))
     lines.extend(f"{index}. {line}" for index, line in enumerate(headlines.lines, 1))
