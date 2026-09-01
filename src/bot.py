@@ -502,14 +502,12 @@ def _collapse_macro_rate_stories(ranked: list) -> list:
 
     representatives = []
     for group in groups.values():
-        representative = dict(
-            max(
-                group,
-                key=lambda article: (
-                    _macro_story_priority(article),
-                    _selection_score(article, MACRO_CATEGORY),
-                ),
-            )
+        representative = max(
+            group,
+            key=lambda article: (
+                _macro_story_priority(article),
+                _selection_score(article, MACRO_CATEGORY),
+            ),
         )
         representative["_macro_event_score"] = max(
             _selection_score(article, MACRO_CATEGORY) for article in group

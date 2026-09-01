@@ -1014,6 +1014,28 @@ class SelectionAndDateTests(unittest.TestCase):
             titles,
         )
 
+    def test_macro_rate_representative_preserves_original_identity(self):
+        commentary = {
+            "title": '한은 총재 "통화정책, 거시건전성 정책과 상호 보완적"',
+            "category": MACRO,
+            "region": "korea",
+            "llm_score": 9,
+        }
+        decision = {
+            "title": "한은, 기준금리 3%로 연속 인상",
+            "category": MACRO,
+            "region": "korea",
+            "llm_score": 7,
+        }
+
+        with patch(
+            "src.bot.filter_near_duplicates",
+            side_effect=lambda articles, _threshold: list(articles),
+        ):
+            selected = _select_category_articles([commentary, decision], MACRO)
+
+        self.assertEqual(len(selected), 1)
+        self.assertIs(selected[0], decision)
     def test_macro_keeps_different_central_bank_rate_events_separate(self):
         ranked = [
             {
