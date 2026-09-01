@@ -65,7 +65,7 @@ jobs:
             echo "::warning::GEMINI_API_KEY가 없어 3줄 요약과 영문 제목은 안전한 원문 대체 경로를 사용합니다."
           fi
           if [[ -z "$KRX_AUTH_KEY" ]]; then
-            echo "::warning::KRX_AUTH_KEY가 없어 KOSPI·KOSDAQ만 수집 지연으로 표시합니다."
+            echo "::notice::KRX_AUTH_KEY가 없어 KOSPI·KOSDAQ은 네이버 금융 보조 데이터를 사용합니다."
           fi
 
       - name: Test editorial policy
