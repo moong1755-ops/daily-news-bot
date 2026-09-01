@@ -6,10 +6,14 @@ on:
     - cron: "30 23 * * 0"
   workflow_dispatch:
     inputs:
-      dry_run:
-        description: "미리보기만 (Slack 발송·주간 기록 저장 없음)"
-        type: boolean
-        default: true
+      delivery_target:
+        description: "Manual target (preview=no Slack, test=private daily channel, production=team-invest)"
+        type: choice
+        options:
+          - preview
+          - test
+          - production
+        default: preview
       end_date:
         description: "재현할 주의 일요일 (YYYY-MM-DD, 비우면 지난 일요일)"
         type: string
@@ -53,12 +57,17 @@ jobs:
       - name: Validate weekly configuration
         env:
           WEEKLY_SLACK_WEBHOOK_URL: ${{ secrets.WEEKLY_SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           KRX_AUTH_KEY: ${{ secrets.KRX_AUTH_KEY }}
-          DRY_RUN_REQUESTED: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
+          DELIVERY_TARGET: ${{ github.event_name == 'workflow_dispatch' && inputs.delivery_target || 'production' }}
         run: |
-          if [[ "$DRY_RUN_REQUESTED" != "true" && -z "$WEEKLY_SLACK_WEBHOOK_URL" ]]; then
-            echo "::error::WEEKLY_SLACK_WEBHOOK_URL이 없어 주간 전용 채널로 발송할 수 없습니다."
+          if [[ "$DELIVERY_TARGET" == "test" && -z "$SLACK_WEBHOOK_URL" ]]; then
+            echo "::error::SLACK_WEBHOOK_URL is missing for test delivery."
+            exit 1
+          fi
+          if [[ "$DELIVERY_TARGET" == "production" && -z "$WEEKLY_SLACK_WEBHOOK_URL" ]]; then
+            echo "::error::WEEKLY_SLACK_WEBHOOK_URL is missing for production delivery."
             exit 1
           fi
           if [[ -z "$GEMINI_API_KEY" ]]; then
@@ -75,19 +84,20 @@ jobs:
 
       - name: Run weekly briefing
         env:
-          WEEKLY_SLACK_WEBHOOK_URL: ${{ secrets.WEEKLY_SLACK_WEBHOOK_URL }}
+          WEEKLY_SLACK_WEBHOOK_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.delivery_target == 'test' && secrets.SLACK_WEBHOOK_URL || secrets.WEEKLY_SLACK_WEBHOOK_URL }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
           KRX_AUTH_KEY: ${{ secrets.KRX_AUTH_KEY }}
-          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '1' || '' }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.delivery_target == 'preview' && '1' || '' }}
           WEEKLY_END_DATE: ${{ inputs.end_date || '' }}
           WEEKLY_FORCE_SEND: ${{ github.event_name == 'workflow_dispatch' && inputs.force_send && '1' || '' }}
+          WEEKLY_ARCHIVE_PATH: ${{ github.event_name == 'workflow_dispatch' && inputs.delivery_target == 'test' && '/tmp/weekly_archive.jsonl' || '' }}
           PYTHONUNBUFFERED: "1"
           PYTHONIOENCODING: "utf-8"
         run: python -m src.weekly.runner
 
       - name: Commit weekly delivery archive
-        if: ${{ github.event_name == 'schedule' || !inputs.dry_run }}
+        if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.delivery_target == 'production') }}
         run: |
           if [[ ! -f data/weekly_archive.jsonl ]]; then
             echo "No weekly delivery archive to save."
