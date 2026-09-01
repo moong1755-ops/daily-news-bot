@@ -1,0 +1,105 @@
+name: Weekly VC Briefing 📊
+
+on:
+  # GitHub cron은 UTC 기준: 일요일 23:30 = 한국 월요일 08:30.
+  schedule:
+    - cron: "30 23 * * 0"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "미리보기만 (Slack 발송·주간 기록 저장 없음)"
+        type: boolean
+        default: true
+      end_date:
+        description: "재현할 주의 일요일 (YYYY-MM-DD, 비우면 지난 일요일)"
+        type: string
+        default: ""
+      force_send:
+        description: "이미 발송한 주차도 다시 발송"
+        type: boolean
+        default: false
+
+jobs:
+  weekly-briefing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    # 일간 실행의 아카이브 커밋과 주간 기록 커밋이 충돌하지 않게 직렬화한다.
+    concurrency:
+      group: daily-news-bot-state
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Validate weekly configuration
+        env:
+          WEEKLY_SLACK_WEBHOOK_URL: ${{ secrets.WEEKLY_SLACK_WEBHOOK_URL }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          KRX_AUTH_KEY: ${{ secrets.KRX_AUTH_KEY }}
+          DRY_RUN_REQUESTED: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
+        run: |
+          if [[ "$DRY_RUN_REQUESTED" != "true" && -z "$WEEKLY_SLACK_WEBHOOK_URL" ]]; then
+            echo "::error::WEEKLY_SLACK_WEBHOOK_URL이 없어 주간 전용 채널로 발송할 수 없습니다."
+            exit 1
+          fi
+          if [[ -z "$GEMINI_API_KEY" ]]; then
+            echo "::warning::GEMINI_API_KEY가 없어 3줄 요약과 영문 제목은 안전한 원문 대체 경로를 사용합니다."
+          fi
+          if [[ -z "$KRX_AUTH_KEY" ]]; then
+            echo "::warning::KRX_AUTH_KEY가 없어 KOSPI·KOSDAQ만 수집 지연으로 표시합니다."
+          fi
+
+      - name: Test editorial policy
+        env:
+          PYTHONIOENCODING: "utf-8"
+        run: python -m unittest discover -s tests -q
+
+      - name: Run weekly briefing
+        env:
+          WEEKLY_SLACK_WEBHOOK_URL: ${{ secrets.WEEKLY_SLACK_WEBHOOK_URL }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          KRX_AUTH_KEY: ${{ secrets.KRX_AUTH_KEY }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '1' || '' }}
+          WEEKLY_END_DATE: ${{ inputs.end_date || '' }}
+          WEEKLY_FORCE_SEND: ${{ github.event_name == 'workflow_dispatch' && inputs.force_send && '1' || '' }}
+          PYTHONUNBUFFERED: "1"
+          PYTHONIOENCODING: "utf-8"
+        run: python -m src.weekly.runner
+
+      - name: Commit weekly delivery archive
+        if: ${{ github.event_name == 'schedule' || !inputs.dry_run }}
+        run: |
+          if [[ ! -f data/weekly_archive.jsonl ]]; then
+            echo "No weekly delivery archive to save."
+            exit 0
+          fi
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add -- data/weekly_archive.jsonl
+          if git diff --staged --quiet; then
+            echo "No weekly delivery state changes to save."
+          else
+            git commit -m "Update weekly briefing archive [skip ci]"
+            git pull --rebase origin "$GITHUB_REF_NAME"
+            git push
+          fi

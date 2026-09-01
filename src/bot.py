@@ -1,7 +1,7 @@
 import os
 import re
 import requests
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 import json
 from pathlib import Path
@@ -46,6 +46,7 @@ from .config import (
     ALTERNATIVE_MAJOR_DEAL_MAX,
     OVERSEAS_PREFERRED_DOMAINS,
     REGION_WEIGHT,
+    INSIGHTS_DOMESTIC_SCORE_TOLERANCE,
     SELECTION_SIMILARITY_THRESHOLD,
     HARD_EXCLUSION_KEYWORDS,
     SOFT_EDITORIAL_EXCLUSION_KEYWORDS,
@@ -84,6 +85,7 @@ REGION_DISPLAY_ORDER = (("global", "해외"), ("korea", "국내"))
 IMPACT_SOURCE_SOFT_CAP = max(1, IMPACT_MUST_READ_MAX // 2)
 TRACKING_QUERY_KEYS = {"fbclid", "gclid", "mc_cid", "mc_eid", "ref", "referrer"}
 SLACK_ARCHIVE_PATH = Path(__file__).parent.parent / "data" / "slack_archive.jsonl"
+KOREA_TIMEZONE = timezone(timedelta(hours=9))
 
 
 def normalize_url(url: str) -> str:
@@ -389,11 +391,16 @@ def _article_source_key(article: dict) -> str:
 def _selection_score(article: dict, category: str) -> float:
     llm = article.get("llm_score")
     if llm is not None:
-        return float(llm)
-    score = float(article.get("relevance", 0))
-    if category in OVERSEAS_PREFERRED_DOMAINS and _article_region(article) == "global":
+        score = float(llm)
+    else:
+        score = float(article.get("relevance", 0))
+    if (
+        llm is None
+        and category in OVERSEAS_PREFERRED_DOMAINS
+        and _article_region(article) == "global"
+    ):
         score *= REGION_WEIGHT.get("global", 1.0)
-    return score
+    return score + float(article.get("selection_score_adjustment", 0.0))
 
 
 def _is_sendable(article: dict) -> bool:
@@ -490,6 +497,47 @@ def _select_category_articles(ranked: list, category: str) -> list:
                 break
             add(article)
         return selected
+
+    if category == INSIGHTS_CATEGORY:
+        # 해외 공식 보고서를 먼저 두되, 국내 공식자료가 마지막 해외기사와
+        # 품질 차이가 작으면 1건을 포함한다. 국내 자료가 약한 날에는 억지로
+        # 채우지 않는다.
+        selected = list(ranked[:base_limit])
+        if len(selected) < base_limit or any(
+            _article_region(article) == "korea" for article in selected
+        ):
+            return selected
+
+        domestic_candidates = [
+            article for article in ranked
+            if _article_region(article) == "korea" and article not in selected
+        ]
+        if not domestic_candidates:
+            return selected
+
+        best_domestic = max(
+            domestic_candidates,
+            key=lambda article: _selection_score(article, category),
+        )
+        weakest_selected = min(
+            selected,
+            key=lambda article: _selection_score(article, category),
+        )
+        if (
+            _selection_score(best_domestic, category)
+            + INSIGHTS_DOMESTIC_SCORE_TOLERANCE
+            >= _selection_score(weakest_selected, category)
+        ):
+            selected.remove(weakest_selected)
+            selected.append(best_domestic)
+
+        return [
+            article for article in selected
+            if _article_region(article) == "global"
+        ] + [
+            article for article in selected
+            if _article_region(article) == "korea"
+        ]
 
     overflow_flag = ""
     final_limit = base_limit
@@ -640,6 +688,8 @@ def _decision_record(article: dict, verdict: str) -> dict:
         "relevance_signal": article.get("relevance_signal"),
         "editorial_signals": article.get("editorial_signals"),
         "deal_signals": article.get("deal_signals"),
+        "selection_adjustments": article.get("selection_adjustments"),
+        "selection_score_adjustment": article.get("selection_score_adjustment"),
     }
 
 
@@ -810,23 +860,51 @@ def _append_slack_archive(
     articles = []
     for category in CATEGORY_ORDER:
         for article in selected_by_category.get(category, []):
+            primary_url = get_primary_link(article) or ""
             articles.append({
                 "category": category,
                 "region": _article_region(article),
+                "region_reason": article.get("region_reason") or "",
                 "title": article.get("title", "제목 없음").strip(),
                 "title_orig": (article.get("title_orig") or "").strip(),
-                "url": get_primary_link(article) or "",
+                "url": primary_url,
+                "normalized_url": normalize_url(primary_url),
                 "source": clean_source_name(get_primary_source(article) or "출처미상"),
+                "feed": article.get("feed") or "",
                 "date": fmt_date(article.get("date", "")),
+                "category_reason": article.get("category_reason") or "",
                 "event_type": article.get("event_type") or "",
                 "deal_status": article.get("deal_status") or "",
                 "major_deal": bool(article.get("major_deal", False)),
                 "impact_theme": article.get("impact_theme") or "",
+                "editor_event_key": article.get("editor_event_key") or "",
+                "editor_score": article.get("editor_score"),
+                "editor_reason": article.get("editor_reason") or "",
+                "selection_score": _selection_score(article, category),
+                "selection_reason": article.get("selection_reason") or "",
+                "selection_adjustments": list(article.get("selection_adjustments") or []),
+                "selection_score_adjustment": article.get("selection_score_adjustment", 0),
+                "editorial_signals": list(article.get("editorial_signals") or []),
+                "deal_signals": list(article.get("deal_signals") or []),
             })
 
+    sent_at = datetime.now(timezone.utc)
+    sent_at_korea = sent_at.astimezone(KOREA_TIMEZONE)
+    iso_year, iso_week, _ = sent_at_korea.isocalendar()
     record = {
-        "version": 2,
-        "ts": datetime.now(timezone.utc).isoformat(),
+        "version": 3,
+        "ts": sent_at.isoformat(),
+        "timezone": "Asia/Seoul",
+        "edition_date": sent_at_korea.date().isoformat(),
+        "edition_week": f"{iso_year}-W{iso_week:02d}",
+        "github": {
+            "repository": os.environ.get("GITHUB_REPOSITORY", ""),
+            "workflow": os.environ.get("GITHUB_WORKFLOW", ""),
+            "event_name": os.environ.get("GITHUB_EVENT_NAME", ""),
+            "run_id": os.environ.get("GITHUB_RUN_ID", ""),
+            "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT", ""),
+            "head_sha": os.environ.get("GITHUB_SHA", ""),
+        },
         "article_count": len(articles),
         "articles": articles,
         # 기존 기록을 읽는 도구와 사람이 그대로 확인할 수 있도록 본문도 유지한다.

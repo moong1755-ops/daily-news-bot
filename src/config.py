@@ -68,7 +68,9 @@ AI_KW = [
     "grok", "deepseek", "mistral", "qwen", "kimi", "cursor", "windsurf", "codex",
     "ai startup", "ai investment", "ai fund", "ai chip", "gpu", "semiconductor",
     "ai agent", "autonomous agent", "copilot", "multimodal", "data center",
-    "인공지능", "생성형", "거대언어모델", "에이전트", "ai 반도체", "엔비디아", "데이터센터"
+    "robotics", "robot", "humanoid", "foundation model",
+    "인공지능", "생성형", "거대언어모델", "에이전트", "ai 반도체", "엔비디아", "데이터센터",
+    "로보틱스", "로봇", "휴머노이드", "파운데이션 모델",
 ]
 
 ALT_KW = [
@@ -141,11 +143,116 @@ OVERSEAS_PREFERRED_DOMAINS = ["🌱 임팩트", "🤖 AI", "📈 대체투자", 
 REGION_WEIGHT = {"global": 1.35, "korea": 1.0}
 LLM_SEND_MIN_SCORE = 0
 
+# MBB·Big4는 해외 원문을 우선하되, 국내 공식 인사이트가 마지막 해외 기사와
+# 이 점수 차이 안에 있으면 국내 자료 1건을 포함할 수 있다.
+INSIGHTS_DOMESTIC_SCORE_TOLERANCE = 1.0
+
+# 기사 자격은 유지하지만 상대 순위만 낮출 항목. 값은 최종 선정 점수에 더한다.
+SELECTION_SCORE_ADJUSTMENTS = {
+    "branded_roundup": -1.0,
+    "corporate_operating_macro": -2.0,
+}
+
+# 동일 사건을 여러 매체가 보도했을 때 대표 기사로 우선할 원 보도 출처.
+# Google News 보완 피드로 수집돼도 이 값은 유지된다.
+ORIGINAL_NEWSWIRE_PRIORITY = {
+    "reuters": 6,
+}
+
 # ── 운영 노브(팀 운영자가 조정하는 값) ──
 SLACK_MAX_LENGTH = 3900     # 슬랙 자동분할(~4000자) 방지 상한
 SLACK_HEADER = ""           # 예: "📰 *ISQ Daily News | {date}*"  (빈 문자열이면 헤더 없음)
 MIN_CATEGORY_NEWS = 0       # 최소 개수 없음: 부족분을 낮은 품질 기사로 강제 보충하지 않음
 TRANSLATE_TITLES = True     # 발송 기사 제목 한글 번역(영문만, 실패 시 원문 유지)
+
+# ── 주간 브리핑 운영 설정 ──
+# GitHub Actions 실행 시간은 weekly.yml에서도 같은 값으로 맞춘다. 여기의 값은
+# 수집 범위·선정·표시 정책의 단일 기준이며, 시간대는 항상 한국 시간이다.
+WEEKLY_BRIEFING_CONFIG = {
+    "enabled": True,
+    "timezone": "Asia/Seoul",
+    "send_weekday": "monday",
+    "send_time": "08:30",
+    "lookback_days": 7,
+    "headline_summary_max": 3,
+    "total_article_max": 12,
+    "article_summaries": False,
+    "next_week_watchlist": False,
+    "single_slack_message": True,
+    # 메시지가 길어지면 글자를 자르지 않고 선정 기사 수를 줄인다.
+    "truncate_text": False,
+}
+
+# 주간판은 카테고리별 최대치만 정한다. 좋은 기사가 부족하면 강제 보충하지
+# 않으며, 전체 합계가 12건을 넘으면 주간 상대 순위가 낮은 기사부터 제외한다.
+WEEKLY_CATEGORY_LIMITS = {
+    "🌱 임팩트": 3,
+    "🤖 AI": 2,
+    "📈 대체투자": 4,
+    "🌐 거시·정책·지정학": 2,
+    "👔 MBB·Big4 인사이트": 2,
+}
+
+WEEKLY_REGION_LIMITS = {
+    "📈 대체투자": {"global": 2, "korea": 2},
+    "🌐 거시·정책·지정학": {"global": 1, "korea": 1},
+}
+
+# 시장 데이터의 실제 API 주소와 인증은 market_data 모듈이 담당한다. config에는
+# 어떤 지표를 어떤 방식으로 보여줄지만 둬서 제공처 교체가 선정 로직에 번지지 않는다.
+WEEKLY_MARKET_SPARKLINE_POINTS = 5
+WEEKLY_MARKET_INDICATORS = (
+    {
+        "key": "kospi",
+        "label": "KOSPI",
+        "provider": "krx",
+        "index_name": "코스피",
+        "change_unit": "percent",
+    },
+    {
+        "key": "kosdaq",
+        "label": "KOSDAQ",
+        "provider": "krx",
+        "index_name": "코스닥",
+        "change_unit": "percent",
+    },
+    {
+        "key": "usd_krw",
+        "label": "원/달러",
+        "provider": "fred",
+        "series_id": "DEXKOUS",
+        "change_unit": "percent",
+        "interpretation": "down_is_krw_strength",
+    },
+    {
+        "key": "sp500",
+        "label": "S&P 500",
+        "provider": "fred",
+        "series_id": "SP500",
+        "change_unit": "percent",
+    },
+    {
+        "key": "nasdaq",
+        "label": "NASDAQ",
+        "provider": "fred",
+        "series_id": "NASDAQCOM",
+        "change_unit": "percent",
+    },
+    {
+        "key": "us_10y",
+        "label": "미 10년물",
+        "provider": "fred",
+        "series_id": "DGS10",
+        "change_unit": "basis_points",
+    },
+    {
+        "key": "brent",
+        "label": "Brent",
+        "provider": "fred",
+        "series_id": "DCOILBRENTEU",
+        "change_unit": "percent",
+    },
+)
 
 SIMILARITY_THRESHOLD = 0.72
 # 선정 단계에서 '같은 사건' 을 걸러낼 때 쓰는 임계값. 수집 단계보다 낮다.
