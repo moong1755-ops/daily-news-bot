@@ -174,7 +174,14 @@ def _same_event(left: dict, right: dict) -> bool:
         and not token.isdigit()
     }
     jaccard = len(shared_tokens) / len(token_union)
-    return len(entity_tokens) >= 1 and jaccard >= 0.58
+    smaller_title_coverage = len(shared_tokens) / min(len(left_tokens), len(right_tokens))
+    # 같은 통계·정책 사건을 한 매체는 수치까지 길게, 다른 매체는 핵심만 짧게
+    # 쓰면 Jaccard 분모만 커진다. 공통 핵심어가 충분하고 짧은 제목의 75% 이상을
+    # 덮는 경우에는 같은 사건으로 본다.
+    return len(entity_tokens) >= 1 and (
+        jaccard >= 0.58
+        or (len(shared_tokens) >= 4 and smaller_title_coverage >= 0.75)
+    )
 
 
 def _source_priority(article: dict) -> int:
