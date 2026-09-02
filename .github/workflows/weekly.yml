@@ -87,6 +87,7 @@ jobs:
           WEEKLY_SLACK_WEBHOOK_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.delivery_target == 'test' && secrets.SLACK_WEBHOOK_URL || secrets.WEEKLY_SLACK_WEBHOOK_URL }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          EDITORIAL_REVIEW_SHEET_URL: ${{ vars.EDITORIAL_REVIEW_SHEET_URL }}
           KRX_AUTH_KEY: ${{ secrets.KRX_AUTH_KEY }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.delivery_target == 'preview' && '1' || '' }}
           WEEKLY_END_DATE: ${{ inputs.end_date || '' }}
@@ -96,18 +97,22 @@ jobs:
           PYTHONIOENCODING: "utf-8"
         run: python -m src.weekly.runner
 
-      - name: Commit weekly delivery archive
+      - name: Commit weekly archive and editorial review
         if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.delivery_target == 'production') }}
         run: |
-          if [[ ! -f data/weekly_archive.jsonl ]]; then
-            echo "No weekly delivery archive to save."
-            exit 0
-          fi
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git add -- data/weekly_archive.jsonl
+          state_files=(
+            data/weekly_archive.jsonl
+            data/weekly_review.csv
+          )
+          for state_file in "${state_files[@]}"; do
+            if [[ -f "$state_file" ]]; then
+              git add -- "$state_file"
+            fi
+          done
           if git diff --staged --quiet; then
-            echo "No weekly delivery state changes to save."
+            echo "No weekly state changes to save."
           else
             git commit -m "Update weekly briefing archive [skip ci]"
             git pull --rebase origin "$GITHUB_REF_NAME"

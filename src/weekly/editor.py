@@ -7,6 +7,7 @@ import re
 from dataclasses import dataclass
 
 from ..config import CATEGORIES, WEEKLY_BRIEFING_CONFIG
+from ..editorial_review import importance as _editorial_importance
 from ..processor.reranker import generate_editor_json
 
 
@@ -30,7 +31,11 @@ def _title(article: dict) -> str:
 
 def _fallback_lines(articles: list[dict], limit: int) -> tuple[str, ...]:
     """Keep impact visible while covering more than one category when possible."""
-    ranked = sorted(articles, key=_score, reverse=True)
+    ranked = sorted(
+        articles,
+        key=lambda article: (_editorial_importance(article), _score(article)),
+        reverse=True,
+    )
     chosen: list[dict] = ranked[:1]
 
     represented = {article.get("category") for article in chosen}
@@ -60,6 +65,10 @@ def _prompt(articles: list[dict], limit: int) -> str:
             "status": article.get("deal_status"),
             "signals": article.get("weekly_rank_reasons") or [],
             "weekly_score": article.get("weekly_score"),
+            "importance": article.get("importance") or 0,
+            "importance_reason": article.get("importance_reason") or "",
+            "alt_subtype": article.get("alt_subtype") or "",
+            "summary": str(article.get("description") or article.get("summary") or "")[:240],
         }
         for index, article in enumerate(articles)
     ]
@@ -67,11 +76,15 @@ def _prompt(articles: list[dict], limit: int) -> str:
 당신은 임팩트 VC 투자심사역을 위한 주간 뉴스 편집장이다.
 아래는 이미 중복 제거와 상대 순위 선별을 마친 기사다.
 
-이번 주 투자 판단에 가장 중요한 변화를 정확히 {limit}줄 이내로 정리하라.
+월요일 아침 임팩트 VC 투자심사역이 지난주를 이해하기 위해 기억해야 할 가장 중요한 변화를 정확히 {limit}줄 이내로 정리하라.
 - 각 줄은 하나의 독립된 사건·변화만 다룬다. 서로 무관한 기사를 한 줄로 묶지 않는다.
 - 같은 사건의 후속 보도가 여러 건이면 하나의 변화로만 요약한다.
-- 시장 결정·정책 확정·대형 투자·M&A·산업 구조 변화 순으로 우선한다.
-- 카테고리 안배보다 weekly_score와 투자 판단 중요도를 우선한다.
+- 다음 순서로 판단한다: ① 투자환경·정책·규제 변화 ② 시장 전체의 자본공급 변화 ③ 시장을 대표하는 투자·M&A·IPO ④ 산업구조 변화 ⑤ 투자판단을 바꾸는 새로운 증거.
+- Daily importance는 3>2>1 순으로 보되 주간 전체 맥락에서 다시 비교한다. importance_reason은 위 다섯 판단축의 대표 이유다.
+- 모태펀드·정책금융·연기금 같은 systemic_capital은 개별 기업의 평범한 M&A보다 주간 중요도가 높을 수 있다.
+- major_deal은 단순 금액이 아니라 시장의 기준점을 보여주는 거래인지 본다.
+- weekly_score는 같은 중요도 기사 사이의 참고치일 뿐 최종 판단 근거로 그대로 복사하지 않는다.
+- 여러 기사가 같은 방향의 명확한 시장 변화를 독립적으로 뒷받침하면 한 줄의 해석으로 묶을 수 있다. 다만 제목·요약에 없는 인과관계는 만들지 않는다.
 - 임팩트 투자 기회·리스크가 주간 핵심급이면 우선 포함하되 약한 사건을 억지로 넣지 않는다.
 - 본 결정이 있는 사건에서는 전망·관계자 발언·시장 반응보다 본 결정을 먼저 쓴다.
 - 기사에 없는 사실은 만들지 않는다.

@@ -11,16 +11,18 @@ from pathlib import Path
 import requests
 
 from ..config import WEEKLY_BRIEFING_CONFIG
+from ..editorial_review import write_review_csv
 from ..processor.translator import translate_titles
 from .archive import KOREA_TIMEZONE, WeeklyArchiveWindow, load_weekly_archive
 from .deduplicator import deduplicate_weekly_articles
 from .editor import build_weekly_headlines
 from .market_data import collect_market_snapshots
 from .renderer import WeeklySlackMessage, render_weekly_briefing
-from .selector import WeeklySelection, select_weekly_articles
+from .selector import WeeklySelection, select_weekly_articles, weekly_score
 
 
 DEFAULT_DELIVERY_ARCHIVE = Path(__file__).resolve().parents[2] / "data" / "weekly_archive.jsonl"
+WEEKLY_REVIEW_PATH = Path(__file__).resolve().parents[2] / "data" / "weekly_review.csv"
 
 
 @dataclass(frozen=True)
@@ -119,10 +121,15 @@ def run_weekly_briefing(
 ) -> WeeklyRunResult:
     run_now = now or _effective_now()
     source_path = source_archive_path or os.environ.get("SLACK_ARCHIVE_PATH") or None
-    delivery_path = Path(
-        delivery_archive_path
-        or os.environ.get("WEEKLY_ARCHIVE_PATH")
-        or DEFAULT_DELIVERY_ARCHIVE
+    configured_delivery_path = delivery_archive_path or os.environ.get("WEEKLY_ARCHIVE_PATH")
+    delivery_path = Path(configured_delivery_path or DEFAULT_DELIVERY_ARCHIVE)
+    review_path = Path(
+        os.environ.get("WEEKLY_REVIEW_PATH")
+        or (
+            Path(configured_delivery_path).with_name("weekly_review.csv")
+            if configured_delivery_path
+            else WEEKLY_REVIEW_PATH
+        )
     )
     window = load_weekly_archive(source_path, now=run_now)
     for error in window.errors:
@@ -145,6 +152,23 @@ def run_weekly_briefing(
 
     deduplicated = deduplicate_weekly_articles(list(window.articles))
     selection = select_weekly_articles(deduplicated)
+    try:
+        review_candidates = []
+        for source_article in deduplicated:
+            article = dict(source_article)
+            score, _reasons = weekly_score(article)
+            article["weekly_score"] = score
+            review_candidates.append(article)
+        write_review_csv(
+            review_path,
+            edition_date=window.end_date.isoformat(),
+            candidates=review_candidates,
+            selected=selection.articles,
+            retention_days=370,
+            review_type="weekly",
+        )
+    except Exception as exc:
+        print(f"⚠️ Weekly Review CSV 저장 실패: {exc}")
     if not selection.articles:
         return _empty_result(window, "주간 상대 선별 결과가 0건")
 

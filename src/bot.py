@@ -67,6 +67,13 @@ except ImportError:
     SLACK_HEADER = ""
 
 from .utils.file_handler import load_lines, save_lines, SEEN_FILE, SEEN_TITLES_FILE
+from .editorial_review import (
+    EDITORIAL_REVIEW_SHEET_URL,
+    importance as _editorial_importance,
+    priority_key as _editorial_priority_key,
+    select_alt_with_soft_diversity,
+    write_review_csv,
+)
 CATEGORY_ORDER = list(CATEGORIES.keys())
 IMPACT_CATEGORY = next(category for category in CATEGORY_ORDER if category.startswith("🌱"))
 AI_CATEGORY = next(category for category in CATEGORY_ORDER if category.startswith("🤖"))
@@ -85,6 +92,7 @@ REGION_DISPLAY_ORDER = (("global", "해외"), ("korea", "국내"))
 IMPACT_SOURCE_SOFT_CAP = max(1, IMPACT_MUST_READ_MAX // 2)
 TRACKING_QUERY_KEYS = {"fbclid", "gclid", "mc_cid", "mc_eid", "ref", "referrer"}
 SLACK_ARCHIVE_PATH = Path(__file__).parent.parent / "data" / "slack_archive.jsonl"
+DAILY_REVIEW_PATH = Path(__file__).parent.parent / "data" / "daily_review.csv"
 KOREA_TIMEZONE = timezone(timedelta(hours=9))
 
 
@@ -456,6 +464,11 @@ _MACRO_RATE_OUTLOOK = re.compile(
 )
 
 
+def _selection_priority(article: dict, category: str) -> tuple[int, float]:
+    return _editorial_priority_key(article, _selection_score(article, category))
+
+
+
 def _macro_rate_text(article: dict) -> str:
     return " ".join(
         str(article.get(field) or "")
@@ -506,11 +519,15 @@ def _collapse_macro_rate_stories(ranked: list) -> list:
             group,
             key=lambda article: (
                 _macro_story_priority(article),
+                _editorial_importance(article),
                 _selection_score(article, MACRO_CATEGORY),
             ),
         )
         representative["_macro_event_score"] = max(
             _selection_score(article, MACRO_CATEGORY) for article in group
+        )
+        representative["_macro_event_importance"] = max(
+            _editorial_importance(article) for article in group
         )
         representatives.append(representative)
 
@@ -518,6 +535,7 @@ def _collapse_macro_rate_stories(ranked: list) -> list:
     return sorted(
         combined,
         key=lambda article: (
+            int(article.get("_macro_event_importance") or _editorial_importance(article)),
             float(
                 article.get("_macro_event_score")
                 if article.get("_macro_event_score") is not None
@@ -539,7 +557,7 @@ def _is_sendable(article: dict) -> bool:
 
 
 def _select_category_articles(ranked: list, category: str) -> list:
-    """Keep normal caps while preserving tagged impact and major-deal overflow."""
+    """Apply category caps after importance-first ranking."""
     base_limit = MAX_PER_CATEGORY_DICT.get(category, MAX_PER_CATEGORY)
 
     # 거시는 같은 중앙은행 금리 이벤트의 본 결정/전망/코멘트가 서로
@@ -552,19 +570,38 @@ def _select_category_articles(ranked: list, category: str) -> list:
 
     if category in REGION_SPLIT_CATEGORIES:
         # 대체투자·거시는 해외와 국내를 각각 최대 3개까지 보존한다.
-        # 대체투자의 확정 주요 딜만 한 지역의 3개 제한을 넘을 수 있다.
+        # importance가 없는 기존 기사만 예전 major_deal overflow를 유지한다.
+        # 신규 metadata가 있는 기사는 major_deal이 importance 판단을 우회하지 않는다.
         region_counts = {"global": 0, "korea": 0}
         selected = []
         overflow = []
         final_limit = base_limit * 2
 
-        for article in ranked:
-            region = _article_region(article)
-            if region_counts[region] < base_limit:
-                selected.append(article)
-                region_counts[region] += 1
-            elif category == ALTERNATIVE_CATEGORY and article.get("major_deal", False):
-                overflow.append(article)
+        if category == ALTERNATIVE_CATEGORY:
+            for region, _label in REGION_DISPLAY_ORDER:
+                region_ranked = [article for article in ranked if _article_region(article) == region]
+                region_selected = select_alt_with_soft_diversity(
+                    region_ranked,
+                    limit=base_limit,
+                    score_fn=lambda article: _selection_score(article, category),
+                )
+                selected.extend(region_selected)
+                region_counts[region] = len(region_selected)
+                overflow.extend(
+                    article
+                    for article in region_ranked
+                    if (
+                        article not in region_selected
+                        and article.get("major_deal", False)
+                        and _editorial_importance(article) == 0
+                    )
+                )
+        else:
+            for article in ranked:
+                region = _article_region(article)
+                if region_counts[region] < base_limit:
+                    selected.append(article)
+                    region_counts[region] += 1
 
         for article in overflow:
             if len(selected) >= min(final_limit, ALTERNATIVE_MAJOR_DEAL_MAX):
@@ -649,16 +686,17 @@ def _select_category_articles(ranked: list, category: str) -> list:
 
         best_domestic = max(
             domestic_candidates,
-            key=lambda article: _selection_score(article, category),
+            key=lambda article: _selection_priority(article, category),
         )
         weakest_selected = min(
             selected,
-            key=lambda article: _selection_score(article, category),
+            key=lambda article: _selection_priority(article, category),
         )
-        if (
-            _selection_score(best_domestic, category)
-            + INSIGHTS_DOMESTIC_SCORE_TOLERANCE
-            >= _selection_score(weakest_selected, category)
+        domestic_importance, domestic_score = _selection_priority(best_domestic, category)
+        weakest_importance, weakest_score = _selection_priority(weakest_selected, category)
+        if domestic_importance > weakest_importance or (
+            domestic_importance == weakest_importance
+            and domestic_score + INSIGHTS_DOMESTIC_SCORE_TOLERANCE >= weakest_score
         ):
             selected.remove(weakest_selected)
             selected.append(best_domestic)
@@ -816,6 +854,9 @@ def _decision_record(article: dict, verdict: str) -> dict:
         "filter_reason": article.get("filter_reason"),
         "editor_reason": article.get("editor_reason"),
         "editor_score": article.get("editor_score"),
+        "importance": article.get("importance"),
+        "importance_reason": article.get("importance_reason"),
+        "alt_subtype": article.get("alt_subtype"),
         "editor_event_key": article.get("editor_event_key"),
         "relevance_signal": article.get("relevance_signal"),
         "editorial_signals": article.get("editorial_signals"),
@@ -1012,6 +1053,10 @@ def _append_slack_archive(
                 "editor_event_key": article.get("editor_event_key") or "",
                 "editor_score": article.get("editor_score"),
                 "editor_reason": article.get("editor_reason") or "",
+                "importance": article.get("importance") or 0,
+                "importance_reason": article.get("importance_reason") or "",
+                "alt_subtype": article.get("alt_subtype") or "",
+                "description": article.get("description") or article.get("summary") or "",
                 "selection_score": _selection_score(article, category),
                 "selection_reason": article.get("selection_reason") or "",
                 "selection_adjustments": list(article.get("selection_adjustments") or []),
@@ -1063,7 +1108,9 @@ def send_aggregated_slack_news(articles) -> tuple:
     sent_articles = []          # ✅ 실제 슬랙에 나간 기사만 수집(seen 처리용)
     selected_by_category = {}
     for cat_name in CATEGORY_ORDER:
-        ranked = sorted(buckets[cat_name], key=lambda a: _selection_score(a, cat_name), reverse=True)
+        for article in buckets[cat_name]:
+            article["selection_score"] = _selection_score(article, cat_name)
+        ranked = sorted(buckets[cat_name], key=lambda a: _selection_priority(a, cat_name), reverse=True)
         selected = _select_category_articles(ranked, cat_name)
         selected_by_category[cat_name] = selected
         sent_articles.extend(selected)
@@ -1099,6 +1146,14 @@ def send_aggregated_slack_news(articles) -> tuple:
         for category in CATEGORY_ORDER
     }
     slack_blocks = _build_slack_blocks(category_lines)
+    if EDITORIAL_REVIEW_SHEET_URL:
+        slack_blocks.append({
+            "type": "context",
+            "elements": [{
+                "type": "mrkdwn",
+                "text": f"<{EDITORIAL_REVIEW_SHEET_URL}|📎 선정·미선정 후보 보기>",
+            }],
+        })
     notification_text = (
         SLACK_HEADER.replace("{date}", datetime.now().strftime("%y.%m.%d"))
         if SLACK_HEADER
@@ -1127,6 +1182,25 @@ def send_aggregated_slack_news(articles) -> tuple:
         return True, sent_articles
     print(f"슬랙 전송 실패: {resp.status_code}, {resp.text}")
     return False, sent_articles
+
+
+def _save_daily_review(candidates: list[dict], selected: list[dict]) -> bool:
+    """Persist the review audit without turning an audit failure into a send failure."""
+    if not candidates:
+        return True
+    try:
+        edition_date = (as_of_date() or datetime.now(KOREA_TIMEZONE).date()).isoformat()
+        write_review_csv(
+            DAILY_REVIEW_PATH,
+            edition_date=edition_date,
+            candidates=candidates,
+            selected=selected,
+            retention_days=60,
+        )
+    except Exception as exc:
+        print(f"⚠️ Daily Review CSV 저장 실패: {exc}")
+        return False
+    return True
 
 
 def main():
@@ -1261,6 +1335,9 @@ def main():
                 print(f"⚠️ 텔레그램 전송 중 에러(계속 진행): {_e}")
     else:
         print("전송할 새로운 기사가 없습니다.")
+
+    # 최종 편집 후보와 실제 발송 결과를 비교할 수 있게 최근 60일만 저장한다.
+    _save_daily_review(classified, sent_articles)
 
     # 한 건도 못 골랐을 때야말로 탈락 사유가 필요하므로 항상 남긴다.
     save_run_decisions(rejected, classified, sent_articles)
