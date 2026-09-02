@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass
 from datetime import date
 
+from ..editorial_review import importance as _editorial_importance
 from ..config import (
     CATEGORIES,
     WEEKLY_BRIEFING_CONFIG,
@@ -205,6 +206,7 @@ def _ranked(articles: list[dict]) -> list[dict]:
     return sorted(
         ranked,
         key=lambda article: (
+            _editorial_importance(article),
             _number(article, "weekly_score"),
             _last_seen(article).toordinal(),
             _source_bonus(article),
@@ -258,7 +260,10 @@ def _select_category(articles: list[dict], category: str) -> list[dict]:
         selected = selected[:category_limit]
     return sorted(
         selected,
-        key=lambda article: _number(article, "weekly_score"),
+        key=lambda article: (
+            _editorial_importance(article),
+            _number(article, "weekly_score"),
+        ),
         reverse=True,
     )
 
@@ -305,6 +310,7 @@ def select_weekly_articles(articles: list[dict]) -> WeeklySelection:
     remaining_ranked = sorted(
         (article for article in other_articles if id(article) not in protected_ids),
         key=lambda article: (
+            _editorial_importance(article),
             _number(article, "weekly_score"),
             _last_seen(article).toordinal(),
         ),

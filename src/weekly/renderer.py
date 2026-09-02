@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 
 from ..config import CATEGORIES
+from ..editorial_review import EDITORIAL_REVIEW_SHEET_URL
 from .editor import WeeklyHeadlines
 from .market_data import MarketSnapshot
 from .selector import WeeklySelection
@@ -257,6 +258,8 @@ def _plain_text(
                     or ""
                 )
                 lines.append(f"- {title} {url}".rstrip())
+    if EDITORIAL_REVIEW_SHEET_URL:
+        lines.extend(("", f"📎 선정·미선정 후보 보기 {EDITORIAL_REVIEW_SHEET_URL}"))
     return "\n".join(lines)
 
 
@@ -281,6 +284,15 @@ def render_weekly_briefing(
         blocks.extend(_category_blocks(category, selection.by_category.get(category, ())))
         if index < len(CATEGORIES) - 1:
             blocks.append({"type": "divider"})
+
+    if EDITORIAL_REVIEW_SHEET_URL:
+        blocks.append({
+            "type": "context",
+            "elements": [{
+                "type": "mrkdwn",
+                "text": f"<{EDITORIAL_REVIEW_SHEET_URL}|📎 선정·미선정 후보 보기>",
+            }],
+        })
 
     if len(blocks) > 50:
         raise ValueError(f"Slack Block Kit 한도 초과: {len(blocks)}개")

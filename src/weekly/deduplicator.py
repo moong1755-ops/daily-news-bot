@@ -6,6 +6,8 @@ import re
 from datetime import date
 from difflib import SequenceMatcher
 
+from ..editorial_review import VALID_ALT_SUBTYPES, importance as _editorial_importance
+
 
 GENERIC_TOKENS = {
     "about", "after", "amid", "and", "for", "from", "into", "over", "says",
@@ -271,6 +273,36 @@ def _group_representative(group: list[dict]) -> dict:
         (_numeric_score(article, "selection_score") for article in group),
         default=0.0,
     )
+    importance_owner = max(
+        group,
+        key=lambda article: (
+            _editorial_importance(article),
+            _numeric_score(article, "selection_score"),
+            _numeric_score(article, "editor_score"),
+        ),
+    )
+    representative["importance"] = _editorial_importance(importance_owner)
+    representative["importance_reason"] = (
+        importance_owner.get("importance_reason") or ""
+    )
+    if str(representative.get("category") or "").startswith("📈"):
+        subtype_candidates = [
+            article for article in group
+            if article.get("alt_subtype") in VALID_ALT_SUBTYPES
+        ]
+        subtype_owner = max(
+            subtype_candidates,
+            key=lambda article: (
+                _editorial_importance(article),
+                _numeric_score(article, "selection_score"),
+            ),
+            default=None,
+        )
+        representative["alt_subtype"] = (
+            subtype_owner.get("alt_subtype") if subtype_owner else ""
+        )
+    else:
+        representative["alt_subtype"] = ""
     representative["major_deal"] = any(article.get("major_deal", False) for article in group)
     return representative
 

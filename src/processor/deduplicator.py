@@ -13,6 +13,7 @@ from ..config import (
     RSS_SOURCE_METADATA,
     SIMILARITY_THRESHOLD,
 )
+from ..editorial_review import VALID_ALT_SUBTYPES, importance as _editorial_importance
 
 _model = None
 
@@ -561,6 +562,37 @@ def collapse_editor_event_duplicates(
         ]
         if editor_scores:
             representative["editor_score"] = max(editor_scores)
+        importance_owner = max(
+            group,
+            key=lambda article: (
+                _editorial_importance(article),
+                float(article.get("editor_score") or 0),
+                float(article.get("relevance") or 0),
+            ),
+        )
+        representative["importance"] = _editorial_importance(importance_owner)
+        representative["importance_reason"] = (
+            importance_owner.get("importance_reason") or ""
+        )
+        if str(representative.get("category") or "").startswith("📈"):
+            subtype_candidates = [
+                article
+                for article in group
+                if article.get("alt_subtype") in VALID_ALT_SUBTYPES
+            ]
+            subtype_owner = max(
+                subtype_candidates,
+                key=lambda article: (
+                    _editorial_importance(article),
+                    float(article.get("editor_score") or 0),
+                ),
+                default=None,
+            )
+            representative["alt_subtype"] = (
+                subtype_owner.get("alt_subtype") if subtype_owner else ""
+            )
+        else:
+            representative["alt_subtype"] = ""
         representative["major_deal"] = any(
             article.get("major_deal", False) for article in group
         )

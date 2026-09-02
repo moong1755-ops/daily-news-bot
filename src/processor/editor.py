@@ -19,6 +19,10 @@ import re
 from urllib.parse import urlsplit
 
 from ..config import CATEGORIES
+from ..editorial_review import (
+    VALID_ALT_SUBTYPES as ALT_SUBTYPES,
+    VALID_IMPORTANCE_REASONS as IMPORTANCE_REASONS,
+)
 from .reranker import _call_llm
 
 BATCH_SIZE = 80
@@ -160,7 +164,17 @@ OpenAI·Google·Anthropic·Nvidia 같은 핵심 기업의 제품 출시는 소�
   기술 공지 모음, 인사이트 목록 페이지는 제외한다.
   컨설팅사를 언급만 한 제3자 기사는 내용에 맞는 카테고리로 보낸다.
 
-[점수] 0~10은 통과선이 아니라 정렬용이다. 같은 배치 안에서뿐 아니라 다른
+[중요도] keep=true 기사에는 importance 1~3과 importance_reason을 반드시 붙인다.
+- importance=3: 이 기사를 빼면 오늘 투자환경·자본흐름·산업구조 또는 해당 시장에 대한 이해가 유의미하게 왜곡되는 핵심 변화. 희소하게 사용한다. 단순히 유명 기업이거나 금액이 크다는 이유만으로 3을 주지 않는다.
+- importance=2: 중요한 변화지만 빠져도 전체 시장 이해는 유지되는 기사.
+- importance=1: Daily에서 읽을 가치는 있지만 다른 강한 기사로 대체 가능한 보완 기사.
+- importance_reason은 policy_or_market_change, systemic_capital, major_deal, industry_shift, investment_evidence 중 대표 이유 하나만 고른다. 태그 개수나 이유 종류는 점수 보너스가 아니다.
+- systemic_capital은 모태펀드·정책금융·연기금·공제회·대규모 LP/GP 배분처럼 VC/PE 전체 또는 의미 있는 세그먼트의 자본공급 조건을 바꾸는 경우다. 작은 지자체 지원사업은 해당하지 않는다.
+- major_deal은 단순 큰 금액이 아니라 시장 규모의 이상치, 대표기업/전략적 자본, valuation 기준점, IPO·회수시장 신호, 새로운 투자 thesis 중 둘 이상이 뚜렷한 거래를 뜻한다.
+- 대체투자 기사에는 alt_subtype을 capital_formation, venture_growth, pe_ma, exit_liquidity 중 정확히 하나 붙인다. 다른 카테고리는 빈 문자열로 둔다.
+- 예: 중기부의 연간 모태펀드 출자예산처럼 국가 VC 자본공급을 바꾸는 결정은 systemic_capital·importance=3 후보이며, 시장 대표성이 없는 일반 기업 M&A가 단순히 금액이 더 크다는 이유로 앞서면 안 된다.
+
+[점수] 0~10은 importance가 같은 기사 안에서 쓰는 보조 정렬값이다. 같은 배치 안에서뿐 아니라 다른
 배치와도 비교할 수 있도록 다음 기준을 일관되게 사용한다.
 - 9~10: 오늘 투자 판단에 직접 영향을 주는 시장·정책 변화 또는 핵심 임팩트 사건
 - 7~8: 중요한 투자·M&A·계약·검증된 산업 변화와 의사결정용 리포트
@@ -178,7 +192,7 @@ keep=false 기사에는 점수를 부여하지 않는다.
 
 [출력] 후보 전부에 대해 아래 형식의 JSON 만 반환한다. 설명 문장을 쓰지 마라.
 {{"verdicts": [
-  {{"id": 1, "keep": true, "category": "🤖 AI", "score": 8, "reason": "funding_round", "event_key": "example_ai_funding_series_b"}},
+  {{"id": 1, "keep": true, "category": "📈 대체투자", "score": 8, "reason": "funding_round", "event_key": "example_funding_series_b", "importance": 2, "importance_reason": "major_deal", "alt_subtype": "venture_growth"}},
   {{"id": 2, "keep": false, "reason": "job_posting"}}
 ]}}
 
@@ -298,6 +312,21 @@ def _record_score_adjustment(article: dict, reason: str) -> None:
     article["editor_score_adjustment"] = f"{current},{reason}" if current else reason
 
 
+def _parse_importance(value: object) -> int:
+    """Accept only the three documented discrete importance values."""
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return value if value in (1, 2, 3) else 0
+    if isinstance(value, str):
+        normalized = value.strip()
+        return int(normalized) if normalized in {"1", "2", "3"} else 0
+    if isinstance(value, float) and value.is_integer():
+        integer = int(value)
+        return integer if integer in (1, 2, 3) else 0
+    return 0
+
+
 def _apply(article: dict, verdict: dict, valid_categories: set) -> None:
     keep = _as_bool(verdict.get("keep"))
     article["editor_verdict"] = "keep" if keep else "reject"
@@ -350,6 +379,18 @@ def _apply(article: dict, verdict: dict, valid_categories: set) -> None:
     article["editor_score"] = max(0.0, min(10.0, score))
     article["relevance"] = article["editor_score"]
 
+    article["importance"] = _parse_importance(verdict.get("importance"))
+    importance_reason = str(verdict.get("importance_reason") or "").strip()
+    article["importance_reason"] = (
+        importance_reason if importance_reason in IMPORTANCE_REASONS else ""
+    )
+    alt_subtype = str(verdict.get("alt_subtype") or "").strip()
+    article["alt_subtype"] = (
+        alt_subtype
+        if str(article.get("category") or "").startswith("📈") and alt_subtype in ALT_SUBTYPES
+        else ""
+    )
+
 
 def review(articles: list) -> tuple:
     """기사에 편집 판정을 붙인다.
@@ -399,6 +440,9 @@ def review(articles: list) -> tuple:
         if "editor_verdict" not in article:
             article["editor_verdict"] = "unreviewed"
             article["editor_score"] = 0.0
+            article["importance"] = 0
+            article["importance_reason"] = ""
+            article["alt_subtype"] = ""
             unreviewed += 1
     if unreviewed:
         errors.append(f"편집 게이트 미판정 {unreviewed}건 — 낮은 점수로 통과시킴")
