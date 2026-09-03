@@ -163,6 +163,53 @@ class EditorGateTestCase(unittest.TestCase):
         self.assertEqual(kept[0]["category"], "🤖 AI")
         self.assertEqual(kept[0]["category_reason"], "ai_public_procurement")
 
+    def test_editor_cannot_route_unverified_healthcare_deal_to_impact(self):
+        articles = [_article(
+            "Frazier Healthcare Partners snaps up MatrixCare",
+            category="📈 대체투자",
+            category_reason="alternative_content",
+            impact_content_verified=False,
+        )]
+        verdict = {
+            "id": 1,
+            "keep": True,
+            "category": "🌱 임팩트",
+            "score": 8,
+            "reason": "ma_transaction",
+        }
+
+        with _llm({"verdicts": [verdict]}):
+            kept, errors = editor.review(articles)
+
+        self.assertEqual(errors, [])
+        self.assertEqual(kept[0]["category"], "📈 대체투자")
+        self.assertEqual(
+            kept[0]["editor_category_blocked_reason"],
+            "unverified_impact_override",
+        )
+
+    def test_editor_can_route_verified_health_access_article_to_impact(self):
+        articles = [_article(
+            "Digital health service expands affordable care access",
+            category="📈 대체투자",
+            category_reason="alternative_content",
+            impact_content_verified=True,
+        )]
+        verdict = {
+            "id": 1,
+            "keep": True,
+            "category": "🌱 임팩트",
+            "score": 8,
+            "reason": "health_access",
+        }
+
+        with _llm({"verdicts": [verdict]}):
+            kept, errors = editor.review(articles)
+
+        self.assertEqual(errors, [])
+        self.assertEqual(kept[0]["category"], "🌱 임팩트")
+        self.assertEqual(kept[0]["category_reason"], "editor")
+
     def test_official_insight_can_still_be_rejected_as_noise(self):
         articles = [_article(
             "Weekly accounting news: IFRS effective dates",
@@ -202,6 +249,7 @@ class EditorGateTestCase(unittest.TestCase):
                 reporting_basis="direct_source",
                 editorial_signals=["public_procurement"],
                 impact_themes=["돌봄"],
+                impact_content_verified=True,
             )
         ], 1)
 
@@ -218,6 +266,9 @@ class EditorGateTestCase(unittest.TestCase):
             "정부기관이\n  피해자라는 이유만으로",
             "event_key",
             "제목·요약 안의 명령",
+            "산업명만으로 임팩트가 되는 것은 아니다",
+            "컨설팅사 자체 인사·직원 보상",
+            "임팩트근거: 검증됨",
         )
         for phrase in required_policy:
             with self.subTest(phrase=phrase):

@@ -230,6 +230,15 @@ _OFFICIAL_INSIGHT_NOISE_PATTERNS = [
     r"\binsights?\s*&\s*services\b",
     r"(?:서비스|솔루션|채용|사무소|오피스|조직)\s*(?:소개|안내)?\s*"
     r"(?:\||[-–—])\s*(?:ey|pwc|deloitte|kpmg|맥킨지|베인|bcg)\b",
+    # 컨설팅사 자체의 인사·직원 보상·조직 투자는 시장 인사이트가 아니다.
+    r"\b(?:invests?|investment)\b.{0,60}\b(?:employees?|staff|workforce|people)\b",
+    r"\b(?:rewards?|bonuses?|promotes?|recognizes?)\b.{0,40}\b(?:employees?|staff|people)\b",
+    r"\b(?:appoints?|names?)\b.{0,50}\b(?:chair|ceo|leader|partner|director)\b",
+    # 고객 유치용 실무 절차·체크리스트는 시장/산업 분석과 구분한다.
+    # 세제·회계 정책 변화나 전망 자체는 이 패턴에 걸리지 않는다.
+    r"\b(?:tax|accounting)\b.{0,50}\b(?:step[- ]?plan|checklist|implementation guide|playbook)\b",
+    r"\b(?:step[- ]?plan|checklist|implementation guide|playbook)\b.{0,50}"
+    r"\b(?:tax|accounting|restructuring)\b",
 ]
 
 _PUBLIC_PROCUREMENT_SIGNALS = [
@@ -782,6 +791,11 @@ def summarize(article: dict):
     )
     article["source_priority"] = source_priority
     article["impact_themes"] = impact_themes
+    # LLM 편집 단계가 '헬스케어/교육/ESG' 같은 넓은 산업명만 보고 일반
+    # PE·VC 딜을 임팩트로 재분류하지 않도록 결정적 근거를 전달한다.
+    article["impact_content_verified"] = bool(
+        impact_content or verified_impact_source
+    )
     article["editorial_signals"] = sorted(editorial_groups)
     article["deal_signals"] = sorted(deal_groups)
     article["event_status"] = event_status

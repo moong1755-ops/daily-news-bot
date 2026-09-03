@@ -229,6 +229,30 @@ class CategoryRoutingTests(unittest.TestCase):
         self.assertTrue(result["impact_themes"])
         self.assertTrue(result["impact_must_read"])
 
+    def test_broad_healthcare_acquisition_is_not_impact_without_outcome_evidence(self):
+        result, errors = summarize({
+            "title": "Frazier Healthcare Partners snaps up EHR and RCM software provider MatrixCare",
+            "description": "A private equity acquisition of a healthcare software company.",
+            "source": "PE Hub",
+            "feed": "PE Hub",
+        })
+
+        self.assertEqual(errors, [])
+        self.assertEqual(result["category"], ALTERNATIVE)
+        self.assertFalse(result["impact_content_verified"])
+
+    def test_healthcare_access_outcome_remains_verified_impact(self):
+        result, errors = summarize({
+            "title": "Digital health startup expands affordable healthcare access",
+            "description": "The service improves patient outcomes for underserved communities.",
+            "source": "TechCrunch Venture",
+            "feed": "TechCrunch Venture",
+        })
+
+        self.assertEqual(errors, [])
+        self.assertEqual(result["category"], IMPACT)
+        self.assertTrue(result["impact_content_verified"])
+
     def test_official_mbb_source_stays_in_insights(self):
         article = {
             "title": "Climate investment outlook for industrial companies",
@@ -255,6 +279,27 @@ class CategoryRoutingTests(unittest.TestCase):
         self.assertEqual(errors, [])
         self.assertEqual(result["category"], INSIGHTS)
         self.assertEqual(result["category_reason"], "official_insights_source")
+
+    def test_official_firm_internal_news_and_step_plans_are_excluded(self):
+        titles = (
+            "EY US invests $100 million to reward employees leading the firm into the future",
+            "AI-Enabled Tax Step Plan Analysis for Restructuring",
+        )
+
+        for title in titles:
+            with self.subTest(title=title):
+                result, errors = summarize({
+                    "title": title,
+                    "description": "",
+                    "source": "PwC" if "Tax" in title else "EY",
+                    "feed": "PwC Official Insights" if "Tax" in title else "EY Official Insights",
+                })
+                self.assertEqual(errors, [])
+                self.assertTrue(result["editorial_excluded"])
+                self.assertEqual(
+                    result["editorial_exclusion_reason"],
+                    "official_profile_or_service_page",
+                )
 
     def test_roundups_and_official_person_views_are_excluded(self):
         cases = (
@@ -1155,7 +1200,7 @@ class SelectionAndDateTests(unittest.TestCase):
             "bank_of_korea_rate_hike_2026_08_27",
         )
 
-    def test_fallback_keeps_only_tagged_overflow(self):
+    def test_fallback_caps_impact_and_keeps_only_legacy_alt_overflow(self):
         buckets = {category: [] for category in CATEGORY_ORDER}
         buckets[IMPACT] = [
             {
@@ -1182,7 +1227,7 @@ class SelectionAndDateTests(unittest.TestCase):
 
         selected = _fallback_rule_based(buckets, CATEGORY_ORDER)
 
-        self.assertEqual(sum(a["category"] == IMPACT for a in selected), 4)
+        self.assertEqual(sum(a["category"] == IMPACT for a in selected), 3)
         self.assertEqual(sum(a["category"] == ALTERNATIVE for a in selected), 5)
         self.assertEqual(sum(a["category"] == AI for a in selected), 3)
 
