@@ -84,6 +84,9 @@ _INSTRUCTIONS = """너는 임팩트 투자·벤처캐피탈 전문 뉴스 브리
   교육, 금융포용, 순환경제를 임팩트로 본다.
 - 금액만 보지 말고 해결하는 문제의 크기, 추가성, 확장성, 공공조달·실증,
   임팩트 측정과 검증된 성과, 정책·규제 변화, 투자·회수 가능성을 함께 본다.
+- 헬스케어·교육·ESG라는 산업명만으로 임팩트가 되는 것은 아니다. 일반 병원·
+  소프트웨어·에듀테크 기업의 투자나 인수는 의료·교육 접근성, 비용 부담 완화,
+  취약계층 성과, 측정 가능한 사회적 성과 같은 근거가 없으면 대체투자로 보낸다.
 - 기후 기사만 임팩트를 독점하지 않도록 중요도가 비슷하면 돌봄·헬스케어·교육·
   포용·순환경제 등 다른 임팩트 분야도 높게 평가한다.
 
@@ -161,7 +164,8 @@ OpenAI·Google·Anthropic·Nvidia 같은 핵심 기업의 제품 출시는 소�
   일반 금리 변경이나 현지 주가 반응은 제외한다.
 - MBB·Big4 가 직접 발행한 국내외 리포트·이슈 브리프·글로벌 트렌드·산업
   포커스·시장 전망만 인사이트로 보낸다. 회계기준 적용일, 세무 알림,
-  기술 공지 모음, 인사이트 목록 페이지는 제외한다.
+  기술 공지 모음, 인사이트 목록 페이지, 컨설팅사 자체 인사·직원 보상·사내
+  투자 소식, 고객 유치용 실무 Step Plan·체크리스트는 제외한다.
   컨설팅사를 언급만 한 제3자 기사는 내용에 맞는 카테고리로 보낸다.
 
 [중요도] keep=true 기사에는 importance 1~3과 importance_reason을 반드시 붙인다.
@@ -231,6 +235,9 @@ def _candidate_block(articles: list, start_id: int) -> str:
             or article.get("reporting_basis")
             or "미분류"
         )
+        impact_evidence = (
+            "검증됨" if article.get("impact_content_verified") else "없음"
+        )
         signals = ", ".join(
             str(signal)
             for signal in (
@@ -243,7 +250,8 @@ def _candidate_block(articles: list, start_id: int) -> str:
             f"ID [{start_id + offset}] | 현재분야: {article.get('category', '미분류')} | "
             f"지역: {region} | 출처: {source} | 피드: {article.get('feed', '')} | "
             f"원문도메인: {domain} | 날짜: {article.get('date', '')}\n"
-            f"사건상태: {event_status} | 보도근거: {reporting_basis} | 신호: {signals}\n"
+            f"사건상태: {event_status} | 보도근거: {reporting_basis} | "
+            f"임팩트근거: {impact_evidence} | 신호: {signals}\n"
             f"제목: {article.get('title', '')}\n"
             f"요약: {description}\n---"
         )
@@ -347,6 +355,19 @@ def _apply(article: dict, verdict: dict, valid_categories: set) -> None:
     if event_key:
         article["editor_event_key"] = event_key[:120]
     category = verdict.get("category")
+    current_category = article.get("category")
+    impact_category = next(
+        (candidate for candidate in valid_categories if str(candidate).startswith("🌱")),
+        "",
+    )
+    unverified_impact_override = (
+        category == impact_category
+        and current_category != impact_category
+        and not article.get("impact_content_verified", False)
+    )
+    if unverified_impact_override:
+        category = current_category
+        article["editor_category_blocked_reason"] = "unverified_impact_override"
     deterministic_category_locked = (
         article.get("category_reason") in {
             "official_insights_source",

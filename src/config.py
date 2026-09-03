@@ -134,7 +134,9 @@ MAX_PER_CATEGORY_DICT = {
     "👔 MBB·Big4 인사이트": 3,
 }
 MAX_PER_CATEGORY = 3
-IMPACT_MUST_READ_MAX = 5
+# 임팩트는 필수 카테고리지만 Slack의 일간 상한은 다른 카테고리와 동일하게
+# 3개다. impact_must_read는 3개 안에서 우선순위만 높이고 개수를 늘리지 않는다.
+IMPACT_MUST_READ_MAX = 3
 ALTERNATIVE_MAJOR_DEAL_MAX = 6
 LLM_CANDIDATES_PER_CATEGORY = 12
 IMPACT_CANDIDATES_PER_THEME = 3

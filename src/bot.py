@@ -89,7 +89,13 @@ EDITOR_EVENT_CATEGORY_PRIORITY = {
 }
 REGION_SPLIT_CATEGORIES = {ALTERNATIVE_CATEGORY, MACRO_CATEGORY}
 REGION_DISPLAY_ORDER = (("global", "해외"), ("korea", "국내"))
-IMPACT_SOURCE_SOFT_CAP = max(1, IMPACT_MUST_READ_MAX // 2)
+# 총 기사 상한과 출처 다양성 상한은 서로 다른 정책이다. 임팩트 총 3개 중
+# 한 매체가 최대 2개까지는 차지할 수 있게 해, 다른 출처를 포함하면서도
+# 가장 강한 기사 순서가 불필요하게 뒤집히지 않도록 한다.
+IMPACT_SOURCE_SOFT_CAP = min(
+    2,
+    max(1, MAX_PER_CATEGORY_DICT.get(IMPACT_CATEGORY, MAX_PER_CATEGORY)),
+)
 TRACKING_QUERY_KEYS = {"fbclid", "gclid", "mc_cid", "mc_eid", "ref", "referrer"}
 SLACK_ARCHIVE_PATH = Path(__file__).parent.parent / "data" / "slack_archive.jsonl"
 DAILY_REVIEW_PATH = Path(__file__).parent.parent / "data" / "daily_review.csv"
