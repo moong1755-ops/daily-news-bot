@@ -60,6 +60,7 @@ https://dealsite.co.kr/articles/168029
 https://dealsite.co.kr/articles/168056
 https://dealsite.co.kr/articles/168105
 https://dealsite.co.kr/articles/168124
+https://dealsite.co.kr/articles/168131
 https://dealsite.co.kr/articles/168230
 https://dealsite.co.kr/articles/168246
 https://dealsite.co.kr/articles/168254
@@ -99,6 +100,7 @@ https://m.thebell.co.kr/m/newsview.asp?newskey=202608241059114920106793
 https://m.thebell.co.kr/m/newsview.asp?newskey=202608271836025560104645
 https://magazine.hankyung.com/business/article/202608251220b
 https://markets.businessinsider.com/news/stocks/apollo-funds-agree-to-sell-kelvion-a-global-leader-in-cooling-solutions-for-data-centers-and-diversified-industrials-to-slb-for-4-1-billion-1036507095
+https://markets.businessinsider.com/news/stocks/bonchon-acquired-by-minor-food-and-serruya-private-equity-1036512715
 https://markets.businessinsider.com/news/stocks/channel-medsystems-series-c-led-by-innovahealth-partners-lp-reaches-30-million-as-the-company-accelerates-commercial-expansion-of-cerene-1036478883
 https://markets.businessinsider.com/news/stocks/city-roots-hospitality-acquires-fysh-foods-zoya-biglary-s-plant-based-seafood-brand-1036508492
 https://markets.businessinsider.com/news/stocks/hcwc-announces-host-digital-secures-1-25-billion-15-year-ai-data-center-lease-1036507020
@@ -107,6 +109,7 @@ https://mathstodon.xyz/@maxpool/117128107757895678
 https://medicine.washu.edu/news/fda-clears-blood-test-to-aid-evaluation-for-alzheimers-disease/
 https://news.crunchbase.com/clean-tech-and-energy/battery-storage-startup-antora-550m-series-c/
 https://news.crunchbase.com/venture/biggest-funding-rounds-safe-superintelligence-commonwealth-fusion/
+https://news.crunchbase.com/venture/global-funding-billion-dollar-deals-august-2026/
 https://news.crunchbase.com/venture/menlo-ventures-matt-murphy-anthropic-ai-investment-thesis/
 https://news.crunchbase.com/venture/physical-ai-funding-startups-robotics-aerospace-h1-2026/
 https://news.crunchbase.com/venture/robotics-ai-startup-lyte-seriesc-raise-maverick/
@@ -135,6 +138,7 @@ https://news.google.com/rss/articles/CBMiSEFVX3lxTE5hTGtSYk5RUzd2SG1ncnV4ckhjMGd
 https://news.google.com/rss/articles/CBMiSEFVX3lxTE9COGJRdVZ2dXB1azFXZ1MxY3pBdzRybXE5aFp1Zl8wRTM2THJoYzZKenBJNGhIQjlaSk5lRllzeUNKckJYSW1vUg?oc=5
 https://news.google.com/rss/articles/CBMiSEFVX3lxTE9KaGlmSmZ6RTJNeWVOTC1oeHdBbDR0amdyZEFfLTN2TFNnaFpudHM2VW1nNXhfaEUyalRzVHN6V2liQkppNU5oaQ?oc=5
 https://news.google.com/rss/articles/CBMiSEFVX3lxTE9RMTBEYXlRWHU3NE1qalhVTTN3NVA2cmxadjg1T1pGclA4REUyTVJFdDlOelBjNndRRnVKZFRibFBoSmExUHNESw?oc=5
+https://news.google.com/rss/articles/CBMiSEFVX3lxTE9hZW5YeENnc3JRMTkyVzBLVlBjWnRWRVNZNHktV1FsTXcyczcybFAzTlZLZnpiT1V4cVlkdWVOZnFUSFd2Zmlpbw?oc=5
 https://news.google.com/rss/articles/CBMiSEFVX3lxTE9rZGVlQmpOVldqZ2h2bi1iNDBmWVU1VVU4N2Z5OGJCQzY1VlhhUUMzaEh2dDA0SEtuc1FJZER0TmZ4blJuX2xrNQ?oc=5
 https://news.google.com/rss/articles/CBMiT0FVX3lxTE10ZXBpcVY0a2NQOHpKR0kyb1BkTHl5bmk1eFpWeG1oTnc3cG9UdFN1WTQ1TnA3QVd6ZnVyM1drWGpXVmlpNS1wcmhaVUoyeXM?oc=5
 https://news.google.com/rss/articles/CBMiT0FVX3lxTE1CblRTSnp5MDFWU1RzUFhjMHR2anJIak9zc3Z6eDdSZ3I2M1RSbkU5VUQtRUxESWNyTmNCTlEzNEFnZjdMOTJGTVJNWU1QVFk?oc=5
@@ -153,6 +157,7 @@ https://news.google.com/rss/articles/CBMiT0FVX3lxTE5nNXRfV0Q5cWVhM0hqamNHUmlGM0N
 https://news.google.com/rss/articles/CBMiT0FVX3lxTE5paXMwMDlvbTl6OFNldnJ1c3c0RlZsMUx6Z0pPdW05X0I4czJLdHZ3UF9OZWhXLUoyYjhjR1BCX2R3MkYxd1BBUzdkXzN0eTg?oc=5
 https://news.google.com/rss/articles/CBMiT0FVX3lxTE5qQ2RrSFhFSWF6TVZMRFpKSXBVT3YxY0dsVUxON3Jqc25leExhZUh2WXFaQ1hvMEN5NHNSZGtHT085TlVaS2hLUWVLRlRpR0U?oc=5
 https://news.google.com/rss/articles/CBMiT0FVX3lxTE5sMVg2SkQwemRJZzljaGMzb05vMHJVQlRfUExEWWVVYThrWEdNYTF2T1YxNXhLVC1mNWJfSElqM2Utd0RDSGZXOWZoUUI3bzg?oc=5
+https://news.google.com/rss/articles/CBMiT0FVX3lxTE5tWGZ3QUl2LTY5MHg4dkwtdWhJVFozTndRV3lFZ1dHcEZpQzhoekxMT1c1QUlHbnpJS2ZZUm9MYU5rSkU4aXU0R1NKdWkzQWc?oc=5
 https://news.google.com/rss/articles/CBMiT0FVX3lxTE5wb1llWWlyck5xOW83MHJsU3Utd3EweGRGQWlBdVRyZnZmeV81RUZJSHFrdV9mYVkwczlUdTBJNkhFcG9CbndYZzZMRUNyeGc?oc=5
 https://news.google.com/rss/articles/CBMiT0FVX3lxTE9MekEwVF9tTVA1dDdIYzVXWnRjU2VLNnNnVHl2R0tBeDJSTTBUcHkwZlctakt3bzN3cVBicGV4WGFlS21faGVualpqMmhDclE?oc=5
 https://news.google.com/rss/articles/CBMiT0FVX3lxTE9NWTJOaEFycEd0bkVISV9ySjJ3MGlyNWc4TUpsUjlMNVRZR0ZFME9qTjVCM3h3a3JWUGo0YXZvUzZub003UHgtczVSbG4tb1U?oc=5
@@ -174,10 +179,12 @@ https://news.google.com/rss/articles/CBMiWkFVX3lxTE5OX2tkUjFjVDloZTdaNURwaC1UYW9
 https://news.google.com/rss/articles/CBMiWkFVX3lxTE9HbWdodjhyZllaTWE4U0lMRklZSzh5YVhvUUtWWFIybGdOZzkwamNLVGZNMnRDNWI1OUxOR2w5ZFJDZ053ajFkR3BEVzFxc1FKeVRBSEhrcm1fUQ?oc=5
 https://news.google.com/rss/articles/CBMiWkFVX3lxTE9adE9DWVFobHV2YUVGYjhBd1NzQlF0YmpmcWw1bnM2YTQwYmdNSlZUTGlaSjhZZTZaS1VpamwyQmNCNGVrQXA4ZTVRVjVOWGVQTUtlQnB1VmxRQQ?oc=5
 https://news.google.com/rss/articles/CBMiWkFVX3lxTFBpUmZaazZKT0ZlRnJNdkRDWHBIdEhBdkU3RF9LY2duTUFseW1lTWxMbGFpQ3owTm5BUGMtSWdOaG45ZnhYTGJsWVNzbzF3X2tXX1NPbktRbEtHZw?oc=5
+https://news.google.com/rss/articles/CBMiXkFVX3lxTE5LMHRORUJyVEY5R0E5NVVDbE4ySE5MLVJRZ0dlS09tZ2xZVWMzMDZjeUhCSDFqR24tODJJd1V4Z1J0Qm41U25CWFpVYVp3RTBDQ1BhMXh3MzBvOXpkV0E?oc=5
 https://news.google.com/rss/articles/CBMiXkFVX3lxTE9Ca0VrcGc2eV90NDYtOXNaNzJDUTJhOVczNEMxZW4zNlAzSEFqRzhJUFc2R1MwNVk2MEplVmlIWWtvaklOUXVhOUlkOHNJajVuLTF1cWJiMEpxcm4yVFE?oc=5
 https://news.google.com/rss/articles/CBMiXkFVX3lxTE9Nd3VBemxnQkQxQllodW1NbWQyV1NmMVh1VXVaYk1Cdm9sY1dwYUV2c1NhY2w3TU92U0JaS2NBT20walhSZnVBajY0SlVxaDltQmlNUVcwV3FHcml5MGc?oc=5
 https://news.google.com/rss/articles/CBMiXkFVX3lxTFA4ZW1ZdEtvdlI1X3QxWi1QVVU2UVFpdjdMSW1XdWxUWXFUd2RGU283S3kxMHZVWDVKWkUxNDNhTXVLN3ZBdHFxd21JUEtjenVKelVMRTBwLVhQZUVpSEE?oc=5
 https://news.google.com/rss/articles/CBMiYEFVX3lxTE0xblhpZk1VS1Rtc0ktYVk0eG82RGNkVEZsVlp1ZW1VNWRSb0R0dUpXTU5sTkxqc0RrcW1aWHFrSjhSOFY4U3hNM09XNnBnQ0J5Tl95REtPclhkRkpKY1V1N9IBYEFVX3lxTE0xblhpZk1VS1Rtc0ktYVk0eG82RGNkVEZsVlp1ZW1VNWRSb0R0dUpXTU5sTkxqc0RrcW1aWHFrSjhSOFY4U3hNM09XNnBnQ0J5Tl95REtPclhkRkpKY1V1Nw?oc=5
+https://news.google.com/rss/articles/CBMiYEFVX3lxTE5JVmp6X2lpM2JlRDZiUkFGOEoxZEtIOW9FVWxmbDYzWHd0NlpsMDNFMGI4U2tYWXNYS2Y3eDVRLTZuTDdvbEt6bHAyaUd6UktEM0xPS0lMcFNGUHQtZ2dWRdIBYEFVX3lxTE5JVmp6X2lpM2JlRDZiUkFGOEoxZEtIOW9FVWxmbDYzWHd0NlpsMDNFMGI4U2tYWXNYS2Y3eDVRLTZuTDdvbEt6bHAyaUd6UktEM0xPS0lMcFNGUHQtZ2dWRQ?oc=5
 https://news.google.com/rss/articles/CBMiYEFVX3lxTE5KYnZyVVEtTlRGZkZKMnctMjc5WEFRMUVnSFc1djI5U0x6S2ttT3Ryd0xBVldycXloTUVXVEliWlVaSVdLVlFIb0R2NHNNbzZjUHNxeWFXS0Z2TzB1ZWUxRdIBYEFVX3lxTE5KYnZyVVEtTlRGZkZKMnctMjc5WEFRMUVnSFc1djI5U0x6S2ttT3Ryd0xBVldycXloTUVXVEliWlVaSVdLVlFIb0R2NHNNbzZjUHNxeWFXS0Z2TzB1ZWUxRQ?oc=5
 https://news.google.com/rss/articles/CBMiYEFVX3lxTE5LTTdzcEZVTlZQd0ZKa3dFYnROUlJEOWh6TERwUE93U2gzV1NKX1hUdUpDcGJJRGlibVZQbW1FNXFIdU1TYl9ZV3lHdzBaLUszc2xVMFRIUDl1QWFucm8tRNIBYEFVX3lxTE5LTTdzcEZVTlZQd0ZKa3dFYnROUlJEOWh6TERwUE93U2gzV1NKX1hUdUpDcGJJRGlibVZQbW1FNXFIdU1TYl9ZV3lHdzBaLUszc2xVMFRIUDl1QWFucm8tRA?oc=5
 https://news.google.com/rss/articles/CBMiYEFVX3lxTE9kQkt3dzNkWkNLcHV3eGtsekQxNmNRcVlhNFRKQWVhSlVXYTF3N2RuUy1CVkdIQ0k0T1ZMdkVNQXY0M1JPLW11NFFDLTVKTnRiU2NtNHBmOWtfM2lVRHdoaNIBYEFVX3lxTE9kQkt3dzNkWkNLcHV3eGtsekQxNmNRcVlhNFRKQWVhSlVXYTF3N2RuUy1CVkdIQ0k0T1ZMdkVNQXY0M1JPLW11NFFDLTVKTnRiU2NtNHBmOWtfM2lVRHdoaA?oc=5
@@ -240,6 +247,7 @@ https://news.google.com/rss/articles/CBMiiwFBVV95cUxPeVhKY3ZnN2RrSk1WYjJ2LXRrZ2J
 https://news.google.com/rss/articles/CBMiiwFBVV95cUxQUk5qVlJOZUFBQ0QyVzF5UTIyNTFqRnhJRzZRZVVXMGNBX3p3QllXQWJsYU1WQzdWeUJUR3IyX2ZaTEowR2NENk42WkstSVBhR2VUSkUwWldLemN0ZVlXUHdRWThkRXEwc1JES1psT1ZfaENPNEx0dklIdlQxczNpU2otRWQxUG9TRUJv?oc=5
 https://news.google.com/rss/articles/CBMiiwFBVV95cUxQVk94emhXQzVNV1BwS0QyQ3JIaEtwNWxPc0ZwOUt2SWFabWVleFF1YTNBSVdOU2k4bHVUYjlYZ0VqTUEwMjZEMVdHeW1ZRUtVUTYyTC03Z1JvTnd6cS1PRmFVSXNZZ2k3cV9CWVVRdllfVlpldUtpT3g4MGdjSnhUWHFJWnpLLXRyS1NZ?oc=5
 https://news.google.com/rss/articles/CBMiiwFBVV95cUxQd3Jzdlk2Wk85bzdLd1RvanJ6Z2ZqS0pfbXRpb1ZEVkM3RkdKQ1l0RmVaVXJGbXhUQVVDbktKRXFMZkpqODBjMkZ6ZFdvbGhZMWdYMnJaVHItVnhVZTZTMlVmVmx0TU5ocFN2MjVUdDdSRE1jX2xzUDhlUkNlSnNkY01pZDFHTC0xd1lr?oc=5
+https://news.google.com/rss/articles/CBMijAFBVV95cUxQN1h6bW5USnp1N0N2ZXoxcl9Ual9yYXR1UXpod25JWnZKLUZwQ2tsV2tkSXIyRTZ2RXBEcjhEajdpdHdiWWxCdXdia2J1VVl0eHRac1dPQWxuVEdfVEJGREg4UWw4TXFCR19jVm5wQ0xmR25uOVBXM193bFI0SHBYRktMMjh6STVib2g2MA?oc=5
 https://news.google.com/rss/articles/CBMijAFBVV95cUxQRFR3TnRUTXk2R2JXODVWNTRYSnc4T243azlxRFVWQk41b291ZzF0NklKRU9KSFRMdlM3SENPY1VSQUVmS1RVdlN1SWlJWjUxMGV4RDJDa1RPZldZdHZiVkRJMUY1VU9WcHlva1g4UGVhM1JJekZCZFViOWhYa1M3UDg1QTR2dDJlZ3Jxbw?oc=5
 https://news.google.com/rss/articles/CBMijgFBVV95cUxPY29hZ01VVnplbC1UbXllaVE3VU9ZNkhsVEVaRERTZ3JfZHV1S01sTFYtS3ZhRDNYMUZwNjVBakVIWmhGYUpFbWUzVG0xenVUTGpZTWpZNXc5b3ZDLWtLSjNCdHdrWlZzTkxKVXd5NlpvbGk1ejhZZGlYdzhHdGFkWjE2Ul9Mb1Zvc0E1bktn?oc=5
 https://news.google.com/rss/articles/CBMijwFBVV95cUxNN0dKajlQME9VNFFVVndsTUZfTXZyZ2tqLU1XdmgxS084M3prRVJuVThRV1lYQzN1WG5uWXJnZEVQa3ItQmw1REFlNWZackhrZlJHQVRMcG9UaWdWS1lRT2t4Y1AxRElyWHNmQS03VTZKU0ZwZVVEUUpyR3ZOMndCNzNSNUFYWlExSlBHd25Ubw?oc=5
@@ -287,6 +295,7 @@ https://news.google.com/rss/articles/CBMipgFBVV95cUxQdllMb3JNdUFpaEgwcUU3SlM5azZ
 https://news.google.com/rss/articles/CBMipwFBVV95cUxOMXVYbjAweTNOT3V1NkM0ZkJWUFdOSGNlbmpwQlFwQ2JPR0lFZmRCb3lFUXRGN2ZwMjJEUnowMnp1VEhTM3JwMVU3dzBRMWNiVjdrOWE3Y0k5elF1T0tRWnFSQ3drdXpWLXhqMmxnWDJLTXhvVEhTcGVwQkZWSXU5MjdJdHdNeHlwODNSbVBpTjJaWUtGaFR4QmN0SVdJaUZoeXdQRzZKZw?oc=5
 https://news.google.com/rss/articles/CBMipwFBVV95cUxPYjhTUnRyakVvbHNuOEoxd0xfeVlyZUFNbXJvU2Y2M3lTdTdZSDNLRURQTmF1Tl9VSWpFRjNFVk5ubmhrbTV0TWI2XzJINEk4MDdUR1cxbGgzcFB5MUNFc01FaTRPYm1oZ3FuRVRaay1RQmc1OGt0ZTV5SFEwbFl1UlF5amhqc3NjX2h6d3prdmxJV3k5QzVScl9qeXBISElzU2NQdndaaw?oc=5
 https://news.google.com/rss/articles/CBMipwFBVV95cUxQVHc5NEZOQnEwMmd6UFFaekhiYmktUEtoa2hCanl2Vkw5djdOdzlCWG9RWTh4NmVBRlR1OEZBd0JMMU4zZVczN05fc1hyV0lEakhITXlQaXNyblc5SUg2Tk9zaEZrNV9xaW9vX0N4d0gxQzhMdVQ4ekNSSF9LZ3YxaXFvY0lSUHpvbXIyZWZscUszSVRNS0VxT3hZX0R6N2hVSlpNZjNKVQ?oc=5
+https://news.google.com/rss/articles/CBMiqgFBVV95cUxNN3d2RFNzTG1ySllIb1hLQWFIcks2bXg1VWVqbFY4U3NLc25hRmhFRmFGTXhHSmhnZU83SmR0bnJXSFY4UHlFNFI2YnZ6V0R6dXR0aU40aUxDVGp1UDczVURWNDRfQU9FNG5LeDMtd2huMEhSUWpIbmhCekxaSXJKZWhtZzFGVkM2bjU0NlhfQVFFTXFWSDFXclJzWjJlVHkzSVhFdnE0Tm1udw?oc=5
 https://news.google.com/rss/articles/CBMiqgFBVV95cUxPU1hPaDFYX3FfY0ZJYlBWYTIxS284c014THMwUjA0VEhaX0FheFdVSUpOMUJOWFBjeTFVeVBaR3dSNGpyMWZ4ZTdlaDVkWDRwOE9jUzU1TGhTZklSRURGVUxUam9LaUNGNWZnT1lrcklwb3VDbzNwQ0lFWDhxOEY3RVdlZnVOUHRvZFhiSUc3dTVrNVU3My03dEd0OXJTdlRiTmVVbS1FcnVIdw?oc=5
 https://news.google.com/rss/articles/CBMiqwFBVV95cUxNVThpU3djWkFGMkNXOGZvWi1rcTJSaG54dW1tTHFwMFJHSUFIRmNzaW5WcDk3am1wcnVMZjNCN1JHQW1nVkZkenowYnlhM2ZDVTctR042Ty1tU3dhSEdXRFFHVlJ6ajZKQ3ZXWnJ1aEVPYWtjOHN1Tm0zUTVpYVZyRUNJZlRJSnY1eXpvSjl2QjliSzBpTEhJRW1NbU1Qd1pBOUg5a0N0U1pwclU?oc=5
 https://news.google.com/rss/articles/CBMiqwFBVV95cUxNWlU0ZGJQMWt6NVhpVng4SW1jUk1SM3NXZWlRZzliNnV5emhYeDRaVF9FYnA1aWNDUVphdW1hQTcwRWVOVGR1YjBfdm9sOUlWcFpCSnFwOVNubkh6VnZrTjRyMERVTWRKaXYzZHNaVjBZZ2hYT015OHgzb2o5S25uaG1OaFNGVzRpZk1XSDZMMVhhUUM1V19VbWktVnRmXy1YbEFUS3JxeGEtY0E?oc=5
@@ -309,6 +318,7 @@ https://news.google.com/rss/articles/CBMirwFBVV95cUxNVngwNTZpVXJRMVBkNHJ4SGxIS2R
 https://news.google.com/rss/articles/CBMirwFBVV95cUxNb3FvNm41dEptaXFkSEFvSGFoeDcyVDk0QVdvRFhaUlpEX0ZyRVczQmtSR0N5T2RRTG9IbTUtZS1Od0J0XzdfV0FWYzZhcDZ4ZjBwMjFfN0p0aUJzMXpVVm9TbTlmeWh6amhINTJYNFVWU3ViQ1VTMG1pMzhYT2ZTRFRWejVIdkVZdk9Fb0NocENpX0FlU3dqYXY1ZWZNdE1PRFZKNHVFOTVJN1hpODFV?oc=5
 https://news.google.com/rss/articles/CBMirwFBVV95cUxOYlFKSXpadVVjNEgwVWZ0ZUd5bFNialBSb2VoREdyQWw0dWZwdFJCajU2elVMUlBXQ3RKUlNRbEtuMFpHVTlGZHd6T0w1TXE5Y1M2NEZncWZSQklQUWxJM0xkYzZrRms5cjNjVGVxSVhPRmgtb0JFOTlLWmhkVG05QUZJN2NGWEc0RXJJb204LWpYc0haMTRGeDVDWTI5RXV5aUFsNGp2VHRpR0JQZUtB?oc=5
 https://news.google.com/rss/articles/CBMirwFBVV95cUxPc2lNeFF6Z2F0dDBvVXhrN1RVZk1NaDhRNGFGcEsxdXNYejM2UWFZdEprTmU2TGFxQVItcmdXQmZRakx3U002ZE9sMUFQWlZlQWZLcGZQWmwxQmxlM0htV2thVWhGR2hneGZoRGZLMUFqeHN6dFNoMERWLTBONTJmaFB5anNVWkVMSUpUYWlZa2JJb0lOY21KT3pQNHBKRmRuNHVjTDNsNlk3QWgwSEdJ?oc=5
+https://news.google.com/rss/articles/CBMirwFBVV95cUxQOGVJcWh4b2xuR0xfcFJTUFZsb0lOdDBWdVR2bFVjbDV6NEF2b05YUldqNmxLRlFlYzhQWlZLa3JxMFgzVktPazJxcTJBZDBWa05Uc05jMDRDNnNNWklsYlp0VU0xRm50NWtyQl8zNndsSFNxSWwxOUhoTGRia29lWVVaYWlCZDZpWXIwUkZmbTJJRmRDWEN6VHZ2aFhxSF9nZ2dvRXJmaHpPSWViQXE0?oc=5
 https://news.google.com/rss/articles/CBMirwFBVV95cUxQS3RXeFhETlZKeUYwYjBGTGUxZnBaZ2syUjdFZjRLNk1BSnYzem83Z2Z4amhQUFRncVJ4ZG9DcUhWVTRzYmM4ejVubjRYUE9jaHN4Q2dwOHNCUEtlMzJLYkRXd01OeUdPcWEtSm9jWm1LdzFmMFBSal9OeEp4T3NfM3pOYUVrOVJMV1lyV1NtVDhTZXR5dnBZcU9iOGJvekFPTmZHTTNoM1RnUXJaYmhR?oc=5
 https://news.google.com/rss/articles/CBMisAFBVV95cUxNNVNZMlpYT1YtSFp1NEJPUjJSZXdZSWxjWEVpc0xwWFVCVkQ0c0ktbTVRM3FWVF95QlNvUFBhWEc0UER0ZWxvb0taVS1IRUpZUXM1dnV0dkVBZjFDY2hLZ042RVZ3b2dWZkhEQ25qNTFOem1wSC1PeEhQWUpCX0tPcXMzcjZpaEZzbDVKM0t3NXF4RHZnckhNQ1o4R2I5SWt5ZDFVektCYUhWZWRhaXo5OQ?oc=5
 https://news.google.com/rss/articles/CBMisAFBVV95cUxNWm1oOG95T0FYVUNZXzZ4WGRSSmJqMU9VY3FLNE9lRTBJR3NqclZuM2pUUmVqTVRlS0RIOEEyUWhxY2tjT0d6S3VrNlE2U2VwOWFsemdKSERLZUdOdmI0MmhlZDcxRWlDdTlldVlubWgxS2l5dGt0SVBjSVBobTlJZXpGdHJFUkN3bnNOVWc5eElhRkZyY3N2NktnbEJTVHFJWkVUZEJnNjZnNUlKakd4WQ?oc=5
@@ -318,9 +328,12 @@ https://news.google.com/rss/articles/CBMisgFBVV95cUxOZnRmTktBaHNUcXJSeXVoMEhUSDg
 https://news.google.com/rss/articles/CBMisgFBVV95cUxQbmV6N2NMVTdXb0VlTXBiSVExNlFtN0xhR2NKUHFnakFlNktzeVQxVUkxSHVYMU9Zck81cmJfWml1SnRZXzdDRVFjeW96eklUN21kVWM3SjlYOHo0Tm5LZTF5eElSeTNPMzlKMGN4eUFTTmxFTVhMRXZIZVpKaFktQ2NyVEc3WHExZl9MYXlBeFNxcWdJd1c2RjJRSmVQMmxzSmUzdDZScmRBaktlYXZLaTl3?oc=5
 https://news.google.com/rss/articles/CBMiswFBVV95cUxNWmxWdXFwZTNRbW1hUFNxVzk1RFhqbXhiLWNqT204MFNnM2RLNXJ1anM3VEpaaDNYemdoVy1UNDBMU2xlZ0hVb1NKNE9qTXNYUmVwYmpXMGNzY3NoalBFdkdMVlJ5UzczWlBIUWtiQlVPX2xlTGdPMTNYajRPQi05Qi1DRXRvYkF1akpoZk5vOWRKS1c0ejRJa015NXQwRENkWDU1RmVIWTVZTlJpS0F2MGdVYw?oc=5
 https://news.google.com/rss/articles/CBMiswFBVV95cUxNenFaRnNzODc0bFNvdzRhU0xrNko5Z0JQc01JYW11T2JId2pFclg0OUVwMmJQdXBqSHRIcUV2aTQxekI4TC1FV0VpVnB4a09oMzdRTUcxREJvdXNxZVNSSnliX29ndnhvbDFiMEIwUkt1M09vNnUzLXNlazhNb041RGR2ejFrLXIxWkZwY1BQdXNkRlpMbllWcXVMd09YSDZIWEc0WGFnaDFVZkV6UFNfZXJPSQ?oc=5
+https://news.google.com/rss/articles/CBMiswFBVV95cUxORXlIcnZvV2lid3FGVjYtajNzbGlaMW5KLU5JVk5NWlJ0UGlyME5hUzZ5dmJkMHBaellQU09tUEo5NExTeHAtQUM0cGRXUmV1d1pWV1hZc3VaZHUyNzZEcF9ERFU0R0FZZU00Y0pyMkcwLUJ5UDRURnRiRm80TzY2WEZkc3loQnoxUFdwVDViYklNNmhQVnc0OTk1TG1RVFVJaTZSNjhUenU2eTdJbTZlOVctVQ?oc=5
+https://news.google.com/rss/articles/CBMiswFBVV95cUxPRDlOUnBXaHR1M3YyUnZFMU9qS2txSU50SnRVM0hrWEpjcUVNYlhFckMyV0tMUnR4bjdfZW04RFJFanZ1UUxzeHpmTGIyU3p6SDgzdHpIZnVNc2dMM3JKbk5TVmtvSUVJemI3azJwM1dLVTB4aFlLMGRoRXlJTUlLamlCaUU0Rmdhb2ZuckRlME9kcWc1M19BelRIbVQ1b2tUNkhoS2pENlF1SzVzNXNsOUlNZw?oc=5
 https://news.google.com/rss/articles/CBMiswFBVV95cUxPSTBycGwtSUNfc1JuQkMwUFBTX0NzUDBNRzBDNml2MkJRa1ladG9JSDg3a2ZqYTYzaTFNNmUxcmZlcURIeVlGRmNVejBvZ3hsUUgySndoV2hmYk9jSWo0MjM5c25xbWZBdGttM2RPbU9rOTVwcFl5dlJNZDZlR3dBaTlDdEhtMXZRdHR4TTlIMS1hY012cEZWOUxDSFMxNzF4azRRWEJTTWNuOVZZYjlTakJ4bw?oc=5
 https://news.google.com/rss/articles/CBMiswFBVV95cUxPWGNBOThiTEdqZHNsZURvWVhrZjM0d2NhZXNEYnRIdzJTbTJ5cW1FM2FPaEJJTWRTWldpMFhpYXFKcjljNWVsdDhwNVJ3Q2YzWkZMT05NOExHejhPRERlcllCRnRqQkxSdV83RHdBWHlLdGhDS05BTW5RU2x0aXY1VHlTZ2RkaFY4eXpxN1IyLV8zTEpYYWloTFNfZ3JqbWlsb3JvYkcxNjZTUGlLakdFQkxPQQ?oc=5
 https://news.google.com/rss/articles/CBMiswFBVV95cUxQVlotMzljQU5iOWM2c0xxNkZpNlhsQ196NjJ4QWJ1NHZXV2pGUFdMVUlrS0M3TXc0UmZvYkxMaUxTWnkzUVZhSlJoQnhYTW5rRjV6WVhIa3VEMzRsSlYwRTZUZnloSTBfZzZsbGRoRUpfMnpzYVJDVkplOVlKbzExT0F0YjNIbFJSU0xzamdkWlZkRm9IVmhDMEpiRTJFbXFCa3p2RU5UWTgzV2k2SmRUeHdvZw?oc=5
+https://news.google.com/rss/articles/CBMitAFBVV95cUxNME13V2t4YmdnSkZMeXd1aldxS1dzcHc1aGdkek12a0h3LWtQdkxBbS04NURTUERJM0hiV0JybmM2eEl3b1Fic0I5bENqZEZ6TFJsdjhJTjFqR24wTUlZVGpTdUQwaUNRX19NTWdvcmFKalBoMWtsQjhFZ29qSGRZbFhiU3hCc3RVZzhIYlU4YVE3OE5BYk9mWi1jTkV6UzBTX05HaGpXVkI3RzZpMjg2ZEotcUo?oc=5
 https://news.google.com/rss/articles/CBMitAFBVV95cUxNd1V3Vnl6Sm1uNE1KWk90eVpNdVlFZHJ6Unl3V203bm1ZM0xLS01UV1R0WU9ackVHdFZTcVFHTllNZnpxZFFSYi1kXzRSX0lqQ3NOVnZFWjBNNTB0Sk1BM0xGY0FhRVYyQVJNcVFpNUUwQzRXa0tJRFpicF9QakJBSGhvNEJjWDB6NDY5NlJtbGJFNlJzU2hJYVpwclRQNjJuWEpVYkE0ZDRaVE5faUdvSUN1VDQ?oc=5
 https://news.google.com/rss/articles/CBMitAFBVV95cUxONUlHbDhkOVdwbmZ2MzRwVXh3NFIwQUpJVmVsbFJsZE90ZnRJTG9udVU0SzREWjJVU2psWlRWYWRBRFZXWlRkWWh4dkVhTDFaX2RMcTA1TlBqcGk4eFIxSTUwdGMycHZETFVtSWpfTGNtUWR0UUlSRUEzZV9XM085ckMwcG9pQjgzeDdLRzlyOENJamNSQ2taR3lNdE9MdzRjbkcwZU9QaTlvZ1lfWl9iczMteWs?oc=5
 https://news.google.com/rss/articles/CBMitAFBVV95cUxOUVNHUlc2TVZRdXdTZEpqb0RIOVQ3bU9KeXBrSDNxajhVUC1tTGlRNlJYeEo0cUJMU196aERTN3F4UTVQSUFtU1JlaE9xdzkxSU85cVZ4eS1TQXlZcHdPUEExbllwemM3UDJZSzgtblJiZVdKRndBa09jaGg2YWhfNHBMVnYyX2FUTGpLZi0xejAyMVJKa2N0cHpRazF5SzB0dmI5OWltcWtMcmNBYkRSX1hJbGU?oc=5
@@ -329,6 +342,7 @@ https://news.google.com/rss/articles/CBMitAFBVV95cUxQZmtrNlcxd3FiaHItaUlWQXBMYi0
 https://news.google.com/rss/articles/CBMitAFBVV95cUxQcmRpY2kxcC0yR0lhOVJFNVJNQ2tGeDEydE40TVM0cVFiZlgxanlqbU5ydmRsWXBCRlpyS0ZIMTJ0NU9yYjR5cHRzYXQxU1lINWMydjM0Z3FLY2ZVdUM5Vy1qci1nV3hCd1lfQ2d1NDV4bEJDeFg4UnJHVnAtRmJURDZreVlRdUx5b0p5TE9ONFJmbHk1NUxSenNpUmlGV28ycWpNQUFtQ3BqVzdRY3lnOF80LVI?oc=5
 https://news.google.com/rss/articles/CBMitgFBVV95cUxNQzFWdk5wc1BDUnZ0N0YtMlJHVkl5S1dLSlJGV0Q3R1pLWGpBR2pTMnBXa21DRlNMVk1QUklpYWFXdFR0MFM2Y2NmbUhyYk5YSXdxcUxjb044bEtLNjQ0RmJMMTZSSksyQUtBTHhvVEtxUFQybWMyYTR6V01ZbjJnZ3V5YXdkRkk3Zk1PU0pjb0p6a3dpdkh0RlNBOGF2M29QOUl5ZjMxQnhIZFJjUEY3ODRBaU9TQQ?oc=5
 https://news.google.com/rss/articles/CBMitwFBVV95cUxOZ0lmRVJRM3gxdGY5ZklCUEJPam5pS0dERFJ1a3ZkYUpKang1bF9rMkxhSV9qcFA4WlRaMVM2eUhvWjdKLVlqbWZHdUpPRmtlQTdLT1FvY0h0Q3VQRGlOUF9QbVQ3RXZmMV93d0hKVTBpbkZjQW9TQVJwMmhwREFzOHktTFVMc0RxV2ZGZlZiOGlVZEdVZ3dBck1aejlzVDBGaEFvN2lxc3F3Ty04dkJfalZBY1pYX2s?oc=5
+https://news.google.com/rss/articles/CBMitwFBVV95cUxPTlU2R2xJNlJyamtZQ3loRTBSOHRwbHRHZTlhQlZnUEx1dHVwbVViLW5mYWp0cWZ3c1VzelBHdEo4QnU5TFUtWjhGZFhCcmpZNWVyeWtGVUVrajk2Wm0zSGpJOFIzLVpiUktTNGl3LWx3aUVwRFo1ZmZ5WEtYUnBHY1ZQQTNLekFyUmF1SWlueEw3eEtMelhCbnR4UjAwWEtqUWg2cEprUFhKVE5tal9uRmFaUklNYnM?oc=5
 https://news.google.com/rss/articles/CBMitwFBVV95cUxQbzRaYVhuekZXelZfekZqOEx0U1hMakRHUVUyWUF0Z0ZQWUJqdjk2dkI3MENFOWwzSkF5TktpM21sMjNwYXlrby1kTlJhY2xUQndQVHFwTDBad3F3bHpoSXJlMjJFRHp2eGc2WVlBeDhVYnZrVkRDNVlvZzRnYUZIM0dqZ3gzLVVpVFhuQnRKaDctaUJxeF9iYzNnbU1sU3VBajVpbVlNSXE5cWtRdkZsSXNMWi1ZakE?oc=5
 https://news.google.com/rss/articles/CBMiuAFBVV95cUxNZ2dmdW1ZbC1FdlZnZmloZUhxOFAyaGtNT3dOZzBlMVEwWEhKODBzREpxZElwaFNMM1RhNjQySHE0eS1lTENCbk1ob0ZUb2RzbzRiaDhDYXdLaE05dEt5dWpBYWs5RF93XzU5MW84OS1kX3ctdURqdTh6a2RlYXVJU0tkSGNrRU5rSldCZ092ZFhITGxPSWtaSGJFR3U5RmpGR2NiUExZcnNPVjdPX056OXF2RHRwSEp6?oc=5
 https://news.google.com/rss/articles/CBMiuAFBVV95cUxPNHA2TlBVUkloLVZlSE0wTHRlNnY0d0xENC0zLWtic2ltQm1hT0xNWl83Q0NMZGtQd0RhX1g3bVVBUTJkdHhoOGVWelVqSy1KOF9ONXpNY0NyOGh0c0ZtR3k2UHpiWEFVZ3o3TWxmd2FBRVJQc1Z1dXRVY1Q0RzB0eENpTkw5Y2N1cEk0S0I3U2pSdHVmaW9fV05LN2dxY2JMMFN0T3ZFOWhhVG12NW02Q3hsRzhGVlB3?oc=5
@@ -356,6 +370,7 @@ https://news.google.com/rss/articles/CBMixwFBVV95cUxORVlaS1VmZVF5Rjh3RFkwVk40ZGp
 https://news.google.com/rss/articles/CBMiygFBVV95cUxQbTQ5NEtsQlRFV3RndUxiRTJVN0hibGxMbHBRVFhEamU4RXpHTkJrbzE0Q0lwRy1iVjVpczBTTzRkSkZDNlNvMkgybWRvNWZsbDZ5VnZWNllCN2U2QmtfTWJwRU1WOTAwTk12ajI3bWlkUDZQN1NCcGJzM1BiRkhUSHVFY29xREdLakdZNldEXzNBbzNkYnozcmpicVBXVm54X3VIWk51T0tDZ1dIWHVpZE8xaWdWSllCNUlXU3pMNGRBODU5cnktR2Zn?oc=5
 https://news.google.com/rss/articles/CBMiygFBVV95cUxQd3REb1ZUTy1QSkQ4dmZiYjlTY1pnYUZ6aV85OUs2a3ZiQ0k1ekRNYWxtZElydko1UHZpaVlReEpZa0V5ZVpLWDZhenpQYkg5NnNUY1ByTmZjUktJcVpZMXVHNGdsNTRSR2hGYjd3akJiaFdNR2k2WHhhQ1pORkdVX3d3cTFSOWNTSFd1aTdCQ3ZpT19qTnBNRHMxbkU5a19CMllaaEkwTUxNQ2NSTUEwXzc1SkNCVEM1dFVaR2F5aWhaUjVCMXRMS2tn?oc=5
 https://news.google.com/rss/articles/CBMiywFBVV95cUxNbVZBTGZZSTJJY1BacjlsSDZsZkFtZmlpOUxuQlJLaDNIcFhJTTI2cjBlZjJIcDJGVV9heHRrbG5ud3lMQ3NPbWcwTDlscXVDVEY0Yi1aWU1Rd0x4bEpENHQ4dVUzMlVsXzNsd1B1dFlqWGN1WTZ4bjZxUzR0eFRJc0VSaEViSTlPZHBDNWROT25kNzNLNG45ckhPVTk5amJQUS1OakNoRE9TdzBuSy1kQVpDU1pONXdXcFktTl9jTm1nTTNBYi1vSXRTMA?oc=5
+https://news.google.com/rss/articles/CBMiywFBVV95cUxOMjhjYlFScXJNejM3MldNWmU4aWxBR0tyR0d1dVQ3NzBRNktETXE3NlRnb19fOUVVSG5wdHQ5WGFZcG5OblpGZXlEbkUteDdDaTBMMzNRRVprMjlXLVFJdXFpcjdadHd4VTQyc0NfOXlpTy1yNW1GR3Y3a3hadl9TVzNyQmk4cFFmTWV2WUlSeHBDbld3N0MxSzRONWdFSnFsbndHellTTEFlcXc1ejlKRmxxUEJyNTlNY1BCUTVzejBlZVoxNWVBeHV6aw?oc=5
 https://news.google.com/rss/articles/CBMiywFBVV95cUxPdzlWRDFmVUUxb1pDcm5uRjBCYWZXVnp6bnR5cUUyb3VoTU8tTnBQMWZHdEFhd1JQM1pscjNsMEgwUWU1MHJzWS1EektZcV9UZFZpbjgwY24wTS1MNXhCWnlpMWVwSUFiNVd4Sl9kN0J0NmNLLU1uTHdmYUowOUxqWkY1bXF1cmFWNWQ1b2ZFRFo2UnR6d0k4RGI3cU9oRnV0V05qb2R1a1VKSDNaaWNWMkFfUVdnSlpSejgwMUZRdVlkZ2MwWlUzYUtLNA?oc=5
 https://news.google.com/rss/articles/CBMiywFBVV95cUxQQkxqMENFRDBPQlJ6VU1PMkdlcmpjeXRrNHY5di1uMEpvTjBnU1dtWVh0c09PekNBdlZPOFd2bjVMbHZsWkthZ0FzZFpaeFpuRDk4NGp0ODdsdU12NFBBM1BQUVZsYTByRUxhR3JLaVhMZlBmSFN6d1daQ3U2UkV4UTdfZ0U3d1ctVE5YdEhKcUNTZ1RBaUJNWjBLZ1A3WkowWVdzSDFPcDdaZkNZWUVPb0QxMXVWZjVQMzRjSnhURmFLNm1fVTRqZ1lmOA?oc=5
 https://news.google.com/rss/articles/CBMiywFBVV95cUxQRVF6d0p1QWJTSk5WZC1Fa21KMERJT1RMRzFnMXlLbDZ5VTNuNlZTVUhqSEdkS3daTEVWZ3lsVzI4aUpCNmhUb2Y2R0RtTFd1ckhlb25NNE5LSWY5Y0RHekJjYjRMa09mQ2dzXzlXWGpZbzZ1XzJQZ0tnY1J5VWREWmZhSXIxenVXRFBXaWJnb29qZ25xdE1namU2aW03X1Q4NWc3d09KNXd6MVRmaV9VZ1E5R3c2VWR2VUlrcnpwRWM5aExSaTZkWUpBaw?oc=5
@@ -372,6 +387,7 @@ https://platum.kr/archives/293132
 https://platum.kr/archives/293340
 https://platum.kr/archives/293540
 https://platum.kr/archives/293650
+https://platum.kr/archives/293785
 https://plus.hankyung.com/apps/newsinside.view?date=20260831&face=A006&orgId=YJA0000003509703&gnb=no&appinfo=
 https://sifted.eu/articles/callosum-raise-atomico-plural-uk-sovereign-ai/
 https://sifted.eu/articles/domyn-raises-over-1bn/
@@ -389,6 +405,7 @@ https://startuprecipe.co.kr/archives/5831251
 https://startuprecipe.co.kr/archives/invest-newsletter/5831480
 https://startuprecipe.co.kr/archives/invest-newsletter/5831615
 https://startuprecipe.co.kr/archives/tech/5832114
+https://startuprecipe.co.kr/archives/tech/5832310
 https://techcrunch.com/2026/07/29/claude-opus-5-became-downright-ruthless-when-tasked-with-running-a-vending-machine/
 https://techcrunch.com/2026/07/29/microsoft-is-openly-competing-with-openai-anthropic-more-than-ever/
 https://techcrunch.com/2026/07/29/microsoft-logs-3-2b-from-anthropic-investment-but-openai-was-a-mixed-bag/
@@ -433,7 +450,10 @@ https://techcrunch.com/2026/08/31/the-pentagon-now-has-its-own-version-of-chatgp
 https://techcrunch.com/2026/09/01/afterquery-reportedly-becomes-y-combinators-fastest-ever-unicorn-now-valued-at-3-2b/
 https://techcrunch.com/2026/09/01/air-raises-50m-to-help-companies-vet-the-skills-and-add-ons-ai-agents-use/
 https://techcrunch.com/2026/09/01/open-ais-astra-model-is-on-the-way-and-very-good-at-breaking-into-computer-systems/
+https://techcrunch.com/2026/09/02/openais-new-reasoning-technique-alarms-ai-safety-experts/
+https://techcrunch.com/2026/09/02/u-s-government-sides-with-openai-on-issue-of-training-llms-on-copyrighted-material/
 https://techcrunch.com/2026/09/02/wonderful-more-than-doubles-its-valuation-to-5b-in-under-6-months/
+https://techcrunch.com/2026/09/03/openai-launches-astra-its-powerful-and-controversial-new-model/
 https://techcrunch.com/podcast/the-doj-is-investigating-a16z-what-does-this-mean-for-venture-capital/
 https://techcrunch.com/video/meet-the-startup-helping-wall-street-put-a-price-on-ai-compute/
 https://viewpoint.pwc.com/dt/gx/en/eu/eu-sustainability-regulation/eu-sustainability-regulation/eu-green-taxonomy/climate-delegated-act-commission-2021-2139.html
@@ -476,11 +496,15 @@ https://www.bloomberg.com/news/articles/2026-08-31/aon-agrees-to-buy-usi-insuran
 https://www.bloomberg.com/news/articles/2026-08-31/india-offers-chip-design-gear-subsidy-from-13-4-billion-fund
 https://www.bloomberg.com/news/articles/2026-08-31/slb-to-buy-data-center-cooling-firm-kelvion-for-3-4-billion
 https://www.bloomberg.com/news/articles/2026-09-01/euro-zone-inflation-jumps-to-highest-in-almost-three-years
+https://www.bloomberg.com/news/articles/2026-09-03/cvc-raises-10-billion-for-its-largest-ever-secondaries-fund
+https://www.bloomberg.com/news/articles/2026-09-03/fed-s-waller-says-september-rate-decision-hinges-on-august-cpi
+https://www.bloomberg.com/news/articles/2026-09-03/nscale-backs-robot-firm-figure-alongside-3-5-billion-cloud-deal
 https://www.bloomberg.com/news/newsletters/2026-08-18/gas-plants-for-amazon-microsoft-data-centers-will-push-us-emissions-higher?cmpid=BBD081826_GREENDAILY
 https://www.bloomberg.com/news/newsletters/2026-08-21/china-considering-proposal-to-host-2028-un-climate-talks?cmpid=BBD082126_GREENDAILY
 https://www.canarymedia.com/articles/clean-energy/taking-stock-of-the-messy-us-energy-transition
 https://www.canarymedia.com/articles/climatetech-finance/antora-550m-heat-batteries
 https://www.canarymedia.com/articles/food-and-farms/virginia-solar-with-farming
+https://www.carbonbrief.org/analysis-chinas-co2-emissions-fall-in-q2-2026-due-to-plummeting-oil-use
 https://www.carbonbrief.org/qa-what-is-long-duration-energy-storage-and-why-does-the-uk-need-it
 https://www.climatechangenews.com/2026/07/21/energy-transition-policymaking-must-evolve-to-fit-an-age-of-rupture/
 https://www.climatechangenews.com/2026/07/21/extreme-heat-costing-india-poor-workers-2-gdp-survey-finds/
@@ -490,9 +514,11 @@ https://www.cnbc.com/2026/08/21/-anthropic-ipo-filing-will-show-ai-backlash-as-r
 https://www.deloitte.com/kr/ko/our-thinking/global-economic-review/ger-2026-08-3rd.html
 https://www.economist.com/finance-and-economics/2026/08/02/what-will-kevin-warsh-do-if-americas-economy-breaks
 https://www.economist.com/finance-and-economics/2026/08/27/china-should-be-loosening-budgetary-policy-its-doing-the-opposite
+https://www.economist.com/finance-and-economics/2026/09/03/china-tries-to-look-past-the-property-slump
 https://www.economist.com/interactive/trump-tariff-costs-tracker
 https://www.efn.co.kr/news/articleView.html?idxno=2926
 https://www.enr.com/articles/63524-bowman-consulting-announces-1b-cash-sale-to-louisiana-based-private-equity-firm
+https://www.esgtoday.com/alantra-launches-new-140-million-energy-transition-fund-with-acquisition-of-portfolio-from-shell-ventures/
 https://www.esgtoday.com/amazon-signs-new-series-of-clean-energy-deals-in-sweden/
 https://www.esgtoday.com/aquila-energy-announces-strategic-partnership-with-centernode-to-strengthen-its-renewable-energy-epc-platform/
 https://www.esgtoday.com/certain-energy-raises-13-million-for-new-low-cost-long-duration-energy-storage-solution/
@@ -514,7 +540,9 @@ https://www.ey.com/en_cn/insights/china-overseas-investment-network/overview-of-
 https://www.ey.com/en_ie/insights/strategy-transactions/how-infrastructure-is-shaping-the-next-phase-of-ai-investment
 https://www.ey.com/en_in/insights/ai/ai-is-redefining-it-services-but-earnings-quality-is-the-real-test
 https://www.ey.com/en_in/insights/risk/turning-climate-risk-into-a-growth-engine-for-banks
+https://www.ey.com/en_in/insights/technology/indias-data-centers-need-policy-coherence-as-much-as-capacity
 https://www.ey.com/en_lu/insights/ifrs/ifrs-20-specifies-reporting-for-regulatory-assets-and-liabilities
+https://www.ey.com/en_no/insights/economics/ey-european-economic-outlook-august-2026
 https://www.ey.com/en_th/insights/ipo/trends
 https://www.ey.com/en_us/newsroom/2026/08/ey-us-to-reward-employees-leading-firm-into-future
 https://www.ey.com/en_vn/insights/assurance/ifrs-s1-and-ifrs-s2-when-sustainability-information-becomes-the-language-of-capital-markets
@@ -531,6 +559,7 @@ https://www.hankyung.com/article/202608301576Y
 https://www.hankyung.com/article/2026083019731
 https://www.hankyung.com/article/2026083138777
 https://www.hankyung.com/article/202608314389h
+https://www.hankyung.com/article/202609032808v
 https://www.impacton.net/bbs/view.html?idxno=2984
 https://www.impacton.net/news/articleView.html?idxno=20130
 https://www.impacton.net/news/articleView.html?idxno=20132
@@ -587,6 +616,7 @@ https://www.pehub.com/telecoms-in-demand-amid-uk-take-private-boom-as-waterland-
 https://www.pehub.com/vesey-street-backed-orthopaedic-solutions-management-picks-up-orlando-orthopaedic-center/
 https://www.pehub.com/vistria-backed-risepoint-acquires-healthcare-edtech-firm-keypaths-north-american-operations/
 https://www.pehub.com/yellow-wood-to-acquire-holistic-health-from-nestle-for-1bn/
+https://www.pwc.com/ca/en/services/tax/publications/tax-insights/canada-imposes-surtaxes-us-imports-sep-2026.html
 https://www.pwc.com/gx/en/issues/artificial-intelligence/job-barometer/2026/2026-global-ai-jobs-barometer-global-findings.pdf
 https://www.pwc.com/gx/en/news-room/press-releases/2026/global-investment-in-ai-infrastructure.html
 https://www.pwc.com/mt/en/publications/sustainability/what-is-new-in-global-carbon-standards.html
@@ -602,6 +632,7 @@ https://www.responsible-investor.com/ircantec-seeks-managers-for-e1-7bn-green-an
 https://www.responsible-investor.com/nbim-urges-pri-to-focus-policy-work-on-shareholder-rights/
 https://www.responsible-investor.com/nz-super-updates-human-rights-policy-after-losing-lawsuit/
 https://www.responsible-investor.com/sec-moves-to-rescind-us-shareholder-proposal-rules/
+https://www.responsible-investor.com/sfdr-fossil-fuel-exclusions-still-in-flux-as-parliament-negotiations-continue/
 https://www.responsible-investor.com/trump-accounts-for-children-set-to-exclude-esg-funds/
 https://www.responsible-investor.com/us-republicans-target-big-four-auditors-over-climate-activism/
 https://www.reuters.com/business/aerospace-defense/boeing-awarded-contract-with-ceiling-value-1312-billion-f-15-program-2026-08-24/
@@ -673,6 +704,7 @@ https://www.yna.co.kr/amp/view/AKR20260827069200002
 https://www.yna.co.kr/amp/view/AKR20260827091300002
 https://www.yna.co.kr/amp/view/AKR20260827093400002
 https://www.yna.co.kr/amp/view/AKR20260830034400001
+https://www.yna.co.kr/amp/view/AKR20260902157251002
 https://www.yna.co.kr/amp/view/MYH20260823005600038
 https://www.yna.co.kr/amp/view/PYH20260825120100013
 https://www.yna.co.kr/amp/view/PYH20260827101500013
