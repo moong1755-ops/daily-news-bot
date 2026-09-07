@@ -15,7 +15,7 @@ from src.weekly.editor import WeeklyHeadlines, _parse_lines, _prompt
 from src.weekly.market_data import MarketPoint, MarketSnapshot, collect_market_snapshots
 from src.weekly.renderer import render_weekly_briefing
 from src.weekly.runner import run_weekly_briefing
-from src.weekly.selector import WeeklySelection, revalidate_weekly_articles, select_weekly_articles
+from src.weekly.selector import WeeklySelection, revalidate_weekly_articles, select_weekly_articles, weekly_score
 
 
 IMPACT = next(category for category in CATEGORIES if category.startswith("🌱"))
@@ -156,6 +156,24 @@ class WeeklyArchiveTests(unittest.TestCase):
 
 
 class WeeklyDeduplicationTests(unittest.TestCase):
+    def test_latest_cancellation_replaces_confirmation_but_not_with_rumor(self):
+        confirmed = article(ALTERNATIVE, "agreed", "Acme acquisition approved")
+        confirmed.update(editor_event_key="acme_beta_acquisition", deal_status="approved",
+                         _archive_edition_date="2026-08-25")
+        cancelled = dict(confirmed, url="https://example.com/cancelled",
+                         title="Acme acquisition terminated", title_orig="Acme acquisition terminated",
+                         deal_status="terminated", _archive_edition_date="2026-08-27")
+        rumor = dict(confirmed, url="https://example.com/rumor",
+                     title="Acme could restart talks", deal_status="rumor",
+                     _archive_edition_date="2026-08-28")
+        for candidates in ([confirmed, cancelled, rumor], [rumor, cancelled, confirmed]):
+            merged = deduplicate_weekly_articles(candidates)
+            self.assertEqual(len(merged), 1)
+            self.assertEqual(merged[0]["url"], cancelled["url"])
+            self.assertEqual(merged[0]["deal_status"], "terminated")
+            self.assertEqual(len(merged[0]["weekly_related_links"]), 3)
+            self.assertIn("terminated", {item["status"] for item in merged[0]["weekly_related_links"]})
+
     def test_same_event_merges_but_different_counterparty_stays_separate(self):
         same_reuters = article(ALTERNATIVE, "r", "Acme raises $100m Series C", score=8)
         same_reuters["editor_event_key"] = "acme_funding_series_c"
@@ -172,6 +190,21 @@ class WeeklyDeduplicationTests(unittest.TestCase):
 
 
 class WeeklySelectorTests(unittest.TestCase):
+    def test_amount_and_repetition_alone_do_not_improve_weekly_rank(self):
+        base = article(IMPACT, "fund", "Climate fund raises capital")
+        amount = dict(base, title="Climate fund raises $100 billion", title_orig="Climate fund raises $100 billion")
+        repeated = dict(base, weekly_story_count=20)
+        self.assertEqual(weekly_score(base)[0], weekly_score(amount)[0])
+        self.assertEqual(weekly_score(base)[0], weekly_score(repeated)[0])
+
+    def test_weekly_meaning_rewards_evidence_without_amount_or_absolute_cut(self):
+        base = article(IMPACT, "evidence", "Affordable care outcomes improve", score=1)
+        evidence = dict(base, importance_reason="investment_evidence")
+        policy = dict(base, importance_reason="policy_or_market_change")
+        self.assertGreater(weekly_score(evidence)[0], weekly_score(base)[0])
+        self.assertEqual(weekly_score(evidence)[0], weekly_score(policy)[0])
+        self.assertEqual(len(select_weekly_articles([base]).articles), 1)
+
     def test_old_editor_impact_override_is_corrected_before_event_merging(self):
         old = article(IMPACT, "hig", "HIG Capital acquires Outcomes One", source="PE Hub")
         old.update(
@@ -355,6 +388,15 @@ class WeeklyMarketTests(unittest.TestCase):
 
 
 class WeeklyHeadlineTests(unittest.TestCase):
+    def test_recap_prompt_preserves_daily_only_scope_and_event_status(self):
+        story = article(IMPACT, "cancel", "Climate acquisition terminated")
+        story["weekly_related_links"] = [{"title": "Deal cancelled", "status": "cancelled"}]
+        prompt = _prompt([story], 3)
+        for required in ("일간에 실제 발송한 기사뿐", "반복 보도 횟수보다",
+                         "시장 전체의 투자 증가나 추세를 단정하지 않는다", "사회문제 해결 효과",
+                         '"status": "cancelled"'):
+            self.assertIn(required, prompt)
+
     def test_prompt_forbids_combining_unrelated_events(self):
         candidates = [
             article(MACRO, "rate", "한국은행 기준금리 인상", region="korea", score=9),

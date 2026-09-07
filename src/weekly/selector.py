@@ -13,6 +13,7 @@ from ..config import (
     WEEKLY_BRIEFING_CONFIG,
     WEEKLY_CATEGORY_LIMITS,
     WEEKLY_REGION_LIMITS,
+    WEEKLY_RECAP_REASON_BONUSES,
 )
 
 
@@ -189,6 +190,12 @@ def weekly_score(article: dict) -> tuple[float, tuple[str, ...]]:
         score += source_bonus
         reasons.append("trusted_source")
 
+    recap_reason = str(article.get("importance_reason") or "")
+    recap_bonus = WEEKLY_RECAP_REASON_BONUSES.get(recap_reason, 0.0)
+    if recap_bonus:
+        score += recap_bonus
+        reasons.append(f"weekly_recap:{recap_reason}")
+
     for signal, pattern in EVENT_SIGNALS.items():
         if not pattern.search(text):
             continue
@@ -197,7 +204,9 @@ def weekly_score(article: dict) -> tuple[float, tuple[str, ...]]:
         elif signal == "market_structure":
             score += 1.2
         elif signal == "large_amount":
-            score += 1.0
+            # 금액이 제목에 있다는 사실은 시장의 중요성을 증명하지 않는다.
+            # 감사용 신호만 남기고 순위는 올리지 않는다.
+            pass
         else:
             # 루머·전망은 제외하지 않되 확정 사건보다 작은 시장 신호로 취급한다.
             score += 0.2
@@ -213,10 +222,7 @@ def weekly_score(article: dict) -> tuple[float, tuple[str, ...]]:
         score += 0.7
         reasons.append("impact_theme")
 
-    story_count = max(1, int(article.get("weekly_story_count") or 1))
-    if story_count > 1:
-        score += min(1.0, (story_count - 1) * 0.35)
-        reasons.append("follow_up_coverage")
+    # 반복 보도 수는 사건 통합의 기록일 뿐 중요도 가점이 아니다.
 
     status = str(article.get("deal_status") or "").casefold()
     if status in {"confirmed", "completed", "closed", "approved", "확정", "완료", "승인"}:
