@@ -229,11 +229,15 @@ WEEKLY_MARKET_INDICATORS = (
     {
         "key": "usd_krw",
         "label": "USD/KRW",
-        "provider": "fred",
-        "series_id": "DEXKOUS",
+        # FRED H.10은 월요일 한국 오전에 전주 자료가 아직 공개되지 않는다.
+        # 두 주 모두 같은 하나은행 일별 매매기준율로 비교한다.
+        "provider": "naver_fx",
+        "marketindex_code": "FX_USDKRW",
+        "history_max_pages": 12,
+        "value_basis": "하나은행 매매기준율",
         "change_unit": "percent",
         "interpretation": "down_is_krw_strength",
-        "source_url": "https://fred.stlouisfed.org/series/DEXKOUS",
+        "source_url": "https://finance.naver.com/marketindex/exchangeDetail.naver?marketindexCd=FX_USDKRW",
     },
     {
         "key": "sp500",
