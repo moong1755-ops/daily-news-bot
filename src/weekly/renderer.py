@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from ..config import CATEGORIES
 from ..editorial_review import EDITORIAL_REVIEW_SHEET_URL
@@ -134,6 +134,7 @@ def _format_change(snapshot: MarketSnapshot) -> str:
     arrow = "▲" if snapshot.change > 0 else "▼" if snapshot.change < 0 else "→"
     magnitude = abs(snapshot.change)
     if snapshot.change_unit == "basis_points":
+        magnitude = round(magnitude, 1)
         formatted = f"{magnitude:.0f}" if magnitude.is_integer() else f"{magnitude:.1f}"
         return f"{arrow}{formatted}bp"
     return f"{arrow}{magnitude:.1f}%"
@@ -148,20 +149,24 @@ def _comparison_label(
     if latest is None or comparison is None:
         return ""
     label = f"· {comparison.observed_on:%m.%d}→{latest.observed_on:%m.%d}"
+    if snapshot.value_basis:
+        label += f" · {snapshot.value_basis}"
     if (
         freshest_observation is not None
-        and (freshest_observation - latest.observed_on).days >= 2
+        and latest.observed_on < freshest_observation
     ):
-        label += " · 데이터 갱신 지연"
+        label += " · 주중 최신값(휴장·공표 지연 가능)"
     return label
 
 
-def _market_block(markets: tuple[MarketSnapshot, ...]) -> dict:
+def _market_reference_date(end_date: date) -> date:
+    """Use the completed week's Friday even if every provider is delayed."""
+    return end_date - timedelta(days=(end_date.weekday() - 4) % 7)
+
+
+def _market_block(markets: tuple[MarketSnapshot, ...], end_date: date) -> dict:
     lines = []
-    freshest_observation = max(
-        (snapshot.latest.observed_on for snapshot in markets if snapshot.latest),
-        default=None,
-    )
+    freshest_observation = _market_reference_date(end_date)
     for snapshot in markets:
         value = _format_number(snapshot)
         change = _format_change(snapshot)
@@ -221,10 +226,7 @@ def _plain_text(
         "",
         "시장지표 · 전주 마지막 거래일 대비",
     ]
-    freshest_observation = max(
-        (market.latest.observed_on for market in markets if market.latest),
-        default=None,
-    )
+    freshest_observation = _market_reference_date(end_date)
     for market in markets:
         source = f" {market.source_url}" if market.source_url else ""
         lines.append(
@@ -243,7 +245,7 @@ def _plain_text(
         for region in regions:
             region_articles = tuple(
                 article for article in articles
-                if region is None or article.get("region") == region
+                if region is None or (article.get("region") or "global") == region
             )
             if not region_articles:
                 continue
@@ -257,7 +259,9 @@ def _plain_text(
                     or article.get("url")
                     or ""
                 )
-                lines.append(f"- {title} {url}".rstrip())
+                source = str(article.get("source") or "출처 미상")
+                meta = ", ".join(value for value in (source, _article_date(article)) if value)
+                lines.append(f"- {title} ({meta}) {url}".rstrip())
     if EDITORIAL_REVIEW_SHEET_URL:
         lines.extend(("", f"📎 선정·미선정 후보 보기 {EDITORIAL_REVIEW_SHEET_URL}"))
     return "\n".join(lines)
@@ -274,7 +278,7 @@ def render_weekly_briefing(
     blocks: list[dict] = [
         {"type": "header", "text": {"type": "plain_text", "text": title, "emoji": True}},
         _heading("시장지표 · 전주 마지막 거래일 대비"),
-        _market_block(markets),
+        _market_block(markets, end_date),
         {"type": "divider"},
         _heading("한 주 한눈에"),
         _headline_block(headlines),

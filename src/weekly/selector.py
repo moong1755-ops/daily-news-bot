@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import date
 
 from ..editorial_review import importance as _editorial_importance
+from ..processor.summarizer import summarize, _title_exclusion_reason
 from ..config import (
     CATEGORIES,
     WEEKLY_BRIEFING_CONFIG,
@@ -96,6 +97,49 @@ class WeeklySelection:
     by_category: dict[str, tuple[dict, ...]]
     articles: tuple[dict, ...]
     candidate_count: int
+
+
+def revalidate_weekly_articles(articles: list[dict]) -> list[dict]:
+    """Apply current category safeguards to old deliveries before event merging.
+
+    Keep the daily editor's importance and scores. Only correct unsupported
+    impact ownership, enforce official insight ownership, and reject hard
+    title exclusions; incomplete legacy descriptions must not erase news.
+    """
+    reviewed = []
+    for original in articles:
+        article = dict(original)
+        original_title = str(article.get("title_orig") or article.get("title") or "")
+        classified, _ = summarize(dict(
+            article,
+            title=original_title,
+            link=article.get("url") or article.get("normalized_url") or article.get("link") or "",
+        ))
+        official = classified.get("category_reason") == "official_insights_source"
+        article["weekly_exclusion_reason"] = _title_exclusion_reason(original_title, official)
+        article["impact_content_verified"] = classified["impact_content_verified"]
+        old_category = article.get("category")
+        has_context = bool(article.get("description") or article.get("summary"))
+        # Older archives contain titles only. Missing context is not evidence
+        # that a wind farm / smallholder fund has no impact; keep its category.
+        if old_category == IMPACT_CATEGORY and not has_context:
+            article["weekly_revalidation_note"] = "legacy_context_missing"
+        if official or (
+            old_category == IMPACT_CATEGORY
+            and has_context
+            and not classified["impact_content_verified"]
+        ):
+            article["category"] = classified["category"]
+            article["category_reason"] = classified["category_reason"]
+            if article["category"] != old_category:
+                article["weekly_previous_category"] = old_category
+                article["weekly_category_reason"] = "current_category_safeguards"
+                article["region"] = classified["region"]
+                article["region_reason"] = classified["region_reason"]
+                article["impact_theme"] = ""
+                article["impact_must_read"] = False
+        reviewed.append(article)
+    return reviewed
 
 
 def _number(article: dict, field: str) -> float:
@@ -217,6 +261,8 @@ def _ranked(articles: list[dict]) -> list[dict]:
 
 def _is_weekly_eligible(article: dict) -> bool:
     """Reject structural noise without introducing an absolute score cutoff."""
+    if article.get("weekly_exclusion_reason"):
+        return False
     text = _article_text(article)
     if LOW_VALUE_FORMAT.search(text):
         return False
@@ -238,15 +284,12 @@ def _select_category(articles: list[dict], category: str) -> list[dict]:
     selected = []
     for region in ("global", "korea"):
         region_limit = int(region_limits.get(region, 0))
-        selected.extend(
+        regional = [
             article
             for article in ranked
             if article.get("region") == region
-        )
-        if region_limit:
-            selected[-sum(1 for item in selected if item.get("region") == region):] = [
-                item for item in selected if item.get("region") == region
-            ][:region_limit]
+        ]
+        selected.extend(regional[:max(0, region_limit)])
 
     # 오래된 기록에 지역값이 없더라도 카테고리 한도 안에서는 후보로 남긴다.
     remaining_slots = category_limit - len(selected)

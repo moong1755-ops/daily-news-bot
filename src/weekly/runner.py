@@ -18,7 +18,7 @@ from .deduplicator import deduplicate_weekly_articles
 from .editor import build_weekly_headlines
 from .market_data import collect_market_snapshots
 from .renderer import WeeklySlackMessage, render_weekly_briefing
-from .selector import WeeklySelection, select_weekly_articles, weekly_score
+from .selector import WeeklySelection, revalidate_weekly_articles, select_weekly_articles, weekly_score
 
 
 DEFAULT_DELIVERY_ARCHIVE = Path(__file__).resolve().parents[2] / "data" / "weekly_archive.jsonl"
@@ -150,11 +150,23 @@ def run_weekly_briefing(
     if not dry_run and not weekly_webhook_url:
         return _empty_result(window, "WEEKLY_SLACK_WEBHOOK_URL이 설정되지 않음")
 
-    deduplicated = deduplicate_weekly_articles(list(window.articles))
+    reviewed = revalidate_weekly_articles(list(window.articles))
+    rejected = [article for article in reviewed if article.get("weekly_exclusion_reason")]
+    corrected = [article for article in reviewed if article.get("weekly_previous_category")]
+    print(f"🔎 주간 기록 재검사: 분류 수정 {len(corrected)}건, 제외 {len(rejected)}건")
+    for article in corrected + rejected:
+        print(
+            f"  {article.get('title_orig') or article.get('title')}: "
+            f"{article.get('weekly_previous_category') or article.get('category')} → "
+            f"{article.get('weekly_exclusion_reason') or article.get('category')}"
+        )
+    deduplicated = deduplicate_weekly_articles([
+        article for article in reviewed if not article.get("weekly_exclusion_reason")
+    ])
     selection = select_weekly_articles(deduplicated)
     try:
         review_candidates = []
-        for source_article in deduplicated:
+        for source_article in deduplicated + rejected:
             article = dict(source_article)
             score, _reasons = weekly_score(article)
             article["weekly_score"] = score
@@ -182,6 +194,9 @@ def run_weekly_briefing(
         window.end_date,
         session=session,
     )
+    for market in markets:
+        if market.error:
+            print(f"⚠️ 시장지표 {market.label}: {market.error}")
     headlines = build_weekly_headlines(selection.articles)
     message = render_weekly_briefing(
         window.start_date,

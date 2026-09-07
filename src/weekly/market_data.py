@@ -5,9 +5,11 @@ from __future__ import annotations
 import ast
 import csv
 import io
+import math
 import os
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from html.parser import HTMLParser
 from typing import Iterable
 
 import requests
@@ -17,6 +19,7 @@ from ..config import WEEKLY_MARKET_INDICATORS, WEEKLY_MARKET_SPARKLINE_POINTS
 
 FRED_CSV_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv"
 NAVER_INDEX_URL = "https://api.finance.naver.com/siseJson.naver"
+NAVER_FX_URL = "https://finance.naver.com/marketindex/exchangeDailyQuote.naver"
 KRX_API_URLS = {
     "kospi": "https://data-dbg.krx.co.kr/svc/apis/idx/kospi_dd_trd",
     "kosdaq": "https://data-dbg.krx.co.kr/svc/apis/idx/kosdaq_dd_trd",
@@ -42,6 +45,7 @@ class MarketSnapshot:
     error: str | None = None
     source_url: str = ""
     comparison: MarketPoint | None = None
+    value_basis: str = ""
 
     @property
     def latest(self) -> MarketPoint | None:
@@ -79,7 +83,75 @@ def calculate_change(points: tuple[MarketPoint, ...], unit: str) -> float | None
 
 
 def _float(value: object) -> float:
-    return float(str(value).replace(",", "").strip())
+    result = float(str(value).replace(",", "").strip())
+    if not math.isfinite(result):
+        raise ValueError("시장지표 값이 유한한 숫자가 아님")
+    return result
+
+
+class _ExchangeTable(HTMLParser):
+    """Read only the dated rows of Naver's exchange quote table."""
+
+    def __init__(self):
+        super().__init__()
+        self.rows: list[list[str]] = []
+        self._in_table = False
+        self._row: list[str] = []
+        self._cell: list[str] | None = None
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "table":
+            self._in_table = "tbl_exchange" in dict(attrs).get("class", "").split()
+        elif self._in_table and tag == "tr":
+            self._row = []
+        elif self._in_table and tag == "td":
+            self._cell = []
+
+    def handle_data(self, data):
+        if self._cell is not None:
+            self._cell.append(data)
+
+    def handle_endtag(self, tag):
+        if tag == "td" and self._cell is not None:
+            self._row.append("".join(self._cell).strip())
+            self._cell = None
+        elif tag == "tr" and self._in_table and self._row:
+            self.rows.append(self._row)
+        elif tag == "table":
+            self._in_table = False
+
+
+def _naver_fx_points(indicator, start_date, end_date, session) -> tuple[MarketPoint, ...]:
+    """Compare both weeks using the same daily bank base rate, never live FX."""
+    points: dict[date, MarketPoint] = {}
+    collection_start = start_date - timedelta(days=10)
+    for page in range(1, int(indicator.get("history_max_pages", 12)) + 1):
+        response = session.get(
+            NAVER_FX_URL,
+            params={"marketindexCd": indicator["marketindex_code"], "page": page},
+            headers={"User-Agent": "Mozilla/5.0 daily-news-bot/weekly-briefing"},
+            timeout=20,
+        )
+        response.raise_for_status()
+        parser = _ExchangeTable()
+        parser.feed(response.text)
+        page_dates = []
+        for row in parser.rows:
+            if len(row) < 2:
+                continue
+            try:
+                observed_on = datetime.strptime(row[0], "%Y.%m.%d").date()
+                value = _float(row[1])
+            except (TypeError, ValueError):
+                continue
+            page_dates.append(observed_on)
+            if collection_start <= observed_on <= end_date and value > 0:
+                points[observed_on] = MarketPoint(observed_on, value)
+        if not page_dates:
+            raise RuntimeError("네이버 환율 일별시세 응답에 유효한 날짜 없음")
+        if min(page_dates) <= collection_start:
+            break
+    return tuple(points[day] for day in sorted(points))
 
 
 def _fred_points(
@@ -224,7 +296,10 @@ def _weekly_comparison_points(
     start_date: date,
     end_date: date,
 ) -> tuple[MarketPoint, MarketPoint]:
-    previous_week = [point for point in points if point.observed_on < start_date]
+    previous_week = [
+        point for point in points
+        if start_date - timedelta(days=7) <= point.observed_on < start_date
+    ]
     current_week = [
         point for point in points
         if start_date <= point.observed_on <= end_date
@@ -248,6 +323,8 @@ def _collect_one(
         source_url = str(indicator.get("source_url") or "")
         if indicator["provider"] == "fred":
             points = _fred_points(indicator, start_date, end_date, session)
+        elif indicator["provider"] == "naver_fx":
+            points = _naver_fx_points(indicator, start_date, end_date, session)
         elif indicator["provider"] == "krx":
             auth_key = os.getenv("KRX_AUTH_KEY", "").strip()
             points = ()
@@ -283,6 +360,7 @@ def _collect_one(
             sparkline=make_sparkline(point.value for point in display_points),
             source_url=source_url,
             comparison=comparison,
+            value_basis=str(indicator.get("value_basis") or ""),
         )
     except (KeyError, RuntimeError, ValueError, requests.RequestException) as exc:
         return MarketSnapshot(

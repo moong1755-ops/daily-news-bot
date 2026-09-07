@@ -15,7 +15,7 @@ from src.weekly.editor import WeeklyHeadlines, _parse_lines, _prompt
 from src.weekly.market_data import MarketPoint, MarketSnapshot, collect_market_snapshots
 from src.weekly.renderer import render_weekly_briefing
 from src.weekly.runner import run_weekly_briefing
-from src.weekly.selector import WeeklySelection, select_weekly_articles
+from src.weekly.selector import WeeklySelection, revalidate_weekly_articles, select_weekly_articles
 
 
 IMPACT = next(category for category in CATEGORIES if category.startswith("🌱"))
@@ -61,6 +61,12 @@ class FakeSession:
     def get(self, url, **kwargs):
         self.get_calls.append((url, kwargs))
         params = kwargs.get("params") or {}
+        if "exchangeDailyQuote.naver" in url:
+            rows = ["<table class='tbl_exchange today'><tbody>"]
+            dates = ("2026.08.21", "2026.08.24", "2026.08.25", "2026.08.26", "2026.08.27", "2026.08.28")
+            for offset, observed_on in enumerate(dates):
+                rows.append(f"<tr><td class='date'>{observed_on}</td><td>{1380 + offset}</td></tr>")
+            return FakeResponse(text="".join(rows) + "</tbody></table>")
         if "fredgraph.csv" in url:
             series = params["id"]
             values = {
@@ -105,7 +111,7 @@ class FakeSession:
 
 class BadKrxSession(FakeSession):
     def get(self, url, **kwargs):
-        if "fredgraph.csv" in url or "api.finance.naver.com" in url:
+        if any(host in url for host in ("fredgraph.csv", "api.finance.naver.com", "exchangeDailyQuote.naver")):
             return super().get(url, **kwargs)
         self.get_calls.append((url, kwargs))
         return FakeResponse(payload=[])
@@ -166,6 +172,48 @@ class WeeklyDeduplicationTests(unittest.TestCase):
 
 
 class WeeklySelectorTests(unittest.TestCase):
+    def test_old_editor_impact_override_is_corrected_before_event_merging(self):
+        old = article(IMPACT, "hig", "HIG Capital acquires Outcomes One", source="PE Hub")
+        old.update(
+            description="Outcomes One provides pharmacy technology to US healthcare plans.",
+            category_reason="editor", importance=3, importance_reason="major_deal",
+        )
+        current = dict(old, category=ALTERNATIVE, url="https://example.com/hig-new")
+        for item in (old, current):
+            item["editor_event_key"] = "hig_outcomes_one_acquisition"
+        reviewed = revalidate_weekly_articles([old, current])
+        merged = deduplicate_weekly_articles(reviewed)
+        selected = select_weekly_articles(merged)
+
+        self.assertEqual(old["category"], IMPACT)  # source archive remains immutable
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(selected.articles[0]["category"], ALTERNATIVE)
+        self.assertEqual(selected.articles[0]["importance"], 3)
+        self.assertEqual(reviewed[0]["weekly_previous_category"], IMPACT)
+
+    def test_preserves_impact_evidence_and_incomplete_legacy_context(self):
+        access = article(IMPACT, "access", "Care company raises Series B", source="PE Hub")
+        access["description"] = "Affordable healthcare improves health access for underserved communities."
+        legacy = article(IMPACT, "wind", "Amazon Agrees to Buy Power From Four Swedish Wind Farms")
+        reviewed = revalidate_weekly_articles([access, legacy])
+        self.assertEqual([item["category"] for item in reviewed], [IMPACT, IMPACT])
+        self.assertTrue(reviewed[0]["impact_content_verified"])
+        self.assertEqual(reviewed[1]["weekly_revalidation_note"], "legacy_context_missing")
+
+    def test_official_insights_stay_locked_and_internal_news_is_rejected(self):
+        report = article(IMPACT, "climate", "Energy transition survey", source="EY")
+        report["url"] = "https://www.ey.com/en/insights/energy/transition-survey"
+        reward = dict(report, title_orig="EY US invests $100 million to reward employees leading the firm into the future")
+        tax = dict(report, title_orig="AI-Enabled Tax Step Plan Analysis for Restructuring")
+        reviewed = revalidate_weekly_articles([report, reward, tax])
+        self.assertEqual(reviewed[0]["category"], INSIGHTS)
+        self.assertFalse(reviewed[0]["weekly_exclusion_reason"])
+        self.assertTrue(all(item["weekly_exclusion_reason"] for item in reviewed[1:]))
+
+    def test_empty_korea_bucket_does_not_erase_global_articles(self):
+        candidates = [article(ALTERNATIVE, "global-only", "Acme acquisition", region="global")]
+        self.assertEqual(len(select_weekly_articles(candidates).by_category[ALTERNATIVE]), 1)
+
     def test_impact_and_region_balance_survive_global_limit(self):
         candidates = [
             *(article(
@@ -211,6 +259,45 @@ class WeeklySelectorTests(unittest.TestCase):
 
 
 class WeeklyMarketTests(unittest.TestCase):
+    def test_fx_uses_two_dated_bank_quotes_and_ignores_live_monday(self):
+        class FxSession(FakeSession):
+            def get(self, url, **kwargs):
+                if "exchangeDailyQuote.naver" not in url:
+                    return super().get(url, **kwargs)
+                self.get_calls.append((url, kwargs))
+                rows = (
+                    (("2026.09.07", "1,300.00"), ("2026.09.04", "1,349.50"))
+                    if kwargs["params"]["page"] == 1 else
+                    (("2026.08.28", "1,381.00"), ("2026.08.20", "1,390.00"))
+                )
+                return FakeResponse(text="<table class='tbl_exchange'><tbody>" + "".join(
+                    f"<tr><td>{day}</td><td><span>{value}</span></td><td>999</td></tr>"
+                    for day, value in rows
+                ) + "</tbody></table>")
+        session = FxSession()
+        snapshots = collect_market_snapshots(date(2026, 8, 31), date(2026, 9, 6), session=session)
+        fx = next(item for item in snapshots if item.key == "usd_krw")
+        self.assertTrue(fx.available)
+        self.assertEqual(fx.provider, "naver_fx")
+        self.assertIn("FX_USDKRW", fx.source_url)
+        self.assertEqual(fx.latest, MarketPoint(date(2026, 9, 4), 1349.5))
+        self.assertEqual(fx.comparison, MarketPoint(date(2026, 8, 28), 1381.0))
+        self.assertAlmostEqual(fx.change, (1349.5 / 1381 - 1) * 100)
+        self.assertEqual(fx.value_basis, "하나은행 매매기준율")
+        self.assertFalse(any((kw.get("params") or {}).get("id") == "DEXKOUS" for _, kw in session.get_calls))
+
+    def test_fx_failure_is_visible_and_other_indicators_still_render(self):
+        class BrokenFxSession(FakeSession):
+            def get(self, url, **kwargs):
+                if "exchangeDailyQuote.naver" in url:
+                    return FakeResponse(text="<html>Temporarily unavailable</html>")
+                return super().get(url, **kwargs)
+        snapshots = collect_market_snapshots(date(2026, 8, 24), date(2026, 8, 30), session=BrokenFxSession())
+        fx = next(item for item in snapshots if item.key == "usd_krw")
+        self.assertFalse(fx.available)
+        self.assertIn("유효한 날짜 없음", fx.error)
+        self.assertTrue(next(item for item in snapshots if item.key == "kospi").available)
+
     def test_collects_all_configured_indicators_with_mocked_official_sources(self):
         session = FakeSession()
         with patch.dict(os.environ, {"KRX_AUTH_KEY": "test-key"}, clear=False):
@@ -367,7 +454,30 @@ class WeeklyRendererTests(unittest.TestCase):
         )
         encoded = json.dumps(message.blocks, ensure_ascii=False)
 
-        self.assertIn("08.21→08.25 · 데이터 갱신 지연", encoded)
+        self.assertIn("08.21→08.25 · 주중 최신값(휴장·공표 지연 가능)", encoded)
+
+    def test_one_day_lag_is_visible_even_when_all_sources_lag(self):
+        selection = WeeklySelection({category: () for category in CATEGORIES}, (), 0)
+        market = MarketSnapshot(
+            "us_10y", "미 10년물", "fred", "basis_points",
+            (MarketPoint(date(2026, 9, 3), 4.77),),
+            3.9999999999, comparison=MarketPoint(date(2026, 8, 28), 4.73),
+        )
+        message = render_weekly_briefing(
+            date(2026, 8, 31), date(2026, 9, 6), WeeklyHeadlines((), None, True),
+            selection, (market,),
+        )
+        self.assertIn("▲4bp", message.plain_text)
+        self.assertIn("08.28→09.03 · 주중 최신값", message.plain_text)
+
+    def test_preview_preserves_sources_dates_and_unassigned_region_articles(self):
+        story = article(ALTERNATIVE, "unknown-region", "A sufficiently important acquisition", region="")
+        story["date"] = "2026-09-04"
+        selection = WeeklySelection({ALTERNATIVE: (story,)}, (story,), 1)
+        message = render_weekly_briefing(
+            date(2026, 8, 31), date(2026, 9, 6), WeeklyHeadlines((), None, True), selection, (),
+        )
+        self.assertIn("A sufficiently important acquisition (Reuters, 09.04)", message.plain_text)
 
 
 class WeeklyRunnerTests(unittest.TestCase):
