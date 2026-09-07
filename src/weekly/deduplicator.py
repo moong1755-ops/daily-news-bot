@@ -64,6 +64,10 @@ CATEGORY_PRIORITY = {
     "🌐 거시·정책·지정학": 20,
 }
 CONFIRMED_STATUSES = {"confirmed", "completed", "closed", "approved", "확정", "완료", "승인"}
+RESOLVED_STATUSES = CONFIRMED_STATUSES | {
+    "cancelled", "canceled", "terminated", "withdrawn", "rejected", "blocked",
+    "취소", "철회", "무산", "불허",
+}
 OFFICIAL_INSIGHT_SOURCES = {
     "mckinsey", "boston consulting group", "bcg", "bain", "deloitte", "pwc", "ey", "kpmg",
 }
@@ -205,7 +209,9 @@ def _representative_key(article: dict) -> tuple:
     status = _normalized_text(article.get("deal_status"))
     archive_date = _archive_date(article)
     return (
-        status in CONFIRMED_STATUSES,
+        # 확정 뒤 취소된 거래를 과거의 '확정' 기사로 되돌리지 않는다.
+        # 루머는 최신이더라도 확인된 진전을 대체하지 않는다.
+        status in RESOLVED_STATUSES,
         archive_date.toordinal() if archive_date else 0,
         _source_priority(article),
         _numeric_score(article, "selection_score"),
@@ -252,6 +258,7 @@ def _group_representative(group: list[dict]) -> dict:
             "url": url,
             "source": article.get("source") or "출처미상",
             "date": article.get("date") or "",
+            "status": article.get("deal_status") or "",
         })
 
     dates = [value for value in (_archive_date(article) for article in group) if value]

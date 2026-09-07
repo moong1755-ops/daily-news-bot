@@ -200,6 +200,16 @@ WEEKLY_REGION_LIMITS = {
     "🌐 거시·정책·지정학": {"global": 3, "korea": 3},
 }
 
+# 주간은 일간 발송본의 복기다. 금액 표기·보도 횟수 자체에는 가점하지 않고,
+# 일간 편집장이 기록한 투자판단상의 의미를 같은 중요도 안에서 참고한다.
+WEEKLY_RECAP_REASON_BONUSES = {
+    "policy_or_market_change": 1.5,
+    "systemic_capital": 1.5,
+    "industry_shift": 1.5,
+    "investment_evidence": 1.5,
+    "major_deal": 1.0,
+}
+
 # 시장 데이터의 실제 API 주소와 인증은 market_data 모듈이 담당한다. config에는
 # 어떤 지표를 어떤 방식으로 보여줄지만 둬서 제공처 교체가 선정 로직에 번지지 않는다.
 WEEKLY_MARKET_SPARKLINE_POINTS = 5
