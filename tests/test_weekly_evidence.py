@@ -66,6 +66,30 @@ class WeeklyEvidenceTests(unittest.TestCase):
         ], session=session)[0]
         self.assertEqual(checked["weekly_claim_status"], "unverified")
 
+    def test_two_daily_publishers_corroborate_a_blocked_representative(self):
+        session = Mock()
+        session.get.return_value = Mock(status_code=308)
+        candidate = story(
+            title="Example confirms $13 million Series B",
+            title_orig="Example confirms $13 million Series B",
+            weekly_related_links=[
+                {"url": "https://www.bloomberg.com/example"},
+                {"url": "https://news.crunchbase.com/example"},
+                {"url": "https://sifted.eu/example"},
+            ],
+        )
+        checked = enrich_shortlist([candidate], session=session)[0]
+        self.assertNotIn("weekly_claim_status", checked)
+        self.assertTrue(
+            checked["weekly_evidence_status"].startswith("corroborated_daily_archive")
+        )
+
+    def test_unverified_title_never_claims_confirmation(self):
+        candidate = story(weekly_claim_status="unverified")
+        title = guarded_title(candidate, "Example, 1300만 달러 투자 확정")
+        self.assertIn("공식발표 미확인", title)
+        self.assertNotIn("확정", title)
+
     def test_local_descriptions_are_applied_to_every_candidate(self):
         candidates = [
             story(
