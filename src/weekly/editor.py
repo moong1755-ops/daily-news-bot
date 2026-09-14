@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from ..config import CATEGORIES, WEEKLY_BRIEFING_CONFIG
 from ..editorial_review import importance as _editorial_importance
 from ..processor.reranker import generate_editor_json
+from .evidence import guarded_title
 
 
 @dataclass(frozen=True)
@@ -26,7 +27,14 @@ def _score(article: dict) -> float:
 
 
 def _title(article: dict) -> str:
-    return str(article.get("title") or article.get("title_orig") or "").strip()
+    return guarded_title(article, str(article.get("title") or article.get("title_orig") or "").strip())
+
+
+def _impact_leader(articles):
+    return max((a for a in articles if str(a.get("category", "")).startswith("🌱")
+                and _editorial_importance(a) >= 2
+                and a.get("weekly_financing_type") != "grant"),
+               key=lambda a: (_editorial_importance(a), _score(a)), default=None)
 
 
 def _fallback_lines(articles: list[dict], limit: int) -> tuple[str, ...]:
@@ -36,7 +44,8 @@ def _fallback_lines(articles: list[dict], limit: int) -> tuple[str, ...]:
         key=lambda article: (_editorial_importance(article), _score(article)),
         reverse=True,
     )
-    chosen: list[dict] = ranked[:1]
+    impact = _impact_leader(ranked)
+    chosen: list[dict] = ([impact] if impact is not None else ranked[:1]) if limit > 0 else []
 
     represented = {article.get("category") for article in chosen}
     for article in ranked:
@@ -63,13 +72,15 @@ def _prompt(articles: list[dict], limit: int) -> str:
             "title": _title(article),
             "source": article.get("source"),
             "status": article.get("deal_status"),
+            "claim_status": article.get("weekly_claim_status") or "",
+            "financing_type": article.get("weekly_financing_type") or "",
             "signals": article.get("weekly_rank_reasons") or [],
             "weekly_score": article.get("weekly_score"),
             "importance": article.get("importance") or 0,
             "importance_reason": article.get("importance_reason") or "",
             "alt_subtype": article.get("alt_subtype") or "",
             "related_reports": article.get("weekly_related_links") or [],
-            "summary": str(article.get("description") or article.get("summary") or "")[:240],
+            "summary": str(article.get("weekly_evidence_description") or article.get("description") or article.get("summary") or "")[:600],
         }
         for index, article in enumerate(articles)
     ]
@@ -90,6 +101,8 @@ def _prompt(articles: list[dict], limit: int) -> str:
 - weekly_score는 같은 중요도 기사 사이의 참고치일 뿐 최종 판단 근거로 그대로 복사하지 않는다.
 - 개별 투자 몇 건만으로 시장 전체의 투자 증가나 추세를 단정하지 않는다. 시장 동향 기사가 명시적으로 뒷받침할 때만 시장 전체의 변화로 쓴다.
 - 임팩트 투자 기회·리스크가 주간 핵심급이면 우선 포함하되 약한 사건을 억지로 넣지 않는다.
+- 중요도 2 이상인 비지원금 임팩트 기사가 있으면 그 중 가장 중요한 변화 하나를 첫 줄에 포함한다.
+- financing_type=grant는 지원금이지 지분투자나 대형 딜이 아니다. claim_status=reported/unverified는 '보도' 또는 '발표 미확인'임을 반드시 표시한다.
 - 임팩트는 대형 투자뿐 아니라 정책·공공조달·자본 접근성·시장 형성, 사회문제 해결 효과와 사업성의 검증도 비교한다. 금액이 없는 정책·성과 증거를 단순히 작은 뉴스로 취급하지 않는다.
 - 본 결정이 있는 사건에서는 전망·관계자 발언·시장 반응보다 본 결정을 먼저 쓴다.
 - 기사에 없는 사실은 만들지 않는다.
@@ -104,7 +117,8 @@ def _prompt(articles: list[dict], limit: int) -> str:
 - JSON 이외의 문장은 출력하지 않는다.
 
 출력 형식:
-{{"lines": ["첫째 줄", "둘째 줄", "셋째 줄"]}}
+{{"lines": [{{"article_id": 1, "text": "첫째 줄"}}, {{"article_id": 2, "text": "둘째 줄"}}]}}
+각 article_id는 아래 후보의 실제 id여야 한다. 하나의 기사에서 한 줄만 작성한다.
 
 기사:
 {json.dumps(candidates, ensure_ascii=False)}
@@ -139,7 +153,43 @@ def build_weekly_headlines(articles: tuple[dict, ...] | list[dict]) -> WeeklyHea
         return WeeklyHeadlines((), None, True)
 
     raw, model = generate_editor_json(_prompt(article_list, limit), timeout=30)
-    lines = _parse_lines(raw, limit)
+    lines = _grounded_lines(raw, article_list, limit)
     if lines:
         return WeeklyHeadlines(lines, model, False)
     return WeeklyHeadlines(_fallback_lines(article_list, limit), None, True)
+
+
+def _grounded_lines(raw, articles, limit):
+    """Reject untraceable summaries; retain claim labels after model generation."""
+    try:
+        match = re.search(r"\{.*\}", raw or "", re.DOTALL)
+        rows = json.loads(match.group(0))["lines"] if match else []
+        if not isinstance(rows, list):
+            return ()
+        chosen, seen = [], set()
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            index = row.get("article_id")
+            text = row.get("text")
+            if (type(index) is not int or not 1 <= index <= len(articles) or index in seen
+                    or not isinstance(text, str) or not text.strip()):
+                continue
+            seen.add(index)
+            article = articles[index - 1]
+            # For constrained claims, prefer the checked title over a model's
+            # fresh paraphrase that might turn a report into confirmation.
+            safe_text = (_title(article) if article.get("weekly_claim_status")
+                         or article.get("weekly_financing_type") == "grant" else text.strip())
+            chosen.append((article, guarded_title(article, safe_text)))
+        if not chosen:
+            return ()
+        impact = _impact_leader(articles)
+        if impact is not None:
+            existing = next((pair for pair in chosen if pair[0] is impact), None)
+            if existing is None:
+                existing = (impact, _title(impact))
+            chosen = [existing] + [pair for pair in chosen if pair[0] is not impact]
+        return tuple(text for _, text in chosen[:limit])
+    except (TypeError, ValueError, KeyError):
+        return ()

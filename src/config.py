@@ -210,6 +210,13 @@ WEEKLY_RECAP_REASON_BONUSES = {
     "major_deal": 1.0,
 }
 
+WEEKLY_EVIDENCE_CONFIG = {
+    "domains": ("esgtoday.com", "sifted.eu"),
+    "timeout_seconds": 6,
+    "max_articles": 12,
+    "grant_score_adjustment": -3.0,
+}
+
 # 시장 데이터의 실제 API 주소와 인증은 market_data 모듈이 담당한다. config에는
 # 어떤 지표를 어떤 방식으로 보여줄지만 둬서 제공처 교체가 선정 로직에 번지지 않는다.
 WEEKLY_MARKET_SPARKLINE_POINTS = 5

@@ -16,6 +16,12 @@ from ..processor.translator import translate_titles
 from .archive import KOREA_TIMEZONE, WeeklyArchiveWindow, load_weekly_archive
 from .deduplicator import deduplicate_weekly_articles
 from .editor import build_weekly_headlines
+from .evidence import (
+    apply_local_evidence,
+    enrich_shortlist,
+    guarded_title,
+    needs_remote_evidence,
+)
 from .market_data import collect_market_snapshots
 from .renderer import WeeklySlackMessage, render_weekly_briefing
 from .selector import WeeklySelection, revalidate_weekly_articles, select_weekly_articles, weekly_score
@@ -97,6 +103,15 @@ def _append_delivery_archive(
                 "source": article.get("source"),
                 "weekly_score": article.get("weekly_score"),
                 "weekly_rank_reasons": article.get("weekly_rank_reasons") or [],
+                "weekly_financing_type": article.get("weekly_financing_type"),
+                "weekly_claim_status": article.get("weekly_claim_status"),
+                "weekly_evidence_status": article.get("weekly_evidence_status"),
+                "weekly_evidence_url": article.get("weekly_evidence_url"),
+                "weekly_evidence_checked_at": article.get("weekly_evidence_checked_at"),
+                "weekly_previous_importance": article.get("weekly_previous_importance"),
+                "weekly_previous_importance_reason": article.get(
+                    "weekly_previous_importance_reason"
+                ),
             }
             for article in selection.articles
         ],
@@ -110,6 +125,37 @@ def _append_delivery_archive(
 def _empty_result(window: WeeklyArchiveWindow, reason: str) -> WeeklyRunResult:
     print(f"❌ 주간 브리핑 중단: {reason}")
     return WeeklyRunResult(False, False, reason, window)
+
+
+def _select_with_evidence(articles: list[dict], *, session=requests):
+    """Rerank until every promoted evidence-sensitive article is checked."""
+    articles = apply_local_evidence(articles)
+    selection = select_weekly_articles(articles)
+    checked_urls = set()
+    for _ in range(3):
+        pending = [
+            article for article in selection.articles
+            if needs_remote_evidence(article)
+            and article.get("url") not in checked_urls
+        ]
+        if not pending:
+            break
+        checked_articles = enrich_shortlist(pending, session=session)
+        checked = {article.get("url"): article for article in checked_articles}
+        checked_urls.update(checked)
+        articles = [checked.get(article.get("url"), article) for article in articles]
+        selection = select_weekly_articles(articles)
+
+    selected_urls = {article.get("url") for article in selection.articles}
+    for article in articles:
+        if (
+            article.get("url") in selected_urls
+            and needs_remote_evidence(article)
+            and article.get("url") not in checked_urls
+        ):
+            article["weekly_claim_status"] = "unverified"
+            article["weekly_evidence_status"] = "not_checked_after_rerank"
+    return articles, select_weekly_articles(articles)
 
 
 def run_weekly_briefing(
@@ -163,7 +209,9 @@ def run_weekly_briefing(
     deduplicated = deduplicate_weekly_articles([
         article for article in reviewed if not article.get("weekly_exclusion_reason")
     ])
-    selection = select_weekly_articles(deduplicated)
+    # 아카이브에 저장된 설명으로 전체 후보를 먼저 바로잡는다. 초기 상위권만
+    # 고친 뒤 재정렬하면 새로 올라온 후보가 근거 확인을 건너뛸 수 있다.
+    deduplicated, selection = _select_with_evidence(deduplicated, session=session)
     try:
         review_candidates = []
         for source_article in deduplicated + rejected:
@@ -188,6 +236,8 @@ def run_weekly_briefing(
     # 번역한다. 원문 기반 판단을 보존하고 불필요한 LLM 호출도 막는다.
     print(f"🈯 주간 최종 선정 후 번역: 대상 {len(selection.articles)}건")
     translate_titles(list(selection.articles))
+    for article in selection.articles:
+        article["title"] = guarded_title(article, str(article.get("title") or ""))
 
     markets = collect_market_snapshots(
         window.start_date,

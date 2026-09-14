@@ -1,4 +1,5 @@
 import re
+from urllib.parse import urlsplit
 from ..config import (
     CATEGORIES,
     SOFT_PENALTY_KEYWORDS,
@@ -255,6 +256,13 @@ _OFFICIAL_REFERENCE_PAGE_PATTERNS = [
     r"^commission delegated regulation\s*\(eu\)\s*\d{4}/\d+\s*$",
 ]
 
+# 공식 검색 결과에 섞이는 실무 알림은 제목이 그럴듯해도 URL 경로가
+# 명확하다. 기업·산업 인사이트와 세무/회계 속보를 경로에서 구분한다.
+_OFFICIAL_PRACTICAL_ALERT_PATH_PATTERNS = [
+    r"/(?:technical/)?(?:tax|accounting)-alerts?(?:/|$)",
+    r"/gms-flash-alerts?(?:/|$)",
+]
+
 _BRANDED_ROUNDUP_PATTERNS = [
     r"^\s*[\[(（【]?\s*(?:daily\s*recipe|dailyrecipe|데일리\s*레시피)\s*[\])）】]?",
 ]
@@ -459,8 +467,15 @@ def _event_state(title: str, text: str) -> tuple:
     return event_status, reporting_basis
 
 
-def _title_exclusion_reason(title: str, official_insights: bool) -> str:
+def _title_exclusion_reason(title: str, official_insights: bool, link: str = "") -> str:
     """Return a stable reason for deterministic final editorial rejection."""
+    if official_insights:
+        try:
+            path = urlsplit(str(link or "")).path.casefold()
+        except ValueError:
+            path = ""
+        if _matches_any_pattern(_OFFICIAL_PRACTICAL_ALERT_PATH_PATTERNS, path):
+            return "official_practical_alert"
     if official_insights and re.search(_OFFICIAL_PERSON_VIEW_TITLE_PATTERN, title):
         return "official_person_view"
 
@@ -768,7 +783,7 @@ def summarize(article: dict):
         excluded = False
     # 최종 안전검사는 rescue 신호보다 우선한다. 행사·인터뷰·MOU·일반 목록
     # 페이지·복수 사건 종합기사는 Gemini가 실패해도 발송하지 않는다.
-    title_exclusion_reason = _title_exclusion_reason(title, official_insights)
+    title_exclusion_reason = _title_exclusion_reason(title, official_insights, link)
     final_exclusion_reason = title_exclusion_reason or category_fit_exclusion_reason
     if final_exclusion_reason:
         excluded = True

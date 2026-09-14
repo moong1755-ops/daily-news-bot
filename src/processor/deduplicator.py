@@ -938,12 +938,25 @@ def filter_near_duplicates(articles: list, threshold: float) -> list:
                 kept_indexes[kept_position] = index
             continue
 
-        if any(
-            _same_editor_event(articles[index], articles[kept])
-            or _same_headline_event(articles[index], articles[kept])
-            or similarity[index][kept] >= threshold
-            for kept in kept_indexes
-        ):
+        def is_duplicate(kept):
+            current = articles[index]
+            previous = articles[kept]
+            current_key = str(current.get("editor_event_key") or "").strip()
+            previous_key = str(previous.get("editor_event_key") or "").strip()
+            if current_key and previous_key:
+                # 편집장이 서로 다른 사건 키를 준 경우 제목이 비슷하다는 이유만으로
+                # 합치지 않는다. 같은 회사의 투자·제품·계약은 각각 별개 사건이다.
+                return _same_editor_event(current, previous)
+            return (
+                _same_headline_event(current, previous)
+                or (
+                    _events_compatible(current, previous)
+                    and float(similarity[index][kept]) >= threshold
+                )
+                or _should_merge(current, previous, float(similarity[index][kept]))
+            )
+
+        if any(is_duplicate(kept) for kept in kept_indexes):
             continue
         kept_indexes.append(index)
         if event_key:
