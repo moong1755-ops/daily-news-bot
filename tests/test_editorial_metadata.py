@@ -147,6 +147,93 @@ class EditorMetadataParsingTests(unittest.TestCase):
 
 
 class DailySelectionTests(unittest.TestCase):
+    def test_same_company_ipo_stories_use_one_daily_slot(self):
+        nasdaq = article(
+            "Anthropic selects Nasdaq for its IPO",
+            region="global",
+            importance=3,
+            score=9,
+            subtype="exit_liquidity",
+        )
+        nasdaq["editor_event_key"] = "anthropic_nasdaq_ipo_selection"
+        nvidia = article(
+            "Nvidia in talks to invest in Anthropic's mega IPO",
+            region="global",
+            importance=3,
+            score=9,
+            subtype="venture_growth",
+        )
+        nvidia["editor_event_key"] = "nvidia_anthropic_ipo_investment"
+        apollo = article(
+            "Apollo may acquire a corporate orthopedics unit",
+            region="global",
+            importance=2,
+            score=8.75,
+            subtype="pe_ma",
+        )
+        apollo["editor_event_key"] = "apollo_orthopedics_unit_acquisition"
+        add_on = article(
+            "Sponsor-backed platform acquires a small consultancy",
+            region="global",
+            importance=2,
+            score=8,
+            subtype="pe_ma",
+        )
+        add_on["editor_event_key"] = "platform_consultancy_acquisition"
+
+        selected = daily_select([nasdaq, nvidia, apollo, add_on], ALTERNATIVE)
+
+        selected_titles = {item["title"] for item in selected}
+        self.assertEqual(len(selected), 3)
+        self.assertIn(nasdaq["title"], selected_titles)
+        self.assertNotIn(nvidia["title"], selected_titles)
+        self.assertIn(apollo["title"], selected_titles)
+        self.assertEqual(nvidia["selection_dedup_reason"], "same_company_ipo_cluster")
+
+    def test_different_company_ipos_remain_separate(self):
+        first = article(
+            "Anthropic selects Nasdaq for its IPO",
+            region="global",
+            importance=3,
+            score=9,
+            subtype="exit_liquidity",
+        )
+        first["editor_event_key"] = "anthropic_nasdaq_ipo_selection"
+        second = article(
+            "Fintech Acme files for IPO",
+            region="global",
+            importance=3,
+            score=8,
+            subtype="exit_liquidity",
+        )
+        second["editor_event_key"] = "acme_ipo_filing"
+
+        selected = daily_select([first, second], ALTERNATIVE)
+
+        self.assertEqual({item["title"] for item in selected}, {first["title"], second["title"]})
+
+    def test_same_investor_does_not_merge_different_company_ipos(self):
+        first = article(
+            "Nvidia may invest in Anthropic's IPO",
+            region="global",
+            importance=3,
+            score=9,
+            subtype="venture_growth",
+        )
+        first["editor_event_key"] = "nvidia_anthropic_ipo_investment"
+        second = article(
+            "Nvidia may invest in Mistral's IPO",
+            region="global",
+            importance=3,
+            score=8,
+            subtype="venture_growth",
+        )
+        second["editor_event_key"] = "nvidia_mistral_ipo_investment"
+
+        selected = daily_select([first, second], ALTERNATIVE)
+
+        self.assertEqual({item["title"] for item in selected}, {first["title"], second["title"]})
+
     def test_importance_precedes_old_score(self):
         candidates = [
             article("must know", category=AI, importance=3, score=6),

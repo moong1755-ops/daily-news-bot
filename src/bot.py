@@ -402,6 +402,63 @@ def _article_source_key(article: dict) -> str:
     return " ".join(str(get_primary_source(article) or "").casefold().split())
 
 
+_IPO_CLUSTER_PATTERN = re.compile(
+    r"\b(?:ipo|initial public offering|go public|public listing|nasdaq|nyse)\b|"
+    r"기업공개|상장(?:지|시장|계획|추진|준비|투자)",
+    re.IGNORECASE,
+)
+_IPO_EVENT_KEY_STOPWORDS = {
+    "ipo", "initial", "public", "offering", "listing", "listed", "lists",
+    "nasdaq", "nyse", "investment", "invest", "invests", "investing",
+    "funding", "financing", "round", "series", "talks", "reported",
+    "selection", "selects", "selected", "potential", "ahead", "mega",
+    "stake", "deal", "files", "filed", "filing", "plans", "planned", "2026",
+}
+
+
+def _ipo_cluster_entities(article: dict) -> set[str]:
+    """Return the IPO target company, not investors or underwriters."""
+    event_key = str(article.get("editor_event_key") or "").casefold()
+    title_text = " ".join(
+        str(article.get(field) or "")
+        for field in ("title", "title_orig")
+    )
+    if not event_key or not _IPO_CLUSTER_PATTERN.search(f"{event_key} {title_text}"):
+        return set()
+    tokens = re.findall(r"[a-z0-9]+", event_key)
+
+    # 편집 사건키는 핵심 회사명 + ipo + 세부사건 순서를 쓰도록 지시한다.
+    # ipo 바로 앞에서 거꾸로 찾으면 `nvidia_anthropic_ipo_investment`에서는
+    # 투자자 Nvidia가 아니라 상장 대상 Anthropic을 안정적으로 고를 수 있다.
+    marker_indexes = [
+        index for index, token in enumerate(tokens)
+        if token in {"ipo", "offering", "listing"}
+    ]
+    for marker_index in marker_indexes:
+        for token in reversed(tokens[:marker_index]):
+            if (
+                len(token) >= 4
+                and token not in _IPO_EVENT_KEY_STOPWORDS
+                and not token.isdigit()
+            ):
+                return {token}
+    return set()
+
+
+def _collapse_daily_ipo_clusters(ranked: list[dict]) -> list[dict]:
+    """Keep one representative when several stories cover the same company IPO."""
+    kept: list[dict] = []
+    kept_entities: list[set[str]] = []
+    for article in ranked:
+        entities = _ipo_cluster_entities(article)
+        if entities and any(entities & previous for previous in kept_entities):
+            article["selection_dedup_reason"] = "same_company_ipo_cluster"
+            continue
+        kept.append(article)
+        kept_entities.append(entities)
+    return kept
+
+
 def _selection_score(article: dict, category: str) -> float:
     llm = article.get("llm_score")
     if llm is not None:
@@ -575,6 +632,8 @@ def _select_category_articles(ranked: list, category: str) -> list:
 
     # 같은 사건이 한 카테고리를 다 차지하지 않도록 발송 직전에 한 번 더 솎는다.
     ranked = filter_near_duplicates(ranked, SELECTION_SIMILARITY_THRESHOLD)
+    if category == ALTERNATIVE_CATEGORY:
+        ranked = _collapse_daily_ipo_clusters(ranked)
 
     if category in REGION_SPLIT_CATEGORIES:
         # 대체투자·거시는 해외와 국내를 각각 최대 3개까지 보존한다.

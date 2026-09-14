@@ -103,6 +103,9 @@ _KOREA_EVENT_SIGNALS = [
     "국민연금", "국민연금공단",
     "기획재정부", "산업통상자원부", "중소벤처기업부", "금융위원회",
     "금융감독원", "공정거래위원회", "국회", "서울", "부산",
+    # 해외 충격에 대응하는 국내 거시·금융당국 회의. 제목에 '미 연준'이
+    # 함께 있어도 F4 대응 자체는 국내 정책 사건이다.
+    "F4 회의", "비상거시경제금융회의",
 ]
 _FOREIGN_EVENT_SIGNALS = [
     "united states", "u.s.", "federal reserve", "european union", "eurozone",
@@ -159,6 +162,11 @@ _TITLE_NOISE_PATTERNS = [
     r"\bmou\b", r"\bmemorandum of understanding\b",
     r"업무협약", r"협약 체결", r"로드쇼", r"웨비나", r"세미나",
     r"인터뷰", r"대담", r"팟캐스트", r"설명회", r"캠페인",
+    # 특정 기관 인사의 주장·권고를 실제 기업 행동이나 시장 변화처럼
+    # 다루지 않는다. 예: "Y Combinator's Garry Tan wants ...".
+    r"\b(?:[A-Z][A-Za-z0-9&.-]+(?:\s+[A-Z][A-Za-z0-9&.-]+){0,3})['’]s\s+"
+    r"[A-Z][A-Za-z'’.-]+(?:\s+[A-Z][A-Za-z'’.-]+){1,3}\s+"
+    r"(?:wants?|urges?|argues?|calls?\s+for)\b",
     # 설명 없는 단독 그래픽과 정례 시장조작 공지는 주요 변화 기사로 보지 않는다.
     r"^\s*[\[(（【]\s*그래픽\s*[\])）】]",
     r"(?:한은|한국은행).{0,20}통화안정증권.{0,20}발행",
@@ -235,6 +243,14 @@ _OFFICIAL_INSIGHT_NOISE_PATTERNS = [
     r"\b(?:invests?|investment)\b.{0,60}\b(?:employees?|staff|workforce|people)\b",
     r"\b(?:rewards?|bonuses?|promotes?|recognizes?)\b.{0,40}\b(?:employees?|staff|people)\b",
     r"\b(?:appoints?|names?)\b.{0,50}\b(?:chair|ceo|leader|partner|director)\b",
+    # 컨설팅사가 자문한 개별 거래와 특정 국가의 법령 번호 공지는 그 회사의
+    # 시장·산업 인사이트가 아니라 서비스 홍보 또는 실무 속보다.
+    r"^(?:ey|pwc|deloitte|kpmg)\b.{0,80}\badvis(?:es?|ed|ing)\b.{0,100}"
+    r"\b(?:acquisition|sale|transaction|merger|stake)\b",
+    r"^(?:cabinet|ministerial|executive|revenue|tax)\s+"
+    r"(?:decision|decree|resolution|regulation|ruling|circular)\s+"
+    r"(?:no\.?\s*)?\d+\b",
+    r"\b(?:gst|hst|qst|vat)\b.{0,100}\b(?:action required|deadline|effective date)\b",
     # 고객 유치용 실무 절차·체크리스트는 시장/산업 분석과 구분한다.
     # 세제·회계 정책 변화나 전망 자체는 이 패턴에 걸리지 않는다.
     r"\b(?:tax|accounting)\b.{0,50}\b(?:step[- ]?plan|checklist|implementation guide|playbook)\b",
@@ -262,6 +278,15 @@ _OFFICIAL_PRACTICAL_ALERT_PATH_PATTERNS = [
     r"/(?:technical/)?(?:tax|accounting)-alerts?(?:/|$)",
     r"/gms-flash-alerts?(?:/|$)",
     r"/(?:podcasts?|webinars?)(?:/|$)",
+    r"/(?:newsroom/)?press-releases?(?:/|$)",
+]
+
+# 대형 운용사가 기업의 사업부·부문을 인수하는 carve-out은 금액이 제목에
+# 없어도 일반적인 소규모 add-on 인수보다 시장 대표성이 큰 경우가 많다.
+_CORPORATE_CARVEOUT_PATTERNS = [
+    r"\b(?:acquire|buy|purchase)\b.{0,120}\b(?:unit|division|business|operations)\b",
+    r"\b(?:unit|division|business|operations)\b.{0,120}\b(?:acquisition|sale)\b",
+    r"(?:사업부|사업부문|부문|영업양수도).{0,50}(?:인수|매각)",
 ]
 
 _BRANDED_ROUNDUP_PATTERNS = [
@@ -299,8 +324,12 @@ _COMPOUND_ROUNDUP_PATTERNS = [
     r"^\s*[\[(（【]\s*뉴스\s*모음\s*[\])）】]",
     r"^\s*[\[(（]?\s*week ahead\b", r"^\s*[\[(（]?\s*weekly calendar\b",
     r"^주간\s*(?:모음|정리|리뷰)\b", r"^이번\s*주\s*(?:모음|정리|리뷰)\b",
+    r"^\s*[\[(（【]?\s*데일리\s*esg\s*정책\s*브리핑\b",
     r"^\s*[\[(（]?\s*(?:다음|이번)\s*주\s*(?:경제|증시|산업|정책|일정)\s*[\])）]?",
     r"^\s*[\[(（]?\s*주간\s*(?:경제|증시|산업|정책)?\s*일정\s*[\])）]?",
+    # 서로 다른 거래 두 건을 세미콜론으로 이어 붙인 뉴스레터형 제목.
+    r"\b(?:acquires?|buys?|backs?|raises?|invests?|sells?)\b[^;]{0,160};"
+    r"[^;]{0,160}\b(?:acquires?|buys?|backs?|raises?|invests?|sells?|eyes?)\b",
 ]
 
 # 같은 M&A·투자 기사라도 확정, 협상, 검토, 전망, 무산은 투자자에게
@@ -759,6 +788,12 @@ def summarize(article: dict):
         and _matches_any_pattern(_CORPORATE_OPERATING_MACRO_PATTERNS, title.lower())
     ):
         selection_adjustments.append("corporate_operating_macro")
+    if (
+        assigned_category == alternative_category
+        and deal_event
+        and _matches_any_pattern(_CORPORATE_CARVEOUT_PATTERNS, title.lower())
+    ):
+        selection_adjustments.append("corporate_carveout_scale_signal")
 
     if assigned_category in category_scores:
         base_score += float(category_scores[assigned_category])

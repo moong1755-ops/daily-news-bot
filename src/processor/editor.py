@@ -103,6 +103,9 @@ _INSTRUCTIONS = """너는 임팩트 투자·벤처캐피탈 전문 뉴스 브리
   '와 함께하는', '인터뷰' 가 들어가면 — 사건 보도가 아니라 대담이다.
   예: "Coffee with Suzano CEO", "A conversation with Astellas Pharma CEO",
       "Exits, AI, and Asking 'What's Next?' with Advent International's John Maldonado"
+- 특정 인사가 다른 기업·업계에 무엇을 해야 한다고 요구하거나 권고한 개인 주장.
+  실제 투자·정책·제품 결정이 함께 발표되지 않았다면 opinion 으로 제외한다.
+  예: "Y Combinator's Garry Tan wants AI labs to distill frontier models"
 - 뉴스레터 상용구 링크. 기사 제목이 아니라 안내 문구인 것.
   예: "Read in browser", "View online", "Manage preferences"
 - 지자체 지원사업·업무협약(MOU)
@@ -165,7 +168,9 @@ OpenAI·Google·Anthropic·Nvidia 같은 핵심 기업의 제품 출시는 소�
 - MBB·Big4 가 직접 발행한 국내외 리포트·이슈 브리프·글로벌 트렌드·산업
   포커스·시장 전망만 인사이트로 보낸다. 회계기준 적용일, 세무 알림,
   기술 공지 모음, 인사이트 목록 페이지, 컨설팅사 자체 인사·직원 보상·사내
-  투자 소식, 고객 유치용 실무 Step Plan·체크리스트는 제외한다.
+  투자 소식, 자체 법인 설립·합작법인·사무소 확대, 고객 거래 자문 실적,
+  고객 유치용 실무 Step Plan·체크리스트는 제외한다. 공식 도메인이라는 사실은
+  신뢰도 확인일 뿐 점수 가점이 아니다. 시장·산업 분석 내용이 있어야 한다.
   컨설팅사를 언급만 한 제3자 기사는 내용에 맞는 카테고리로 보낸다.
 
 [중요도] keep=true 기사에는 importance 1~3과 importance_reason을 반드시 붙인다.
@@ -175,6 +180,9 @@ OpenAI·Google·Anthropic·Nvidia 같은 핵심 기업의 제품 출시는 소�
 - importance_reason은 policy_or_market_change, systemic_capital, major_deal, industry_shift, investment_evidence 중 대표 이유 하나만 고른다. 태그 개수나 이유 종류는 점수 보너스가 아니다.
 - systemic_capital은 모태펀드·정책금융·연기금·공제회·대규모 LP/GP 배분처럼 VC/PE 전체 또는 의미 있는 세그먼트의 자본공급 조건을 바꾸는 경우다. 작은 지자체 지원사업은 해당하지 않는다.
 - major_deal은 단순 큰 금액이 아니라 시장 규모의 이상치, 대표기업/전략적 자본, valuation 기준점, IPO·회수시장 신호, 새로운 투자 thesis 중 둘 이상이 뚜렷한 거래를 뜻한다.
+- 중요도와 점수가 비슷한 M&A라면 대형 운용사의 기업 사업부 carve-out을
+  금액 미공개 소규모 add-on 인수보다 우선한다. 제목에 금액이 없다는 이유만으로
+  사업부 거래를 낮추지 않는다.
 - 대체투자 기사에는 alt_subtype을 capital_formation, venture_growth, pe_ma, exit_liquidity 중 정확히 하나 붙인다. 다른 카테고리는 빈 문자열로 둔다.
 - 예: 중기부의 연간 모태펀드 출자예산처럼 국가 VC 자본공급을 바꾸는 결정은 systemic_capital·importance=3 후보이며, 시장 대표성이 없는 일반 기업 M&A가 단순히 금액이 더 크다는 이유로 앞서면 안 된다.
 
@@ -190,6 +198,8 @@ keep=false 기사에는 점수를 부여하지 않는다.
   사건을 보도해도 같은 값이 되도록 핵심 주체 + 사건 종류 + 구분되는 숫자/라운드를
   짧은 영문 스네이크케이스로 쓴다.
 - 같은 회사라도 서로 다른 투자·제품·정책 사건은 다른 키로 쓴다.
+- 같은 회사의 동일 IPO 과정에서 나온 상장시장 선정·주관사 선정·IPO 연계
+  투자 논의는 세부 사건키가 달라도 반드시 핵심 회사명과 ipo 토큰을 공유하게 쓴다.
 - 예: Stability AI의 7,600만 달러 투자 유치는 언어와 무관하게
   stability_ai_funding_76m, 한국은행의 같은 날 기준금리 인상은
   bank_of_korea_rate_hike_2026_08_27 로 쓴다.
