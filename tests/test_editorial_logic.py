@@ -379,6 +379,7 @@ class CategoryRoutingTests(unittest.TestCase):
         for link in (
             "https://www.ey.com/en_gl/technical/tax-alerts/example-change",
             "https://kpmg.com/xx/en/our-insights/gms-flash-alert/example.html",
+            "https://www.ey.com/en_au/media/podcasts/better-finance/episode-8",
         ):
             with self.subTest(link=link):
                 result, errors = summarize({
