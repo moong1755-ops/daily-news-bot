@@ -63,6 +63,17 @@ def needs_remote_evidence(article):
     return _has_funding_claim(text)
 
 
+def _archive_corroborated(article):
+    """Trust two independently delivered publisher links as archive corroboration."""
+    hosts = {
+        (urlparse(str(item.get("url") or "")).hostname or "").removeprefix("www.")
+        for item in article.get("weekly_related_links") or []
+        if isinstance(item, dict) and item.get("url")
+    }
+    hosts.discard("")
+    return len(hosts) >= 2
+
+
 def apply_evidence(article, description):
     """Require specific financing language, not ambiguous 'grants approval'."""
     text = description.casefold()
@@ -110,8 +121,12 @@ def _check(article, session):
         result["weekly_evidence_checked_at"] = datetime.now(timezone.utc).isoformat()
         apply_evidence(result, metadata.description)
     except (requests.RequestException, ValueError) as exc:
-        result["weekly_evidence_status"] = f"unavailable: {exc}"
+        result["weekly_evidence_url"] = url
         result["weekly_evidence_checked_at"] = datetime.now(timezone.utc).isoformat()
+        if _archive_corroborated(result):
+            result["weekly_evidence_status"] = f"corroborated_daily_archive: {exc}"
+            return result
+        result["weekly_evidence_status"] = f"unavailable: {exc}"
         title = " ".join(str(article.get(field) or "") for field in (
             "title_orig", "title", "description", "summary",
         ))
@@ -153,6 +168,9 @@ def guarded_title(article, title):
         if "지원금" not in title:
             title = "[지원금] " + title
     status = article.get("weekly_claim_status")
+    if status == "unverified":
+        title = re.sub(r"확정(?:했다|됐다|됨)?", "보도", title)
+        title = re.sub(r"\bconfirms?|confirmed\b", "reports", title, flags=re.IGNORECASE)
     label = {"reported": "[보도]", "unverified": "[보도·공식발표 미확인]"}.get(status)
     if label and not title.startswith(label):
         title = label + " " + title
