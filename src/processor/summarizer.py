@@ -261,6 +261,7 @@ _OFFICIAL_REFERENCE_PAGE_PATTERNS = [
 _OFFICIAL_PRACTICAL_ALERT_PATH_PATTERNS = [
     r"/(?:technical/)?(?:tax|accounting)-alerts?(?:/|$)",
     r"/gms-flash-alerts?(?:/|$)",
+    r"/(?:podcasts?|webinars?)(?:/|$)",
 ]
 
 _BRANDED_ROUNDUP_PATTERNS = [

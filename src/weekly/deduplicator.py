@@ -86,6 +86,10 @@ EVENT_TOKEN_ALIASES = {
     "raised": "funding",
     "raises": "funding",
 }
+FUNDING_STAGE_PATTERN = re.compile(
+    r"\b(?:pre[- ]?seed|seed|series\s+[a-f])\b|프리\s*시드|시드|시리즈\s*[a-fA-F]",
+    re.IGNORECASE,
+)
 
 
 def _normalized_text(value: object) -> str:
@@ -119,6 +123,37 @@ def _action_groups(article: dict) -> set[str]:
     }
 
 
+def _funding_stage(article: dict) -> str:
+    text = f"{article.get('title_orig') or ''} {article.get('title') or ''}"
+    match = FUNDING_STAGE_PATTERN.search(text)
+    return _normalized_text(match.group(0)) if match else ""
+
+
+def _key_entities(tokens: set[str]) -> set[str]:
+    action_tokens = set().union(*ACTION_GROUPS.values())
+    return {
+        token for token in tokens
+        if token not in action_tokens
+        and token not in {"ai", "series"}
+        and not any(character.isdigit() for character in token)
+    }
+
+
+def _same_keyed_funding_event(left: dict, right: dict, left_key: set[str], right_key: set[str]) -> bool:
+    """Merge weekly reports whose amount/valuation caused different editor keys."""
+    left_date = _archive_date(left)
+    right_date = _archive_date(right)
+    if left_date and right_date and abs((left_date - right_date).days) > 3:
+        return False
+    if "funding" not in _action_groups(left) or "funding" not in _action_groups(right):
+        return False
+    left_stage = _funding_stage(left)
+    right_stage = _funding_stage(right)
+    if left_stage and right_stage and left_stage != right_stage:
+        return False
+    return bool(_key_entities(left_key) & _key_entities(right_key))
+
+
 def _archive_date(article: dict) -> date | None:
     raw = str(article.get("_archive_edition_date") or "").strip()
     try:
@@ -136,10 +171,16 @@ def _same_event(left: dict, right: dict) -> bool:
     left_key = _event_key_tokens(left)
     right_key = _event_key_tokens(right)
     if left_key and right_key:
+        left_stage = _funding_stage(left)
+        right_stage = _funding_stage(right)
+        if left_stage and right_stage and left_stage != right_stage:
+            return False
         if left_key == right_key:
             return True
         key_union = left_key | right_key
         if key_union and len(left_key & right_key) / len(key_union) >= 0.75:
+            return True
+        if _same_keyed_funding_event(left, right, left_key, right_key):
             return True
         # 편집장이 서로 다른 키를 부여한 경우 제목 유사도로 다시 합치지 않는다.
         # 같은 회사의 별도 투자·계약 상대방을 하나로 뭉개는 것을 막는다.
@@ -231,6 +272,15 @@ def _category_owner(group: list[dict]) -> dict:
     official = [article for article in group if _official_insight(article)]
     if official:
         return max(official, key=_representative_key)
+    impact = [article for article in group if article.get("category") == "🌱 임팩트"]
+    if impact:
+        return max(impact, key=_representative_key)
+    alternatives = [
+        article for article in group
+        if article.get("category") == "📈 대체투자"
+    ]
+    if alternatives and any("funding" in _action_groups(article) for article in group):
+        return max(alternatives, key=_representative_key)
     return max(
         group,
         key=lambda article: (

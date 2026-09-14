@@ -188,6 +188,56 @@ class WeeklyDeduplicationTests(unittest.TestCase):
         merged = next(item for item in result if item["weekly_story_count"] == 2)
         self.assertEqual(set(merged["weekly_sources"]), {"Reuters", "TechCrunch"})
 
+    def test_mistral_round_with_different_reported_amounts_is_one_alt_event(self):
+        bloomberg = article(
+            AI,
+            "mistral-bloomberg",
+            "Mistral AI Raises at €21 Billion Valuation in Samsung-Led Round",
+            source="Bloomberg",
+        )
+        bloomberg.update(
+            editor_event_key="mistral_ai_funding_21b",
+            _archive_edition_date="2026-09-09",
+        )
+        crunchbase = article(
+            ALTERNATIVE,
+            "mistral-crunchbase",
+            "Mistral AI Raises $3.5B At $24B Valuation In Another Record European AI Round",
+            source="Crunchbase News",
+        )
+        crunchbase.update(
+            editor_event_key="mistral_ai_funding_3_5b_2026",
+            _archive_edition_date="2026-09-09",
+        )
+        sifted = article(
+            ALTERNATIVE,
+            "mistral-sifted",
+            "Mistral confirms €3bn Series D at €21bn valuation",
+            source="Sifted",
+        )
+        sifted.update(
+            editor_event_key="mistral_series_d_3bn",
+            _archive_edition_date="2026-09-10",
+        )
+
+        merged = deduplicate_weekly_articles([bloomberg, crunchbase, sifted])
+
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(merged[0]["weekly_story_count"], 3)
+        self.assertEqual(merged[0]["category"], ALTERNATIVE)
+        self.assertEqual(len(merged[0]["weekly_related_links"]), 3)
+
+    def test_same_company_different_funding_stages_stay_separate(self):
+        series_a = article(ALTERNATIVE, "a", "Acme raises Series A")
+        series_a["editor_event_key"] = "acme_funding_series_a"
+        series_b = article(ALTERNATIVE, "b", "Acme raises Series B")
+        series_b["editor_event_key"] = "acme_funding_series_b"
+
+        self.assertEqual(
+            len(deduplicate_weekly_articles([series_a, series_b])),
+            2,
+        )
+
 
 class WeeklySelectorTests(unittest.TestCase):
     def test_amount_and_repetition_alone_do_not_improve_weekly_rank(self):
