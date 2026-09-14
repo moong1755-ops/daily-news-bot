@@ -153,6 +153,9 @@ INSIGHTS_DOMESTIC_SCORE_TOLERANCE = 1.0
 SELECTION_SCORE_ADJUSTMENTS = {
     "branded_roundup": -1.0,
     "corporate_operating_macro": -2.0,
+    # 거래금액이 제목에 없어도 사업부 carve-out은 작은 add-on 인수보다
+    # 시장 대표성이 큰 경우가 많다. importance를 뒤집지 않는 약한 동점 보정이다.
+    "corporate_carveout_scale_signal": 0.75,
 }
 
 # 동일 사건을 여러 매체가 보도했을 때 대표 기사로 우선할 원 보도 출처.

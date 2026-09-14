@@ -137,6 +137,112 @@ class ArticleQualificationTests(unittest.TestCase):
 
 
 class CategoryRoutingTests(unittest.TestCase):
+    def test_today_daily_esg_policy_roundup_is_excluded(self):
+        result, errors = summarize({
+            "title": "【데일리 ESG 정책 브리핑】정부·산업계, 태양광산업협의체 가동, 기후테크 경진대회 10개 팀 선정 등",
+            "description": "여러 정책 소식을 한 기사에 모은 일일 브리핑.",
+            "source": "임팩트온",
+            "feed": "ImpactOn (임팩트온)",
+            "region": "korea",
+        })
+
+        self.assertEqual(errors, [])
+        self.assertTrue(result["editorial_excluded"])
+        self.assertEqual(result["editorial_exclusion_reason"], "compound_roundup")
+
+    def test_today_person_advocacy_is_excluded_as_title_noise(self):
+        result, errors = summarize({
+            "title": "Y Combinator's Garry Tan wants U.S. open weight AI labs to distill frontier models too",
+            "description": "Tan argued that other labs should follow the same approach.",
+            "source": "TechCrunch AI",
+            "feed": "TechCrunch AI",
+            "region": "global",
+        })
+
+        self.assertEqual(errors, [])
+        self.assertTrue(result["editorial_excluded"])
+        self.assertEqual(result["editorial_exclusion_reason"], "title_noise")
+
+    def test_today_official_promotion_and_routine_tax_pages_are_excluded(self):
+        cases = (
+            {
+                "title": "PwC US and PwC India Form Joint Venture to Help Clients Grow and Compete at Greater Speed and Scale",
+                "description": "PwC announced its own joint venture.",
+                "source": "pwc.com",
+                "feed": "PwC Official Insights",
+                "link": "https://www.pwc.com/us/en/about-us/newsroom/press-releases/pwc-us-pwc-india-joint-venture.html",
+                "reason": "official_practical_alert",
+            },
+            {
+                "title": "Cabinet Decision No. 149 of 2026 - Amending certain provisions of the VAT Executive Regulation",
+                "description": "A jurisdiction-specific VAT implementation notice.",
+                "source": "KPMG",
+                "feed": "KPMG Official Insights",
+                "link": "https://kpmg.com/ae/en/insights/tax-insights/cabinet-decision-149.html",
+                "reason": "official_profile_or_service_page",
+            },
+            {
+                "title": "KPMG Latvia advises Skoda Group on the acquisition of a 36% stake in L-Ekspresis",
+                "description": "KPMG publicizes its transaction advisory work.",
+                "source": "KPMG",
+                "feed": "KPMG Official Insights",
+                "link": "https://kpmg.com/lv/en/insights/2026/09/kpmg-latvia-advises.html",
+                "reason": "official_profile_or_service_page",
+            },
+        )
+
+        for case in cases:
+            expected_reason = case.pop("reason")
+            with self.subTest(title=case["title"]):
+                result, errors = summarize(case)
+                self.assertEqual(errors, [])
+                self.assertEqual(result["category"], INSIGHTS)
+                self.assertTrue(result["editorial_excluded"])
+                self.assertEqual(result["editorial_exclusion_reason"], expected_reason)
+
+    def test_today_compound_pe_headline_is_excluded(self):
+        result, errors = summarize({
+            "title": "Ardian, Sagemount, Eir, Thoma Bravo back life sciences software; 1315 Capital eyes value creation potential in Argonaut's diagnostics division",
+            "description": "Two separate private-equity stories combined in one briefing item.",
+            "source": "PE Hub",
+            "feed": "PE Hub",
+            "region": "global",
+        })
+
+        self.assertEqual(errors, [])
+        self.assertTrue(result["editorial_excluded"])
+        self.assertEqual(result["editorial_exclusion_reason"], "compound_roundup")
+
+    def test_today_f4_response_is_korean_macro(self):
+        result, errors = summarize({
+            "title": "미 연준 금리 올릴까 긴장 고조…당국, F4 회의 등 대응 착수",
+            "description": "국내 금융당국이 시장 변동성에 대응하기 위해 회의를 열었다.",
+            "source": "연합뉴스",
+            "feed": "국내 거시/정책 (연합·한경)",
+            "region": "korea",
+        })
+
+        self.assertEqual(errors, [])
+        self.assertEqual(result["category"], MACRO)
+        self.assertEqual(result["region"], "korea")
+
+    def test_today_corporate_carveout_gets_a_scale_tiebreaker(self):
+        result, errors = summarize({
+            "title": "Apollo Global Is Said in Talks to Acquire J&J's Orthopedics Unit",
+            "description": "The private-equity firm is discussing a corporate carve-out acquisition.",
+            "source": "Bloomberg",
+            "feed": "글로벌 VC/PE",
+            "region": "global",
+        })
+
+        self.assertEqual(errors, [])
+        self.assertEqual(result["category"], ALTERNATIVE)
+        self.assertIn(
+            "corporate_carveout_scale_signal",
+            result["selection_adjustments"],
+        )
+        self.assertGreater(result["selection_score_adjustment"], 0)
+
     def test_weekly_calendar_roundups_are_excluded(self):
         titles = (
             "[다음주 경제] 기준금리 결정과 출생통계 발표",
