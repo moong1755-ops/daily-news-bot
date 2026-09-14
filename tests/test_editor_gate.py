@@ -290,8 +290,10 @@ class EditorGateTestCase(unittest.TestCase):
 
         self.assertIn("신호: funding_round", block)
 
-    def test_missing_verdict_keeps_article_at_zero_score(self):
-        """판정이 누락된 기사를 조용히 버리면 좋은 기사를 잃는다."""
+    def test_missing_verdict_is_audited_but_not_sendable(self):
+        """부분 응답을 통과로 오인하지 않고 다음 실행에서 다시 검토한다."""
+        from src.bot import _is_sendable
+
         articles = [_article("판정된 기사"), _article("응답에서 빠진 기사")]
         with _llm({"verdicts": [{"id": 1, "keep": True, "category": "🤖 AI", "score": 7}]}):
             kept, errors = editor.review(articles)
@@ -299,6 +301,8 @@ class EditorGateTestCase(unittest.TestCase):
         self.assertEqual(len(kept), 2)
         self.assertEqual(articles[1]["editor_verdict"], "unreviewed")
         self.assertEqual(articles[1]["editor_score"], 0.0)
+        self.assertEqual(articles[1]["relevance"], 0.0)
+        self.assertFalse(_is_sendable(articles[1]))
         self.assertTrue(any("미판정" in e for e in errors))
 
     def test_malformed_response_falls_back(self):

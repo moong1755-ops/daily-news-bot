@@ -1,9 +1,10 @@
 import sys
 import types
 import unittest
+import os
 from datetime import datetime, timezone
 from urllib.parse import parse_qs, urlparse
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 
 def _install_optional_dependency_stubs():
@@ -374,6 +375,28 @@ class CategoryRoutingTests(unittest.TestCase):
         self.assertTrue(result["editorial_excluded"])
         self.assertEqual(result["editorial_exclusion_reason"], "title_noise")
 
+    def test_official_practical_alert_url_is_not_treated_as_insight(self):
+        for link in (
+            "https://www.ey.com/en_gl/technical/tax-alerts/example-change",
+            "https://kpmg.com/xx/en/our-insights/gms-flash-alert/example.html",
+        ):
+            with self.subTest(link=link):
+                result, errors = summarize({
+                    "title": "Important changes for businesses in 2026",
+                    "description": "A client alert explaining compliance steps.",
+                    "source": "EY" if "ey.com" in link else "KPMG",
+                    "feed": "EY Official Insights" if "ey.com" in link else "KPMG Official Insights",
+                    "link": link,
+                })
+
+                self.assertEqual(errors, [])
+                self.assertEqual(result["category"], INSIGHTS)
+                self.assertTrue(result["editorial_excluded"])
+                self.assertEqual(
+                    result["editorial_exclusion_reason"],
+                    "official_practical_alert",
+                )
+
     def test_series_b_is_a_major_alternative_deal(self):
         article = {
             "title": "Whisper raises $200 million Series B",
@@ -569,6 +592,48 @@ class CategoryRoutingTests(unittest.TestCase):
         self.assertTrue(success)
         self.assertEqual(len(sent), 3)
         self.assertEqual(len(translate.call_args.args[0]), 3)
+
+    def test_slack_http_failure_returns_no_sent_articles(self):
+        article = {
+            "category": AI,
+            "title": "AI model launch",
+            "title_orig": "AI model launch",
+            "link": "https://example.com/ai",
+            "source": "Test Source",
+            "date": "2026-09-11",
+            "relevance": 9,
+        }
+        response = Mock(status_code=500, text="server_error")
+        with patch.dict(os.environ, {"SLACK_WEBHOOK_URL": "https://hooks.slack.test/x", "DRY_RUN": ""}):
+            with patch("src.bot.translate_titles", side_effect=lambda selected: selected):
+                with patch("src.bot.requests.post", return_value=response) as post:
+                    with patch("src.bot._append_slack_archive") as archive:
+                        success, sent = send_aggregated_slack_news([article])
+
+        self.assertFalse(success)
+        self.assertEqual(sent, [])
+        self.assertEqual(post.call_args.kwargs["timeout"], 20)
+        archive.assert_not_called()
+
+    def test_slack_timeout_returns_no_sent_articles(self):
+        from src import bot
+
+        article = {
+            "category": AI,
+            "title": "AI model launch",
+            "title_orig": "AI model launch",
+            "link": "https://example.com/ai",
+            "source": "Test Source",
+            "date": "2026-09-11",
+            "relevance": 9,
+        }
+        with patch.dict(os.environ, {"SLACK_WEBHOOK_URL": "https://hooks.slack.test/x", "DRY_RUN": ""}):
+            with patch("src.bot.translate_titles", side_effect=lambda selected: selected):
+                with patch("src.bot.requests.post", side_effect=bot.requests.Timeout("late")):
+                    success, sent = send_aggregated_slack_news([article])
+
+        self.assertFalse(success)
+        self.assertEqual(sent, [])
 
     def test_same_event_in_two_categories_is_sent_only_once(self):
         domestic_impact = {

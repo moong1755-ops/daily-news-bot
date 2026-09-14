@@ -316,7 +316,10 @@ class WeeklyMetadataTests(unittest.TestCase):
         with patch.object(
             weekly_editor,
             "generate_editor_json",
-            return_value=('{"lines":["자본공급 확대"]}', "fake-model"),
+            return_value=(
+                '{"lines":[{"article_id":1,"text":"자본공급 확대"}]}',
+                "fake-model",
+            ),
         ) as generate:
             result = weekly_editor.build_weekly_headlines([candidate])
         self.assertEqual(result.lines, ("자본공급 확대",))

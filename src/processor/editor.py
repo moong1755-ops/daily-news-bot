@@ -461,12 +461,13 @@ def review(articles: list) -> tuple:
         if "editor_verdict" not in article:
             article["editor_verdict"] = "unreviewed"
             article["editor_score"] = 0.0
+            article["relevance"] = 0.0
             article["importance"] = 0
             article["importance_reason"] = ""
             article["alt_subtype"] = ""
             unreviewed += 1
     if unreviewed:
-        errors.append(f"편집 게이트 미판정 {unreviewed}건 — 낮은 점수로 통과시킴")
+        errors.append(f"편집 게이트 미판정 {unreviewed}건 — 발송 제외, 검토 기록만 보존")
 
     kept = [a for a in articles if a.get("editor_verdict") != "reject"]
     print(f"🧑‍⚖️ 편집 게이트 결과: {len(articles)}건 중 {len(kept)}건 통과")

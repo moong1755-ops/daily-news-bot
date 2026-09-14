@@ -14,6 +14,7 @@ from ..config import (
     WEEKLY_CATEGORY_LIMITS,
     WEEKLY_REGION_LIMITS,
     WEEKLY_RECAP_REASON_BONUSES,
+    WEEKLY_EVIDENCE_CONFIG,
 )
 
 
@@ -117,7 +118,11 @@ def revalidate_weekly_articles(articles: list[dict]) -> list[dict]:
             link=article.get("url") or article.get("normalized_url") or article.get("link") or "",
         ))
         official = classified.get("category_reason") == "official_insights_source"
-        article["weekly_exclusion_reason"] = _title_exclusion_reason(original_title, official)
+        article["weekly_exclusion_reason"] = _title_exclusion_reason(
+            original_title,
+            official,
+            str(article.get("url") or article.get("normalized_url") or article.get("link") or ""),
+        )
         article["impact_content_verified"] = classified["impact_content_verified"]
         old_category = article.get("category")
         has_context = bool(article.get("description") or article.get("summary"))
@@ -215,6 +220,9 @@ def weekly_score(article: dict) -> tuple[float, tuple[str, ...]]:
     if article.get("major_deal"):
         score += 2.0
         reasons.append("major_deal")
+    if article.get("weekly_financing_type") == "grant":
+        score += WEEKLY_EVIDENCE_CONFIG["grant_score_adjustment"]
+        reasons.append("grant_not_equity_deal")
     if article.get("category") == IMPACT_CATEGORY:
         score += 1.5
         reasons.append("impact_priority")

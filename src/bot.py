@@ -557,6 +557,8 @@ def _collapse_macro_rate_stories(ranked: list) -> list:
 def _is_sendable(article: dict) -> bool:
     if article.get("editorial_excluded", False):
         return False
+    if article.get("editor_verdict") == "unreviewed":
+        return False
 
     llm_score = article.get("llm_score")
     return llm_score is None or float(llm_score) >= LLM_SEND_MIN_SCORE
@@ -1167,16 +1169,21 @@ def send_aggregated_slack_news(articles) -> tuple:
     )
 
     # ✅ 링크 미리보기(unfurl) 끄기: 카드/썸네일이 딸려 나오지 않게 함
-    resp = requests.post(
-        slack_webhook_url,
-        json={
-            # text는 알림용이고, 전체 뉴스는 blocks 한 메시지에 자르지 않고 담는다.
-            "text": notification_text,
-            "blocks": slack_blocks,
-            "unfurl_links": False,
-            "unfurl_media": False,
-        },
-    )
+    try:
+        resp = requests.post(
+            slack_webhook_url,
+            json={
+                # text는 알림용이고, 전체 뉴스는 blocks 한 메시지에 자르지 않고 담는다.
+                "text": notification_text,
+                "blocks": slack_blocks,
+                "unfurl_links": False,
+                "unfurl_media": False,
+            },
+            timeout=20,
+        )
+    except requests.RequestException as exc:
+        print(f"슬랙 전송 실패: {exc}")
+        return False, []
     if resp.status_code == 200:
         # 주간 브리핑에는 실제 Slack 발송에 성공한 기사만 포함한다.
         try:
@@ -1187,7 +1194,7 @@ def send_aggregated_slack_news(articles) -> tuple:
         print(f"슬랙 메시지 1건 통합 전송 성공! (Block Kit {len(slack_blocks)}개)")
         return True, sent_articles
     print(f"슬랙 전송 실패: {resp.status_code}, {resp.text}")
-    return False, sent_articles
+    return False, []
 
 
 def _save_daily_review(candidates: list[dict], selected: list[dict]) -> bool:
@@ -1296,8 +1303,10 @@ def main():
         )
 
     sent_articles = []
+    delivery_failed = False
     if classified:
         success, sent_articles = send_aggregated_slack_news(classified)
+        delivery_failed = not success
         if success and not is_dry_run():
             # ✅ 실제 발송된 기사만 seen 처리(미발송 기사가 유실되지 않게)
             for art in sent_articles:
@@ -1357,6 +1366,10 @@ def main():
         print(f"\n⚠️ 수집 오류 {len(all_errors)}건:")
         for e in all_errors:
             print(f"  • {e}")
+    if delivery_failed:
+        # GitHub Actions가 실제 미발송을 성공으로 표시하지 않게 한다.
+        # 검토 CSV와 의사결정 로그를 먼저 저장한 뒤 비정상 종료한다.
+        raise RuntimeError("Slack 발송에 실패했습니다. 위 로그를 확인해 주세요.")
 
 
 if __name__ == "__main__":

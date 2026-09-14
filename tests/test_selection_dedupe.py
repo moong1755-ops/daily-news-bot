@@ -78,7 +78,8 @@ class FilterNearDuplicatesTestCase(unittest.TestCase):
                 "editor_event_key": "stability_ai_model_launch_2026_08",
             },
         ]
-        with self._with_similarity([[1.0, 0.1], [0.1, 1.0]]):
+        # 제목 임베딩이 아주 비슷해도 편집장이 구분한 사건 키가 우선한다.
+        with self._with_similarity([[1.0, 0.95], [0.95, 1.0]]):
             kept = deduplicator.filter_near_duplicates(articles, 0.60)
         self.assertEqual(kept, articles)
 
