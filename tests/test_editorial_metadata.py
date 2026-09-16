@@ -18,7 +18,7 @@ from src.editorial_review import (
     select_alt_with_soft_diversity,
     write_review_csv,
 )
-from src.processor import editor
+from src.processor import editor, reranker
 from src.processor.deduplicator import collapse_editor_event_duplicates
 from src.weekly.archive import KOREA_TIMEZONE, load_weekly_archive
 from src.weekly.deduplicator import deduplicate_weekly_articles
@@ -58,6 +58,288 @@ def article(
         "alt_subtype": subtype,
         "major_deal": major_deal,
     }
+
+
+class HighPriorityEditorialPolicyTests(unittest.TestCase):
+    def test_cross_day_memory_merges_changed_keys_but_keeps_status_update(self):
+        previous = [
+            {
+                "editor_event_key": "blackstone_acquires_fch",
+                "title": "Blackstone acquired FCH",
+            },
+            {
+                "editor_event_key": "us_10y_yield_5pct",
+                "title": "US 10-year Treasury yield breaches 5%",
+            },
+            {
+                "editor_event_key": "mistral_ai_funding_21b",
+                "title": "Mistral reportedly seeks funding at a $21B valuation",
+            },
+            {
+                "editor_event_key": "dangote_ipo_approval",
+                "title": "Dangote IPO approval",
+            },
+        ]
+        current = [
+            {
+                "editor_event_key": "blackstone_acquires_flow_control_holdings",
+                "title": "Blackstone acquires Flow Control Holdings",
+            },
+            {
+                "editor_event_key": "treasury_yield_impact_analysis",
+                "title": "US 10-year Treasury yields above 5.25%",
+            },
+            {
+                "editor_event_key": "mistral_series_d_3bn",
+                "title": "Mistral raised Series D funding",
+            },
+            {
+                "editor_event_key": "dangote_africa_ipo",
+                "title": "Dangote Africa IPO",
+            },
+        ]
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            archive_path = Path(temp_dir) / "slack_archive.jsonl"
+            archive_path.write_text(
+                json.dumps({
+                    "edition_date": "2026-09-10",
+                    "articles": previous,
+                }) + "\n",
+                encoding="utf-8",
+            )
+            kept, dropped = bot._filter_recent_editor_event_duplicates(
+                current,
+                reference_date=date(2026, 9, 16),
+                archive_path=archive_path,
+            )
+
+        self.assertEqual(
+            [item["editor_event_key"] for item in kept],
+            ["mistral_series_d_3bn"],
+        )
+        self.assertEqual(
+            [item["editor_event_key"] for item in dropped],
+            [
+                "blackstone_acquires_flow_control_holdings",
+                "treasury_yield_impact_analysis",
+                "dangote_africa_ipo",
+            ],
+        )
+
+    def test_cross_day_memory_keeps_distinct_funding_stages(self):
+        seed = {
+            "editor_event_key": "example_seed_funding",
+            "title": "Example raises seed funding",
+        }
+        series_a = {
+            "editor_event_key": "example_series_a_funding",
+            "title": "Example raises Series A funding",
+        }
+        self.assertFalse(bot._same_cross_day_event(seed, series_a))
+
+    def test_cross_day_memory_groups_repeated_us_cpi_and_fed_rate_outlooks(self):
+        cpi_first = {
+            "editor_event_key": "us_cpi_accelerates_august",
+            "title": "US CPI accelerates and raises inflation concern",
+        }
+        cpi_follow_up = {
+            "editor_event_key": "american_inflation_rate_hike_risk",
+            "title": "American inflation data revives rate hike expectations",
+        }
+        fed_first = {
+            "editor_event_key": "fed_rate_hike_outlook",
+            "title": "Federal Reserve officials may raise interest rates",
+        }
+        fed_follow_up = {
+            "editor_event_key": "fomc_policy_rate_path",
+            "title": "FOMC debate keeps policy rate outlook in focus",
+        }
+
+        self.assertTrue(bot._same_cross_day_event(cpi_first, cpi_follow_up))
+        self.assertTrue(bot._same_cross_day_event(fed_first, fed_follow_up))
+
+    def test_vc_pe_final_guard_rejects_operations_but_keeps_capital_events(self):
+        invalid = (
+            "Revolut confirms customer data breach",
+            "Battery makers expand ESS production facilities",
+            "HMM signs long-term shipping contract",
+            "SEC asks ISS to provide documents",
+        )
+        for title in invalid:
+            with self.subTest(title=title):
+                self.assertFalse(bot._is_vc_pe_eligible({
+                    "title": title,
+                    "category": ALTERNATIVE,
+                    "deal_signals": [],
+                }))
+
+        valid = (
+            {
+                "title": "Open Cosmos raises EUR300M Series D",
+                "category": ALTERNATIVE,
+                "deal_signals": ["financing"],
+            },
+            {
+                "title": "VC funding activity rebounds as exit market reopens",
+                "category": ALTERNATIVE,
+                "deal_signals": [],
+            },
+            {
+                "title": "수은·산은·기은 7000억 글로벌 스케일업 펀드 조성",
+                "category": ALTERNATIVE,
+                "deal_signals": [],
+            },
+            {
+                "title": "AUM 410억 자산운용사 지분 100% 매각 추진",
+                "category": ALTERNATIVE,
+                "deal_signals": [],
+            },
+            {
+                "title": "Brookfield, 10억 달러 펀드 위탁 운용사 선정",
+                "category": ALTERNATIVE,
+                "deal_signals": [],
+            },
+            {
+                "title": "한국산업양행 1500억 유치에 주요 PE 검토",
+                "category": ALTERNATIVE,
+                "deal_signals": [],
+            },
+            {
+                "title": "국민성장펀드 운용사, 3000억 결성",
+                "category": ALTERNATIVE,
+                "deal_signals": [],
+            },
+            {
+                "title": "넥스플렉스 M&A 중단 배경과 인수 조건",
+                "category": ALTERNATIVE,
+                "deal_signals": [],
+            },
+        )
+        for candidate in valid:
+            with self.subTest(title=candidate["title"]):
+                self.assertTrue(bot._is_vc_pe_eligible(candidate))
+
+    def test_impact_selection_uses_comparable_non_climate_candidate(self):
+        ranked = [
+            {
+                "title": f"Climate policy {index}",
+                "category": IMPACT,
+                "source": f"Climate Source {index}",
+                "region": "global",
+                "importance": 2,
+                "llm_score": score,
+                "impact_themes": ["climate_energy"],
+            }
+            for index, score in enumerate((9.0, 8.5, 8.0))
+        ] + [{
+            "title": "Affordable elder care expands nationally",
+            "category": IMPACT,
+            "source": "Care Source",
+            "region": "korea",
+            "importance": 2,
+            "llm_score": 7.2,
+            "impact_themes": ["care_health"],
+        }]
+
+        with patch.object(bot, "filter_near_duplicates", side_effect=lambda items, _threshold: list(items)):
+            selected = bot._select_category_articles(ranked, IMPACT)
+
+        self.assertEqual(len(selected), 3)
+        self.assertIn("Affordable elder care expands nationally", {
+            item["title"] for item in selected
+        })
+
+    def test_impact_selection_does_not_force_weak_theme_diversity(self):
+        ranked = [
+            {
+                "title": f"Climate policy {index}",
+                "category": IMPACT,
+                "source": f"Climate Source {index}",
+                "importance": 2,
+                "llm_score": score,
+                "impact_themes": ["climate_energy"],
+            }
+            for index, score in enumerate((9.0, 8.5, 8.0))
+        ] + [{
+            "title": "Minor education commentary",
+            "category": IMPACT,
+            "source": "Education Source",
+            "importance": 1,
+            "llm_score": 5.0,
+            "impact_themes": ["education_access"],
+        }]
+
+        with patch.object(bot, "filter_near_duplicates", side_effect=lambda items, _threshold: list(items)):
+            selected = bot._select_category_articles(ranked, IMPACT)
+
+        self.assertNotIn("Minor education commentary", {
+            item["title"] for item in selected
+        })
+
+    def test_fallback_keeps_comparable_korean_official_insight(self):
+        insights = next(category for category in CATEGORIES if category.startswith("👔"))
+        selected = [
+            {
+                "title": f"Global report {index}",
+                "category": insights,
+                "region": "global",
+                "importance": 2,
+                "relevance": score,
+            }
+            for index, score in enumerate((9.0, 8.0, 7.0))
+        ]
+        domestic = {
+            "title": "글로벌 핀테크 투자 동향과 2026년 하반기 전망",
+            "category": insights,
+            "category_reason": "official_insights_source",
+            "region": "korea",
+            "importance": 2,
+            "relevance": 6.5,
+        }
+        buckets = {category: [] for category in CATEGORIES}
+        buckets[insights] = selected + [domestic]
+
+        balanced = reranker._ensure_domestic_insight_selection(
+            selected,
+            buckets,
+            list(CATEGORIES),
+        )
+
+        self.assertEqual(len(balanced), 3)
+        self.assertIs(balanced[-1], domestic)
+
+    def test_llm_fallback_path_also_balances_impact_themes(self):
+        selected = [
+            {
+                "title": f"Climate transition report {index}",
+                "description": "climate tech and energy transition",
+                "category": IMPACT,
+                "source": f"Climate Source {index}",
+                "importance": 2,
+                "relevance": score,
+            }
+            for index, score in enumerate((9.0, 8.5, 8.0))
+        ]
+        care = {
+            "title": "Affordable elder care expands nationally",
+            "description": "healthcare access and care economy outcomes",
+            "category": IMPACT,
+            "source": "Care Source",
+            "importance": 2,
+            "relevance": 7.2,
+        }
+        buckets = {category: [] for category in CATEGORIES}
+        buckets[IMPACT] = selected + [care]
+
+        balanced = reranker._ensure_editorial_balance(
+            selected,
+            buckets,
+            list(CATEGORIES),
+        )
+
+        self.assertEqual(len(balanced), 3)
+        self.assertIn(care, balanced)
 
 
 def daily_select(candidates: list[dict], category: str) -> list[dict]:

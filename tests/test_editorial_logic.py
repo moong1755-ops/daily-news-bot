@@ -1458,6 +1458,7 @@ class SelectionAndDateTests(unittest.TestCase):
             {
                 "title": "한국 조선업 경쟁력 분석",
                 "category": INSIGHTS,
+                "category_reason": "official_insights_source",
                 "region": "korea",
                 "llm_score": 6,
             },
