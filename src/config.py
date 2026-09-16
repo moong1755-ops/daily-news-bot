@@ -157,6 +157,11 @@ LLM_SEND_MIN_SCORE = 0
 # 이 점수 차이 안에 있으면 국내 자료 1건을 포함할 수 있다.
 INSIGHTS_DOMESTIC_SCORE_TOLERANCE = 1.0
 
+# 임팩트 상위 3건이 모두 기후·ESG에 몰렸을 때, 돌봄·헬스케어·교육·포용·
+# 순환경제 후보가 마지막 선정 기사와 이 점수 차이 안이면 한 자리를 교체한다.
+# 절대 컷이나 강제 할당이 아니라 동급 후보 사이의 다양성 보정이다.
+IMPACT_THEME_DIVERSITY_SCORE_TOLERANCE = 1.0
+
 # 기사 자격은 유지하지만 상대 순위만 낮출 항목. 값은 최종 선정 점수에 더한다.
 SELECTION_SCORE_ADJUSTMENTS = {
     "branded_roundup": -1.0,

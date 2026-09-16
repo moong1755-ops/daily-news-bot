@@ -12,6 +12,8 @@ from ..config import (
     LLM_CANDIDATES_PER_CATEGORY,
     IMPACT_CANDIDATES_PER_THEME,
     IMPACT_THEME_KEYWORDS,
+    INSIGHTS_DOMESTIC_SCORE_TOLERANCE,
+    IMPACT_THEME_DIVERSITY_SCORE_TOLERANCE,
 )
 
 # LLM 장애 시 상대 순위용: 투자자 관점의 '사건 발생' 시그널
@@ -645,7 +647,11 @@ def select_top_news_with_llm(articles: list, category_order: list) -> list:
 
     if not api_key:
         print("ℹ️ GEMINI_API_KEY가 없어 다단계 규칙 기반 Fallback 순으로 선정합니다.")
-        return _fallback_rule_based(buckets, category_order)
+        return _ensure_editorial_balance(
+            _fallback_rule_based(buckets, category_order),
+            buckets,
+            category_order,
+        )
 
     limit_instructions = ", ".join(
         (
@@ -700,11 +706,20 @@ def select_top_news_with_llm(articles: list, category_order: list) -> list:
     raw_json, used_model = _call_llm(instruction, api_key)
     if raw_json is None:
         print("⚠️ 사용 가능한 Gemini 모델을 찾지 못해 규칙 기반 Fallback으로 전환합니다.")
-        return _fallback_rule_based(buckets, category_order)
+        return _ensure_editorial_balance(
+            _fallback_rule_based(buckets, category_order),
+            buckets,
+            category_order,
+        )
 
     try:
         payload = _parse_llm_payload(raw_json)
         final_articles = _finalize_llm_selection(payload, candidates, category_order)
+        final_articles = _ensure_editorial_balance(
+            final_articles,
+            buckets,
+            category_order,
+        )
         print(
             f"✨ 제미나이({used_model}) 선별 완료: 후보 {len(candidates)}개 중 "
             f"{len(final_articles)}개 확정(강제 보충 없음)!"
@@ -713,7 +728,11 @@ def select_top_news_with_llm(articles: list, category_order: list) -> list:
 
     except Exception as e:
         print(f"⚠️ 제미나이 응답 파싱 실패 ({e}) -> 규칙 기반 Fallback으로 전환합니다.")
-        return _fallback_rule_based(buckets, category_order)
+        return _ensure_editorial_balance(
+            _fallback_rule_based(buckets, category_order),
+            buckets,
+            category_order,
+        )
 
 
 def _decision_signal_strength(article: dict) -> int:
@@ -769,6 +788,212 @@ def _rule_sort_key(art):
         signal_score,
         relevance_score,
         is_global,
+    )
+
+
+def _importance_and_score(article: dict) -> tuple[int, float]:
+    try:
+        importance = int(article.get("importance") or 0)
+    except (TypeError, ValueError):
+        importance = 0
+    try:
+        score = float(
+            article.get("editor_score")
+            if article.get("editor_score") is not None
+            else article.get("relevance", 0)
+        )
+    except (TypeError, ValueError):
+        score = 0.0
+    return importance, score
+
+
+_NON_CLIMATE_IMPACT_THEME_NAMES = {
+    "circular_nature_food",
+    "care_health",
+    "education_access",
+}
+_NON_CLIMATE_SOCIAL_PATTERN = re.compile(
+    r"\b(?:social economy|social enterprise|social venture|financial inclusion|"
+    r"inclusive finance|affordable housing|workforce development|quality jobs)\b|"
+    r"사회적경제|사회적기업|소셜벤처|금융포용|포용금융|주거복지|직업역량|좋은 일자리",
+    re.IGNORECASE,
+)
+
+
+def _is_non_climate_impact(article: dict) -> bool:
+    raw_themes = article.get("impact_themes") or []
+    if isinstance(raw_themes, str):
+        raw_themes = [raw_themes]
+    themes = {str(theme) for theme in raw_themes} | set(_impact_themes(article))
+    return bool(
+        themes & _NON_CLIMATE_IMPACT_THEME_NAMES
+        or _NON_CLIMATE_SOCIAL_PATTERN.search(_article_text(article))
+    )
+
+
+def _ensure_impact_selection_diversity(
+    selected: list,
+    buckets: dict,
+    category_order: list,
+) -> list:
+    impact_category = next(
+        (category for category in category_order if str(category).startswith("🌱")),
+        "",
+    )
+    if not impact_category:
+        return selected
+
+    chosen = [
+        article for article in selected
+        if article.get("category") == impact_category
+    ]
+    impact_cap = _category_cap(impact_category)
+    if (
+        not chosen
+        or any(_is_non_climate_impact(article) for article in chosen)
+    ):
+        return selected
+
+    chosen_ids = {id(article) for article in chosen}
+    alternatives = [
+        article
+        for article in buckets.get(impact_category, [])
+        if id(article) not in chosen_ids
+        and _is_editorially_eligible(article)
+        and _is_non_climate_impact(article)
+    ]
+    if not alternatives:
+        return selected
+
+    best_alternative = max(alternatives, key=_rule_sort_key)
+    weakest_chosen = min(chosen, key=_importance_and_score)
+    alternative_importance, alternative_score = _importance_and_score(best_alternative)
+    weakest_importance, weakest_score = _importance_and_score(weakest_chosen)
+    comparable = (
+        alternative_importance > weakest_importance
+        or (
+            alternative_importance == weakest_importance
+            and alternative_score + IMPACT_THEME_DIVERSITY_SCORE_TOLERANCE
+            >= weakest_score
+        )
+    )
+    if not comparable:
+        return selected
+
+    other_chosen = [article for article in chosen if article is not weakest_chosen]
+    source_counts = {}
+    for article in other_chosen:
+        _record_impact_source(article, source_counts)
+    if not _can_add_impact_source(best_alternative, source_counts):
+        return selected
+
+    result = list(selected)
+    if len(chosen) >= impact_cap:
+        result[result.index(weakest_chosen)] = best_alternative
+    else:
+        result.append(best_alternative)
+    best_alternative["selection_reason"] = "impact_theme_balance"
+    return result
+
+
+def _ensure_domestic_insight_selection(
+    selected: list,
+    buckets: dict,
+    category_order: list,
+) -> list:
+    """Keep a comparable Korean official report in both LLM and fallback paths."""
+    insights_category = next(
+        (category for category in category_order if str(category).startswith("👔")),
+        "",
+    )
+    if not insights_category:
+        return selected
+
+    chosen = [
+        article for article in selected
+        if article.get("category") == insights_category
+    ]
+    if not chosen or any(_article_region(article) == "korea" for article in chosen):
+        return selected
+
+    domestic_candidates = [
+        article
+        for article in buckets.get(insights_category, [])
+        if _article_region(article) == "korea"
+        and article.get("category_reason") == "official_insights_source"
+        and _is_editorially_eligible(article)
+        and not any(
+            re.search(pattern, _article_text(article), re.IGNORECASE)
+            for pattern in _INSIGHT_TECHNICAL_BULLETIN_PATTERNS
+        )
+    ]
+    if not domestic_candidates:
+        return selected
+
+    best_domestic = max(domestic_candidates, key=_rule_sort_key)
+    weakest_chosen = min(chosen, key=_importance_and_score)
+    domestic_importance, domestic_score = _importance_and_score(best_domestic)
+    weakest_importance, weakest_score = _importance_and_score(weakest_chosen)
+    comparable = (
+        domestic_importance > weakest_importance
+        or (
+            domestic_importance == weakest_importance
+            and domestic_score + INSIGHTS_DOMESTIC_SCORE_TOLERANCE
+            >= weakest_score
+        )
+    )
+    if not comparable:
+        return selected
+
+    result = list(selected)
+    insight_cap = _category_cap(insights_category)
+    if len(chosen) >= insight_cap:
+        result[result.index(weakest_chosen)] = best_domestic
+    else:
+        result.append(best_domestic)
+    best_domestic["selection_reason"] = "domestic_official_balance"
+
+    non_insights = [
+        article for article in result
+        if article.get("category") != insights_category
+    ]
+    balanced_insights = [
+        article for article in result
+        if article.get("category") == insights_category
+        and _article_region(article) == "global"
+    ] + [
+        article for article in result
+        if article.get("category") == insights_category
+        and _article_region(article) == "korea"
+    ]
+    # Preserve the category order used by the caller while keeping global
+    # insight links before the Korean supplement inside that category.
+    rebuilt = []
+    for category in category_order:
+        if category == insights_category:
+            rebuilt.extend(balanced_insights)
+        else:
+            rebuilt.extend(
+                article for article in non_insights
+                if article.get("category") == category
+            )
+    return rebuilt
+
+
+def _ensure_editorial_balance(
+    selected: list,
+    buckets: dict,
+    category_order: list,
+) -> list:
+    selected = _ensure_impact_selection_diversity(
+        selected,
+        buckets,
+        category_order,
+    )
+    return _ensure_domestic_insight_selection(
+        selected,
+        buckets,
+        category_order,
     )
 
 

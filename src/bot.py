@@ -48,6 +48,7 @@ from .config import (
     OVERSEAS_PREFERRED_DOMAINS,
     REGION_WEIGHT,
     INSIGHTS_DOMESTIC_SCORE_TOLERANCE,
+    IMPACT_THEME_DIVERSITY_SCORE_TOLERANCE,
     SELECTION_SIMILARITY_THRESHOLD,
     HARD_EXCLUSION_KEYWORDS,
     SOFT_EDITORIAL_EXCLUSION_KEYWORDS,
@@ -483,6 +484,257 @@ def _selection_score(article: dict, category: str) -> float:
     return score + float(article.get("selection_score_adjustment", 0.0))
 
 
+_CROSS_DAY_EVENT_LOOKBACK_DAYS = 7
+_CROSS_DAY_EVENT_FAMILY_PATTERNS = (
+    (
+        "funding",
+        re.compile(
+            r"\b(?:funding|financing|raises?|raised|series\s+[a-e]|valuation)\b|"
+            r"투자\s*유치|자금\s*조달|펀딩|시리즈\s*[a-e]",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "acquisition",
+        re.compile(
+            r"\b(?:acqui(?:re|res|red|ring|sition)|merger|buyout|takeover)\b|"
+            r"인수|합병|매각",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "ipo",
+        re.compile(r"\b(?:ipo|listing|go(?:ing)? public)\b|기업공개|상장", re.IGNORECASE),
+    ),
+    (
+        "policy",
+        re.compile(
+            r"\b(?:policy|regulat(?:ion|ory)|amendment|parliament|commission)\b|"
+            r"sfdr|dnsh|ets|규제|정책|법안|개편|시행령|채택",
+            re.IGNORECASE,
+        ),
+    ),
+)
+_CROSS_DAY_US_10Y_YIELD = re.compile(
+    r"\b(?:u\.?s\.?\s*)?(?:10[- ]?year\s+)?treasur(?:y|ies)\s+yield(?:s)?\b|"
+    r"\bus[_\s-]*10y[_\s-]*yield\b|"
+    r"(?:미국?\s*)?10년물\s*(?:국채)?\s*(?:금리|수익률)|"
+    r"미\s*국채\s*(?:금리|수익률)",
+    re.IGNORECASE,
+)
+_CROSS_DAY_US_CPI = re.compile(
+    r"\b(?:u\.?s\.?|united states|american)\b.{0,50}"
+    r"\b(?:cpi|consumer price index|inflation)\b|"
+    r"\b(?:cpi|consumer price index)\b.{0,50}\b(?:u\.?s\.?|united states)\b|"
+    r"미국?.{0,30}(?:소비자물가|소비자물가지수|CPI|인플레이션)",
+    re.IGNORECASE,
+)
+_CROSS_DAY_RATE_TOPIC = re.compile(
+    r"\b(?:interest|policy|benchmark) rates?\b|\brate (?:hike|cut|path|outlook)\b|"
+    r"기준금리|정책금리|금리(?:인상|인하|전망)?|통화정책",
+    re.IGNORECASE,
+)
+_CROSS_DAY_RATE_ACTORS = (
+    (
+        "fed",
+        re.compile(
+            r"\bfederal reserve\b|\bthe fed\b|\bfed\b|\bfomc\b|미\s*연준|연방준비제도",
+            re.IGNORECASE,
+        ),
+    ),
+    ("bok", re.compile(r"\bbank of korea\b|한국은행|한은|금통위", re.IGNORECASE)),
+    ("ecb", re.compile(r"\beuropean central bank\b|\becb\b|유럽중앙은행", re.IGNORECASE)),
+    ("boj", re.compile(r"\bbank of japan\b|\bboj\b|일본은행", re.IGNORECASE)),
+    ("pboc", re.compile(r"\bpeople'?s bank of china\b|\bpboc\b|중국인민은행", re.IGNORECASE)),
+)
+_CROSS_DAY_EVENT_GENERIC_TOKENS = {
+    "acquisition", "acquire", "acquires", "acquired", "agreement", "deal",
+    "funding", "financing", "investment", "ipo", "listing", "merge", "merger",
+    "policy", "regulation", "regulatory", "report", "reported", "round", "series",
+    "talks", "update", "valuation", "ai", "global", "market", "company",
+    "approval", "approved", "announcement", "africa", "europe", "asia",
+    "인수", "합병", "매각", "투자", "유치", "조달", "펀딩", "상장", "규제", "정책",
+}
+_CROSS_DAY_POLICY_ANCHORS = {"sfdr", "dnsh", "cbam"}
+_CROSS_DAY_FUNDING_STAGE = re.compile(
+    r"\b(pre[- ]seed|seed|series\s+[a-e]|growth|bridge|debt|credit)\b|"
+    r"프리\s*시드|시드|시리즈\s*[a-e]|그로스|브릿지|사모대출",
+    re.IGNORECASE,
+)
+_CROSS_DAY_TENTATIVE_STATUS = re.compile(
+    r"\b(?:talks?|reportedly|set to|plans?|seeks?|considering|mulls?|could|may)\b|"
+    r"논의|협상|검토|추진|계획|예정|전망|가능성|방침",
+    re.IGNORECASE,
+)
+_CROSS_DAY_CONFIRMED_STATUS = re.compile(
+    r"\b(?:acquired|acquires|raised|raises|closed|completed|approved|confirmed|signed)\b|"
+    r"확정|완료|체결|승인|채택|돌파|인수했|합병했|투자\s*유치",
+    re.IGNORECASE,
+)
+_CROSS_DAY_ADVERSE_STATUS = re.compile(
+    r"\b(?:cancelled|canceled|withdrawn|scrapped|collapsed|failed)\b|"
+    r"무산|철회|결렬|취소|중단",
+    re.IGNORECASE,
+)
+
+
+def _cross_day_event_text(article: dict) -> str:
+    return " ".join(
+        str(article.get(field) or "")
+        for field in ("editor_event_key", "title_orig", "title")
+    ).replace("_", " ")
+
+
+def _cross_day_event_family(article: dict) -> str:
+    text = _cross_day_event_text(article)
+    if _CROSS_DAY_US_10Y_YIELD.search(text):
+        return "macro_us_10y_yield"
+    if _CROSS_DAY_US_CPI.search(text):
+        return "macro_us_cpi"
+    if _CROSS_DAY_RATE_TOPIC.search(text):
+        for actor, pattern in _CROSS_DAY_RATE_ACTORS:
+            if pattern.search(text):
+                return f"macro_{actor}_rates"
+    for family, pattern in _CROSS_DAY_EVENT_FAMILY_PATTERNS:
+        if pattern.search(text):
+            return family
+    return ""
+
+
+def _cross_day_event_entities(article: dict) -> set[str]:
+    raw_key = str(article.get("editor_event_key") or "").casefold()
+    ordered = [
+        token
+        for token in re.findall(r"[a-z0-9가-힣]+", raw_key)
+        if len(token) >= 2
+        and not any(character.isdigit() for character in token)
+        and token not in _CROSS_DAY_EVENT_GENERIC_TOKENS
+    ]
+    entities = set(ordered)
+    # Preserve common target-company acronyms such as FCH / Flow Control
+    # Holdings without treating one shared acquirer as proof of duplication.
+    for window_size in range(3, min(4, len(ordered)) + 1):
+        for start in range(len(ordered) - window_size + 1):
+            acronym = "".join(token[0] for token in ordered[start:start + window_size])
+            if len(acronym) >= 3:
+                entities.add(acronym)
+    return entities
+
+
+def _cross_day_status_rank(article: dict) -> int:
+    text = _cross_day_event_text(article)
+    if _CROSS_DAY_ADVERSE_STATUS.search(text):
+        return 3
+    if _CROSS_DAY_CONFIRMED_STATUS.search(text):
+        return 2
+    if _CROSS_DAY_TENTATIVE_STATUS.search(text):
+        return 1
+    return 0
+
+
+def _cross_day_funding_stage(article: dict) -> str:
+    match = _CROSS_DAY_FUNDING_STAGE.search(_cross_day_event_text(article))
+    if not match:
+        return ""
+    return re.sub(r"[\s-]+", "_", match.group(0).casefold())
+
+
+def _same_cross_day_event(current: dict, previous: dict) -> bool:
+    current_family = _cross_day_event_family(current)
+    previous_family = _cross_day_event_family(previous)
+    if not current_family or current_family != previous_family:
+        return False
+    if current_family.startswith("macro_"):
+        return True
+    if current_family == "funding":
+        current_stage = _cross_day_funding_stage(current)
+        previous_stage = _cross_day_funding_stage(previous)
+        if current_stage and previous_stage and current_stage != previous_stage:
+            return False
+
+    current_entities = _cross_day_event_entities(current)
+    previous_entities = _cross_day_event_entities(previous)
+    if not current_entities or not previous_entities:
+        return False
+    shared = current_entities & previous_entities
+    if current_family == "policy" and shared & _CROSS_DAY_POLICY_ANCHORS:
+        return True
+    if not shared:
+        return False
+    smaller = min(len(current_entities), len(previous_entities))
+    return (
+        current_entities == previous_entities
+        or (smaller == 1 and len(shared) == 1)
+        or (len(shared) >= 2 and len(shared) / smaller >= 0.5)
+    )
+
+
+def _load_recent_sent_articles(
+    reference_date,
+    *,
+    archive_path: str | Path | None = None,
+    lookback_days: int = _CROSS_DAY_EVENT_LOOKBACK_DAYS,
+) -> list[dict]:
+    path = Path(archive_path) if archive_path is not None else SLACK_ARCHIVE_PATH
+    if not path.exists():
+        return []
+    cutoff = reference_date - timedelta(days=lookback_days)
+    recent = []
+    try:
+        with path.open("r", encoding="utf-8") as archive_file:
+            for raw_line in archive_file:
+                try:
+                    record = json.loads(raw_line)
+                    edition_date = datetime.fromisoformat(
+                        str(record.get("edition_date") or "")
+                    ).date()
+                except (AttributeError, TypeError, ValueError, json.JSONDecodeError):
+                    continue
+                if not cutoff <= edition_date <= reference_date:
+                    continue
+                for article in record.get("articles") or []:
+                    if isinstance(article, dict) and article.get("editor_event_key"):
+                        recent.append(article)
+    except OSError as exc:
+        print(f"⚠️ 최근 발송 사건키 읽기 실패({exc}) — 기존 선정을 유지합니다.")
+        return []
+    return recent
+
+
+def _filter_recent_editor_event_duplicates(
+    articles: list[dict],
+    *,
+    reference_date=None,
+    archive_path: str | Path | None = None,
+) -> tuple[list[dict], list[dict]]:
+    target_date = reference_date or as_of_date() or datetime.now(KOREA_TIMEZONE).date()
+    recent = _load_recent_sent_articles(target_date, archive_path=archive_path)
+    if not recent:
+        return articles, []
+
+    kept, dropped = [], []
+    for article in articles:
+        matches = [sent for sent in recent if _same_cross_day_event(article, sent)]
+        if not matches:
+            kept.append(article)
+            continue
+        previous = max(matches, key=_cross_day_status_rank)
+        # A clearly confirmed/cancelled outcome may be sent after an earlier
+        # rumor or discussion. Repeated coverage at the same status is noise.
+        current_status = _cross_day_status_rank(article)
+        previous_status = _cross_day_status_rank(previous)
+        if current_status >= 2 and current_status > previous_status:
+            kept.append(article)
+            continue
+        article["filter_reason"] = "recent_editor_event_duplicate"
+        article["duplicate_of_title"] = previous.get("title") or previous.get("title_orig")
+        dropped.append(article)
+
+    if dropped:
+        print(f"   ↪ 최근 {_CROSS_DAY_EVENT_LOOKBACK_DAYS}일 내 이미 발송한 사건 {len(dropped)}건 제외")
+    return kept, dropped
+
+
 _MACRO_RATE_ACTORS = (
     (
         "bank_of_korea",
@@ -544,6 +796,104 @@ _MACRO_US_TREASURY_YIELD = re.compile(
 
 def _selection_priority(article: dict, category: str) -> tuple[int, float]:
     return _editorial_priority_key(article, _selection_score(article, category))
+
+
+_NON_CLIMATE_IMPACT_THEMES = {
+    "circular_nature_food",
+    "care_health",
+    "education_access",
+}
+_NON_CLIMATE_SOCIAL_IMPACT = re.compile(
+    r"\b(?:social economy|social enterprise|social venture|financial inclusion|"
+    r"inclusive finance|affordable housing|workforce development|quality jobs)\b|"
+    r"사회적경제|사회적기업|소셜벤처|금융포용|포용금융|주거복지|직업역량|좋은 일자리",
+    re.IGNORECASE,
+)
+
+
+def _has_non_climate_impact_theme(article: dict) -> bool:
+    raw_themes = article.get("impact_themes") or []
+    if isinstance(raw_themes, str):
+        raw_themes = [raw_themes]
+    themes = {str(theme) for theme in raw_themes}
+    if themes & _NON_CLIMATE_IMPACT_THEMES:
+        return True
+    text = " ".join(
+        str(article.get(field) or "")
+        for field in ("title_orig", "title", "description")
+    )
+    return bool(_NON_CLIMATE_SOCIAL_IMPACT.search(text))
+
+
+def _ensure_impact_theme_diversity(
+    selected: list[dict],
+    ranked: list[dict],
+    limit: int,
+) -> list[dict]:
+    """Use one non-climate impact story when it is comparable to the weakest pick."""
+    if (
+        len(selected) < limit
+        or any(_has_non_climate_impact_theme(article) for article in selected)
+    ):
+        return selected
+
+    selected_ids = {id(article) for article in selected}
+    alternatives = [
+        article
+        for article in ranked
+        if id(article) not in selected_ids and _has_non_climate_impact_theme(article)
+    ]
+    if not alternatives:
+        return selected
+
+    best_alternative = max(
+        alternatives,
+        key=lambda article: _selection_priority(article, IMPACT_CATEGORY),
+    )
+    weakest_selected = min(
+        selected,
+        key=lambda article: _selection_priority(article, IMPACT_CATEGORY),
+    )
+    alternative_importance, alternative_score = _selection_priority(
+        best_alternative,
+        IMPACT_CATEGORY,
+    )
+    weakest_importance, weakest_score = _selection_priority(
+        weakest_selected,
+        IMPACT_CATEGORY,
+    )
+    comparable = (
+        alternative_importance > weakest_importance
+        or (
+            alternative_importance == weakest_importance
+            and alternative_score + IMPACT_THEME_DIVERSITY_SCORE_TOLERANCE
+            >= weakest_score
+        )
+    )
+    if not comparable:
+        return selected
+
+    remaining_source_counts = {}
+    for article in selected:
+        if article is weakest_selected:
+            continue
+        source = _article_source_key(article)
+        if source:
+            remaining_source_counts[source] = remaining_source_counts.get(source, 0) + 1
+    alternative_source = _article_source_key(best_alternative)
+    if (
+        alternative_source
+        and remaining_source_counts.get(alternative_source, 0) >= IMPACT_SOURCE_SOFT_CAP
+    ):
+        return selected
+
+    replacement_ids = {
+        id(article)
+        for article in selected
+        if article is not weakest_selected
+    }
+    replacement_ids.add(id(best_alternative))
+    return [article for article in ranked if id(article) in replacement_ids][:limit]
 
 
 
@@ -626,6 +976,95 @@ def _collapse_macro_rate_stories(ranked: list) -> list:
         ),
         reverse=True,
     )
+
+
+_VC_PE_NON_CAPITAL_TITLE = re.compile(
+    r"\b(?:data breach|cyberattack|ransomware|lawsuit|litigation|settlement|"
+    r"earnings|revenue|supply contract|shipping contract)\b|"
+    r"개인정보\s*유출|정보\s*유출|해킹|랜섬웨어|소송|합의금|벌금|과징금|"
+    r"매출|실적|공급계약|운송계약|시설투자|설비투자|증설|팟캐스트|인터뷰|경고",
+    re.IGNORECASE,
+)
+_VC_PE_CAPITAL_EVENT = re.compile(
+    r"\b(?:raises?|raised|funding round|financing round|series\s+[a-e]|"
+    r"seed round|growth round|fund close|closes? (?:its )?(?:first |new )?fund|"
+    r"acqui(?:re|res|red|ring|sition)|merger|m&a|buyout|take[- ]private|"
+    r"stake sale|secondary sale|continuation fund|private credit|"
+    r"credit facility|project finance|investment mandate|fund mandate|"
+    r"capital commitment|initial public offering|ipo|listing|exit)\b|"
+    r"투자\s*유치|자금\s*조달|시리즈\s*[a-e]|펀드.{0,30}(?:결성|조성|클로징|"
+    r"운용사\s*선정|낙점)|출자|인수|합병|바이아웃|지분.{0,20}(?:투자|매각)|"
+    r"매각\s*추진|위탁\s*운용|운용사\s*선정|구주\s*거래|"
+    r"\d[\d,.]*\s*(?:억|조)(?:원)?(?:\s*규모)?.{0,20}(?:유치|결성)|"
+    r"세컨더리|사모대출|프로젝트\s*파이낸싱|기업공개|상장|엑시트|투자\s*회수",
+    re.IGNORECASE,
+)
+_VC_PE_MARKET_CONTEXT = re.compile(
+    r"\b(?:venture capital|private equity|private markets?|startup funding|"
+    r"fundraising market|deal market|deal activity|ipo market|exit market|"
+    r"secondaries market|dry powder|limited partners?|general partners?)\b|"
+    r"벤처캐피탈|사모펀드|사모시장|벤처투자|스타트업\s*투자|펀드레이징|"
+    r"딜\s*(?:시장|동향|환경)|회수시장|상장시장|드라이파우더|출자시장|"
+    r"\b(?:lp|gp)\b",
+    re.IGNORECASE,
+)
+_VC_PE_MARKET_CHANGE = re.compile(
+    r"\b(?:outlook|trend|forecast|survey|report|record|surge|growth|decline|"
+    r"slowdown|rebound|recovery|volume|activity|allocation|regulation|rule|policy)\b|"
+    r"전망|동향|추세|조사|보고서|증가|감소|급증|둔화|회복|규모|건수|"
+    r"자금흐름|자금\s*흐름|배분|규제|정책|제도\s*변화",
+    re.IGNORECASE,
+)
+
+
+def _is_vc_pe_eligible(article: dict) -> bool:
+    """Require a capital event or a decision-useful private-market change."""
+    if article.get("category") != ALTERNATIVE_CATEGORY:
+        return True
+
+    title = " ".join(
+        str(article.get(field) or "")
+        for field in ("title_orig", "title")
+    )
+    text = " ".join(
+        str(article.get(field) or "")
+        for field in (
+            "title_orig",
+            "title",
+            "description",
+            "editor_reason",
+            "editor_event_key",
+        )
+    )
+    # A corrupted or over-broad description must never turn an operational
+    # incident in the headline into a VC/PE capital event.
+    if _VC_PE_NON_CAPITAL_TITLE.search(title):
+        return False
+
+    deal_signals = set(article.get("deal_signals") or [])
+    if deal_signals & {"transaction", "financing"}:
+        return True
+    if _VC_PE_CAPITAL_EVENT.search(text):
+        return True
+    if _VC_PE_MARKET_CONTEXT.search(text) and _VC_PE_MARKET_CHANGE.search(text):
+        return True
+    return False
+
+
+def _filter_final_category_qualification(
+    articles: list[dict],
+) -> tuple[list[dict], list[dict]]:
+    kept, rejected = [], []
+    for article in articles:
+        if _is_vc_pe_eligible(article):
+            kept.append(article)
+            continue
+        article["editorial_excluded"] = True
+        article["filter_reason"] = "final_vc_pe_qualification"
+        rejected.append(article)
+    if rejected:
+        print(f"🧹 VC·PE 최종 자격 검사로 비자본 사건 {len(rejected)}건 제외")
+    return kept, rejected
 
 
 def _is_sendable(article: dict) -> bool:
@@ -749,7 +1188,7 @@ def _select_category_articles(ranked: list, category: str) -> list:
             if len(selected) >= IMPACT_MUST_READ_MAX:
                 break
             add(article)
-        return selected
+        return _ensure_impact_theme_diversity(selected, ranked, base_limit)
 
     if category == INSIGHTS_CATEGORY:
         # 해외 공식 보고서를 먼저 두되, 국내 공식자료가 마지막 해외기사와
@@ -763,7 +1202,9 @@ def _select_category_articles(ranked: list, category: str) -> list:
 
         domestic_candidates = [
             article for article in ranked
-            if _article_region(article) == "korea" and article not in selected
+            if _article_region(article) == "korea"
+            and article.get("category_reason") == "official_insights_source"
+            and article not in selected
         ]
         if not domestic_candidates:
             return selected
@@ -902,6 +1343,11 @@ def select_for_briefing(classified: list) -> tuple:
             rejected.extend(a for a in classified if a.get("editor_verdict") == "reject")
             classified = reviewed
             gate_applied = True
+
+    # 카테고리 이름만 맞는 운영·법률·보안 기사가 실제 투자 사건을 밀어내지
+    # 않도록, LLM 판정 뒤에도 VC·PE 자격을 구조화 신호로 한 번 확인한다.
+    classified, qualification_rejected = _filter_final_category_qualification(classified)
+    rejected.extend(qualification_rejected)
 
     classified.sort(key=lambda a: a.get("relevance", 0), reverse=True)
 
@@ -1368,6 +1814,14 @@ def main():
     classified, gate_rejected, gate_errors = select_for_briefing(classified)
     rejected.extend(gate_rejected)
     all_errors.extend(gate_errors)
+
+    # Gemini가 붙인 사건키를 최근 성공 발송 기록과 비교한다. 매체·금액·
+    # 제목이 달라도 같은 자금조달·M&A·IPO·정책·미 10년물 사건은 한 번만
+    # 보내되, 루머에서 확정·무산으로 바뀐 실질적 업데이트는 유지한다.
+    classified, historical_event_duplicates = _filter_recent_editor_event_duplicates(
+        classified,
+    )
+    rejected.extend(historical_event_duplicates)
 
     # 수백 개 수집 기사마다 모델을 부르지 않고, 최종 후보만 한 번에 과거 발송분과 비교한다.
     if EMBEDDING_AVAILABLE:
