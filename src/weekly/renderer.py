@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
-from ..config import CATEGORIES
+from ..config import CATEGORIES, CATEGORY_DISPLAY_NAMES
 from ..editorial_review import EDITORIAL_REVIEW_SHEET_URL
 from .editor import WeeklyHeadlines
 from .market_data import MarketSnapshot
@@ -185,8 +185,13 @@ def _heading(text: str) -> dict:
     return {"type": "section", "text": {"type": "mrkdwn", "text": f"*{text}*"}}
 
 
+def _category_display_name(category: str) -> str:
+    """Return the reader-facing label while preserving archive category keys."""
+    return CATEGORY_DISPLAY_NAMES.get(category, category)
+
+
 def _category_blocks(category: str, articles: tuple[dict, ...]) -> list[dict]:
-    blocks = [_heading(category)]
+    blocks = [_heading(_category_display_name(category))]
     if not articles:
         blocks.append({
             "type": "section",
@@ -236,7 +241,7 @@ def _plain_text(
     lines.extend(("", "한 주 한눈에"))
     lines.extend(f"{index}. {line}" for index, line in enumerate(headlines.lines, 1))
     for category in CATEGORIES:
-        lines.extend(("", category))
+        lines.extend(("", _category_display_name(category)))
         articles = selection.by_category.get(category, ())
         if not articles:
             lines.append("(이번 주 해당 분야 주요 뉴스 없음)")
