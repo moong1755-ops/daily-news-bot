@@ -787,11 +787,11 @@ def _merge_group(group: list) -> dict:
 
     merged["source"] = _unique_values(ordered, "source")
     merged["link"] = _unique_values(ordered, "link")
-    merged["description"] = max(
-        (str(article.get("description") or "") for article in group),
-        key=len,
-        default="",
-    )
+    # Keep the description attached to the chosen representative.  Picking the
+    # longest description from the whole group can silently pair one article's
+    # headline and link with another article's body when deduplication makes a
+    # false-positive match.
+    merged["description"] = str(representative.get("description") or "")
     merged["duplicate_count"] = len(group)
     merged["duplicate_titles"] = _unique_values(ordered, "title")
     merged["representative_reason"] = (

@@ -148,7 +148,9 @@ LLM_CANDIDATES_PER_CATEGORY = 12
 IMPACT_CANDIDATES_PER_THEME = 3
 
 OVERSEAS_PREFERRED_DOMAINS = ["🌱 임팩트", "🤖 AI", "📈 대체투자", "👔 MBB·Big4 인사이트"]
-REGION_WEIGHT = {"global": 1.35, "korea": 1.0}
+# 해외 원문 우선은 품질 점수를 뒤집지 않고 동점에 가까운 후보만
+# 정렬하는 아주 작은 보정값으로 사용한다.
+REGION_WEIGHT = {"global": 0.01, "korea": 0.0}
 LLM_SEND_MIN_SCORE = 0
 
 # MBB·Big4는 해외 원문을 우선하되, 국내 공식 인사이트가 마지막 해외 기사와
@@ -162,6 +164,8 @@ SELECTION_SCORE_ADJUSTMENTS = {
     # 거래금액이 제목에 없어도 사업부 carve-out은 작은 add-on 인수보다
     # 시장 대표성이 큰 경우가 많다. importance를 뒤집지 않는 약한 동점 보정이다.
     "corporate_carveout_scale_signal": 0.75,
+    # 제목에 구체적 투자·거래 규모가 보이는 딜을 동급 후보 안에서만 소폭 우대.
+    "capital_amount_signal": 0.5,
 }
 
 # 동일 사건을 여러 매체가 보도했을 때 대표 기사로 우선할 원 보도 출처.

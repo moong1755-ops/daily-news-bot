@@ -281,6 +281,12 @@ _OFFICIAL_PRACTICAL_ALERT_PATH_PATTERNS = [
     r"/(?:newsroom/)?press-releases?(?:/|$)",
 ]
 
+_ENTERPRISE_RISK_TITLE_PATTERNS = [
+    r"\b(?:data|security|privacy)\s+breach\b",
+    r"\bdata\b.{0,40}\b(?:exposed|leaked|stolen|compromised)\b",
+    r"(?:개인정보|고객\s*정보|데이터).{0,20}(?:유출|탈취|노출)",
+]
+
 # 대형 운용사가 기업의 사업부·부문을 인수하는 carve-out은 금액이 제목에
 # 없어도 일반적인 소규모 add-on 인수보다 시장 대표성이 큰 경우가 많다.
 _CORPORATE_CARVEOUT_PATTERNS = [
@@ -318,6 +324,7 @@ _CORPORATE_OPERATING_MACRO_PATTERNS = [
 
 _COMPOUND_ROUNDUP_PATTERNS = [
     r"【\s*esg deal\s*】", r"^esg deal\s*[:：]", r"^deal roundup\b",
+    r"^esg\s+round[- ]?up\b",
     r"^the week in\b", r"\bweekly roundup\b", r"\bweekly recap\b",
     r"\bweek in review\b", r"^news roundup\b", r"^the brief\s*[:：]",
     r"\bthey said it\b",
@@ -330,6 +337,15 @@ _COMPOUND_ROUNDUP_PATTERNS = [
     # 서로 다른 거래 두 건을 세미콜론으로 이어 붙인 뉴스레터형 제목.
     r"\b(?:acquires?|buys?|backs?|raises?|invests?|sells?)\b[^;]{0,160};"
     r"[^;]{0,160}\b(?:acquires?|buys?|backs?|raises?|invests?|sells?|eyes?)\b",
+]
+
+# Deal size is intentionally a coarse title-only signal.  It improves the
+# relative order of otherwise similar VC/PE deals without pretending that all
+# currencies and units have been normalized precisely.
+_CAPITAL_AMOUNT_TITLE_PATTERNS = [
+    r"[$€£₩]\s?\d",
+    r"\b\d[\d,.]*\s?(?:million|billion|mn|bn)\b",
+    r"\b\d[\d,.]*\s?(?:억|조)(?:\s?원)?\b",
 ]
 
 # 같은 M&A·투자 기사라도 확정, 협상, 검토, 전망, 무산은 투자자에게
@@ -644,6 +660,8 @@ def summarize(article: dict):
 
     impact_themes = _matched_impact_themes(text)
     editorial_groups = _matched_groups(EDITORIAL_PRIORITY_SIGNALS, text)
+    if _matches_any_pattern(_ENTERPRISE_RISK_TITLE_PATTERNS, title.lower()):
+        editorial_groups.add("enterprise_risk")
     deal_groups = _matched_groups(DEAL_PRIORITY_SIGNALS, text)
     event_status, reporting_basis = _event_state(title.lower(), text)
     early_stage = _has_any(DEAL_EARLY_STAGE_SIGNALS, text)
@@ -762,9 +780,9 @@ def summarize(article: dict):
         # 발송하지 않는다. Gemini가 중요한 기사로 판정하면 이후 단계에서 구제된다.
         category_fit_exclusion_reason = "general_business_without_category_fit"
     elif (
-        category_reason == "enterprise_risk"
-        and assigned_category == alternative_category
-        and source_category != alternative_category
+        assigned_category == alternative_category
+        and "enterprise_risk" in editorial_groups
+        and not deal_event
     ):
         category_fit_exclusion_reason = "enterprise_risk_without_investment_context"
 
@@ -794,6 +812,12 @@ def summarize(article: dict):
         and _matches_any_pattern(_CORPORATE_CARVEOUT_PATTERNS, title.lower())
     ):
         selection_adjustments.append("corporate_carveout_scale_signal")
+    if (
+        assigned_category == alternative_category
+        and deal_event
+        and _matches_any_pattern(_CAPITAL_AMOUNT_TITLE_PATTERNS, title.lower())
+    ):
+        selection_adjustments.append("capital_amount_signal")
 
     if assigned_category in category_scores:
         base_score += float(category_scores[assigned_category])
