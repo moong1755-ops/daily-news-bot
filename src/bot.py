@@ -379,6 +379,7 @@ def clean_source_name(source: str) -> str:
         "The Batch (deeplearning.ai)": "The Batch",
         "SemiAnalysis (칩/인프라)": "SemiAnalysis",
         "Sifted (EU 스타트업)": "Sifted",
+        "efn.co.kr": "기후에너지경제신문",
     }
     if source in mapping:
         return mapping[source]
@@ -478,7 +479,7 @@ def _selection_score(article: dict, category: str) -> float:
         and category in OVERSEAS_PREFERRED_DOMAINS
         and _article_region(article) == "global"
     ):
-        score *= REGION_WEIGHT.get("global", 1.0)
+        score += REGION_WEIGHT.get("global", 0.0)
     return score + float(article.get("selection_score_adjustment", 0.0))
 
 
@@ -533,6 +534,12 @@ _MACRO_RATE_OUTLOOK = re.compile(
     r"may|might|could)\b|전망|향후|추가\s*(?:인상|인하)|시사|예상|가능성",
     re.IGNORECASE,
 )
+_MACRO_US_TREASURY_YIELD = re.compile(
+    r"\b(?:u\.?s\.?\s*)?(?:(?:10|ten)[- ]?year\s+)?treasur(?:y|ies)\s+yield(?:s)?\b|"
+    r"\btreasury\s+(?:bond\s+)?yields?\b|"
+    r"(?:미국?\s*)?(?:10년물\s*)?(?:미\s*)?국채(?:\s*(?:금리|수익률))",
+    re.IGNORECASE,
+)
 
 
 def _selection_priority(article: dict, category: str) -> tuple[int, float]:
@@ -555,9 +562,11 @@ def _macro_rate_text(article: dict) -> str:
 
 def _macro_rate_family(article: dict) -> str:
     text = _macro_rate_text(article)
+    event_date = str(article.get("date") or "").strip()
+    if _MACRO_US_TREASURY_YIELD.search(text):
+        return f"us_treasury:yield:{event_date}"
     if not _MACRO_RATE_TOPIC.search(text):
         return ""
-    event_date = str(article.get("date") or "").strip()
     for actor, pattern in _MACRO_RATE_ACTORS:
         if pattern.search(text):
             return f"{actor}:rates:{event_date}"
@@ -574,7 +583,7 @@ def _macro_story_priority(article: dict) -> int:
 
 
 def _collapse_macro_rate_stories(ranked: list) -> list:
-    """Use one representative per central-bank rate event in the daily macro page."""
+    """Use one representative per rate or benchmark-yield event in daily macro."""
     groups = {}
     passthrough = []
     for article in ranked:

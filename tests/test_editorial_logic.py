@@ -49,6 +49,7 @@ from src.bot import (
     _decision_record,
     _select_category_articles,
     _selection_score,
+    clean_source_name,
     is_relevant,
     select_for_briefing,
     send_aggregated_slack_news,
@@ -142,6 +143,53 @@ class ArticleQualificationTests(unittest.TestCase):
 
 
 class CategoryRoutingTests(unittest.TestCase):
+    def test_esg_round_up_is_excluded(self):
+        result, errors = summarize({
+            "title": "ESG round-up: Commission sets date for EU climate resilience package",
+            "description": "A collection of several unrelated ESG developments.",
+            "source": "Responsible Investor",
+            "feed": "Responsible Investor",
+            "region": "global",
+        })
+
+        self.assertEqual(errors, [])
+        self.assertTrue(result["editorial_excluded"])
+        self.assertEqual(result["editorial_exclusion_reason"], "compound_roundup")
+
+    def test_data_breach_from_vc_feed_is_not_vc_pe_news(self):
+        result, errors = summarize({
+            "title": "Revolut says customer data exposed in security breach",
+            "description": (
+                "The venture-capital-backed fintech startup disclosed unauthorized "
+                "access to user data."
+            ),
+            "source": "StartupRecipe",
+            "feed": "국내 스타트업레시피 VC",
+            "region": "korea",
+        })
+
+        self.assertEqual(errors, [])
+        self.assertEqual(result["category"], ALTERNATIVE)
+        self.assertTrue(result["editorial_excluded"])
+        self.assertEqual(
+            result["editorial_exclusion_reason"],
+            "enterprise_risk_without_investment_context",
+        )
+
+    def test_disclosed_deal_amount_gets_small_tiebreaker(self):
+        result, errors = summarize({
+            "title": "Satellite startup Open Cosmos raises €300m Series D",
+            "description": "The company closed a growth financing round.",
+            "source": "Sifted",
+            "feed": "Sifted",
+            "region": "global",
+        })
+
+        self.assertEqual(errors, [])
+        self.assertEqual(result["category"], ALTERNATIVE)
+        self.assertIn("capital_amount_signal", result["selection_adjustments"])
+        self.assertGreater(result["selection_score_adjustment"], 0)
+
     def test_today_daily_esg_policy_roundup_is_excluded(self):
         result, errors = summarize({
             "title": "【데일리 ESG 정책 브리핑】정부·산업계, 태양광산업협의체 가동, 기후테크 경진대회 10개 팀 선정 등",
@@ -903,6 +951,34 @@ class CategoryRoutingTests(unittest.TestCase):
 
 
 class DuplicateProtectionTests(unittest.TestCase):
+    def test_merged_article_keeps_representative_description(self):
+        original = {
+            "title": "Open Cosmos raises €300m Series D",
+            "description": "Original financing details.",
+            "source": "Sifted",
+            "feed": "Sifted",
+            "link": "https://sifted.eu/articles/open-cosmos-series-d",
+            "gnews_link": "",
+            "date": "2026-09-15",
+        }
+        relay = {
+            "title": "Open Cosmos secures new funding",
+            "description": (
+                "A much longer but unrelated description about another company, "
+                "which must never be attached to the representative article."
+            ),
+            "source": "Other Outlet",
+            "feed": "Google News",
+            "link": "https://other.example/open-cosmos",
+            "gnews_link": "https://news.google.com/open-cosmos",
+            "date": "2026-09-15",
+        }
+
+        result = _merge_group([relay, original])
+
+        self.assertEqual(result["link"][0], original["link"])
+        self.assertEqual(result["description"], original["description"])
+
     def test_same_mortgage_statistic_headlines_are_one_event(self):
         yonhap = {
             "title": "2분기 신규 주담대 평균 2억829만원…대출 규제에 역대 최대폭↓",
@@ -1106,6 +1182,68 @@ class DuplicateProtectionTests(unittest.TestCase):
 
 
 class SelectionAndDateTests(unittest.TestCase):
+    def test_global_origin_is_only_a_tiebreaker(self):
+        global_article = {"relevance": 8, "region": "global"}
+        stronger_domestic = {"relevance": 8.2, "region": "korea"}
+
+        self.assertAlmostEqual(_selection_score(global_article, IMPACT), 8.01)
+        self.assertGreater(
+            _selection_score(stronger_domestic, IMPACT),
+            _selection_score(global_article, IMPACT),
+        )
+
+    def test_same_day_us_treasury_yield_stories_use_one_slot(self):
+        ranked = [
+            {
+                "title": "US 10-year Treasury yield could reach 5%, strategists say",
+                "category": MACRO,
+                "region": "global",
+                "date": "2026-09-15",
+                "source": "Reuters",
+                "importance": 3,
+                "llm_score": 9,
+            },
+            {
+                "title": "Treasury Yields at Risk of Surging Above 5.25%",
+                "category": MACRO,
+                "region": "global",
+                "date": "2026-09-15",
+                "source": "Bloomberg",
+                "importance": 2,
+                "llm_score": 8,
+            },
+            {
+                "title": "Ukraine and Russia discuss an energy ceasefire",
+                "category": MACRO,
+                "region": "global",
+                "date": "2026-09-15",
+                "importance": 2,
+                "llm_score": 7,
+            },
+            {
+                "title": "Bank of Korea publishes regional labor report",
+                "category": MACRO,
+                "region": "korea",
+                "date": "2026-09-15",
+                "importance": 2,
+                "llm_score": 6,
+            },
+        ]
+
+        with patch(
+            "src.bot.filter_near_duplicates",
+            side_effect=lambda articles, _threshold: list(articles),
+        ):
+            selected = _select_category_articles(ranked, MACRO)
+
+        titles = [article["title"] for article in selected]
+        self.assertEqual(len(selected), 3)
+        self.assertIn(ranked[0]["title"], titles)
+        self.assertNotIn(ranked[1]["title"], titles)
+
+    def test_climate_energy_domain_has_readable_source_name(self):
+        self.assertEqual(clean_source_name("efn.co.kr"), "기후에너지경제신문")
+
     def test_today_ai_mix_replaces_duplicate_with_market_structure_news(self):
         candidates = [
             {
