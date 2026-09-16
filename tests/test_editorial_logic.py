@@ -53,7 +53,12 @@ from src.bot import (
     select_for_briefing,
     send_aggregated_slack_news,
 )
-from src.config import CATEGORIES, DIRECT_WEB_SOURCE_METADATA, GOOGLE_NEWS_FEEDS
+from src.config import (
+    CATEGORIES,
+    CATEGORY_DISPLAY_NAMES,
+    DIRECT_WEB_SOURCE_METADATA,
+    GOOGLE_NEWS_FEEDS,
+)
 from src.fetchers.rss_feeds import (
     _ConfiguredArticleListParser,
     _article_date,
@@ -1660,7 +1665,8 @@ class RegionalBriefingTests(unittest.TestCase):
             block
             for block in blocks
             if block.get("type") == "rich_text"
-            and block["elements"][0]["elements"][0]["text"] == ALTERNATIVE
+            and block["elements"][0]["elements"][0]["text"]
+            == CATEGORY_DISPLAY_NAMES[ALTERNATIVE]
         )
 
         elements = alternative_block["elements"]

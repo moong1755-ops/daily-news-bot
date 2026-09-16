@@ -510,6 +510,40 @@ class ReviewCsvTests(unittest.TestCase):
         self.assertFalse(saved)
 
 
+class CategoryDisplayNameTests(unittest.TestCase):
+    def test_vc_pe_label_is_display_only_for_daily_and_weekly(self):
+        self.assertEqual(ALTERNATIVE, "📈 대체투자")
+
+        empty_categories = {category: [] for category in CATEGORIES}
+        daily_text = bot.render_digest(empty_categories)
+        daily_blocks = json.dumps(
+            bot._build_slack_blocks(empty_categories),
+            ensure_ascii=False,
+        )
+        selection = WeeklySelection(
+            {category: () for category in CATEGORIES},
+            (),
+            0,
+        )
+        weekly_message = weekly_renderer.render_weekly_briefing(
+            date(2026, 8, 24),
+            date(2026, 8, 30),
+            weekly_editor.WeeklyHeadlines((), None, False),
+            selection,
+            (),
+        )
+        weekly_blocks = json.dumps(weekly_message.blocks, ensure_ascii=False)
+
+        for rendered in (
+            daily_text,
+            daily_blocks,
+            weekly_message.plain_text,
+            weekly_blocks,
+        ):
+            self.assertIn("📈 VC·PE", rendered)
+            self.assertNotIn("📈 대체투자", rendered)
+
+
 class ReviewSheetLinkTests(unittest.TestCase):
     def selection(self) -> WeeklySelection:
         return WeeklySelection(

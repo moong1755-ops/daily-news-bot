@@ -126,6 +126,12 @@ CATEGORIES = {
     "👔 MBB·Big4 인사이트": INSIGHTS_KW,
 }
 
+# 과거 발송 기록과 분류 로직은 기존 카테고리 키를 그대로 사용하고,
+# 독자에게 보이는 이름만 더 직관적으로 바꾼다.
+CATEGORY_DISPLAY_NAMES = {
+    "📈 대체투자": "📈 VC·PE",
+}
+
 MAX_PER_CATEGORY_DICT = {
     "🌱 임팩트": 3,
     "🤖 AI": 3,

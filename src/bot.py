@@ -40,6 +40,7 @@ from .config import (
     BLACKLIST_KEYWORDS,
     HN_KEYWORDS,
     CATEGORIES,
+    CATEGORY_DISPLAY_NAMES,
     MAX_PER_CATEGORY_DICT,
     MAX_PER_CATEGORY,
     IMPACT_MUST_READ_MAX,
@@ -88,6 +89,13 @@ EDITOR_EVENT_CATEGORY_PRIORITY = {
     INSIGHTS_CATEGORY: 10,
 }
 REGION_SPLIT_CATEGORIES = {ALTERNATIVE_CATEGORY, MACRO_CATEGORY}
+
+
+def _category_display_name(category: str) -> str:
+    """Return the reader-facing label without changing the internal category key."""
+    return CATEGORY_DISPLAY_NAMES.get(category, category)
+
+
 REGION_DISPLAY_ORDER = (("global", "해외"), ("korea", "국내"))
 # 총 기사 상한과 출처 다양성 상한은 서로 다른 정책이다. 임팩트 총 3개 중
 # 한 매체가 최대 2개까지는 차지할 수 있게 해, 다른 출처를 포함하면서도
@@ -1020,7 +1028,7 @@ def _build_slack_blocks(category_lines: dict) -> list:
             "type": "rich_text_section",
             "elements": [{
                 "type": "text",
-                "text": category,
+                "text": _category_display_name(category),
                 "style": {"bold": True},
             }],
         }]
@@ -1068,7 +1076,7 @@ def render_digest(articles_by_category: dict) -> str:
         parts.append(SLACK_HEADER.replace("{date}", datetime.now().strftime("%y.%m.%d")))
         parts.append("")
     for cat in CATEGORY_ORDER:
-        parts.append(f"*{cat}*")
+        parts.append(f"*{_category_display_name(cat)}*")
         selected = articles_by_category.get(cat) or []
         if cat in REGION_SPLIT_CATEGORIES:
             for region, label in REGION_DISPLAY_ORDER:
