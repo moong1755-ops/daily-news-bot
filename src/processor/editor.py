@@ -18,7 +18,7 @@ import os
 import re
 from urllib.parse import urlsplit
 
-from ..config import CATEGORIES
+from ..config import CATEGORIES, EDITOR_BOUNDARY_REVIEW_CONFIG, RSS_SOURCE_METADATA
 from ..editorial_review import (
     VALID_ALT_SUBTYPES as ALT_SUBTYPES,
     VALID_IMPORTANCE_REASONS as IMPORTANCE_REASONS,
@@ -382,19 +382,25 @@ def _parse_importance(value: object) -> int:
     return 0
 
 
-def _grounded_impact_evidence(article: dict, verdict: dict) -> tuple[str, str]:
-    """Validate attribution, not truth: the editor must quote the text it saw."""
-    basis = str(verdict.get("impact_basis") or "")
-    evidence = str(verdict.get("impact_evidence") or "").strip()
-    if basis not in _IMPACT_BASES or not 8 <= len(evidence) <= 160:
-        return "", ""
+def _quoted_input_evidence(article: dict, value: object) -> str:
+    """Check that an attribution is present in the actual visible input."""
+    evidence = str(value or "").strip()
+    if not 8 <= len(evidence) <= 160:
+        return ""
     description = str(article.get("description") or article.get("summary") or "")[:300]
     normalize = lambda text: " ".join(str(text).casefold().split())
     # Do not join fields: a quote must occur within one actual input field.
     if not any(normalize(evidence) in normalize(text)
                for text in (article.get("title", ""), description)):
-        return "", ""
-    return basis, evidence
+        return ""
+    return evidence
+
+
+def _grounded_impact_evidence(article: dict, verdict: dict) -> tuple[str, str]:
+    """Validate attribution, not truth: the editor must quote the text it saw."""
+    basis = str(verdict.get("impact_basis") or "")
+    evidence = _quoted_input_evidence(article, verdict.get("impact_evidence"))
+    return (basis, evidence) if basis in _IMPACT_BASES and evidence else ("", "")
 
 
 def _apply(article: dict, verdict: dict, valid_categories: set) -> None:
@@ -409,6 +415,8 @@ def _apply(article: dict, verdict: dict, valid_categories: set) -> None:
         return
 
     article["editorial_excluded"] = False
+    if str(article.get("filter_reason") or "").startswith("editor:"):
+        article.pop("filter_reason", None)
     event_key = re.sub(
         r"[^a-z0-9가-힣]+",
         "_",
@@ -486,6 +494,86 @@ def _apply(article: dict, verdict: dict, valid_categories: set) -> None:
     )
 
 
+def _boundary_candidates(articles: list) -> list:
+    config = EDITOR_BOUNDARY_REVIEW_CONFIG
+    excluded = tuple(config.get("excluded_category_prefixes", ()))
+    reasons = set(config.get("reasons", ()))
+    candidates = [a for a in articles
+                  if a.get("editor_verdict") == "reject"
+                  and a.get("editor_reason") in reasons
+                  and a.get("category") in CATEGORIES
+                  and not str(a.get("category")).startswith(excluded)]
+
+    def rank(article):
+        names = _metadata_values(article.get("source")) + _metadata_values(article.get("feed"))
+        priority = max((RSS_SOURCE_METADATA.get(name, {}).get("priority", 0)
+                        for name in names), default=0)
+        description = str(article.get("description") or article.get("summary") or "")
+        return priority, min(len(description), 300)
+
+    selected = []
+    for category in CATEGORIES:
+        limit = int(config.get("impact_max_articles", 17) if category.startswith("🌱")
+                    else config.get("per_category", 5))
+        selected.extend(sorted((a for a in candidates if a.get("category") == category),
+                               key=rank, reverse=True)[:max(0, limit)])
+    return selected[:max(0, int(config.get("max_articles", 32)))]
+
+
+def _review_boundary_cases(articles: list, api_key: str, valid_categories: set) -> list:
+    """One bounded second look; no automatic rescue or per-article calls."""
+    config = EDITOR_BOUNDARY_REVIEW_CONFIG
+    if not config.get("enabled", False):
+        return []
+    candidates = _boundary_candidates(articles)
+    if not candidates:
+        return []
+    prompt = _build_prompt(candidates, 1) + """
+
+[경계 사례 재검토]
+위 후보는 1차 대량 검토에서 주제 밖 또는 단순 모음으로 제외됐다. 숫자를 채우거나
+이전 판단을 무조건 뒤집으라는 요청이 아니다. 새로운 거래가 없어도 자본의 방향,
+산업 논점, 정책 파급을 종합 취재한 기사인지 원문 근거로 다시 판단한다.
+진짜 행사 홍보·사설·인터뷰·헤드라인 나열은 계속 keep=false다.
+keep=true를 반환할 경우 원문 제목/요약에서 시장 변화 근거를 그대로 인용한
+review_evidence(8~160자), 무엇이 투자환경을 바꾸는지 짧게 설명하는 review_reason을
+추가해야 한다. 원문 근거가 없거나 판단할 수 없으면 keep=false를 유지한다.
+임팩트 분류 근거, 사건키, 공통 의제, 중요도와 점수도 위의 동일 기준을 적용한다.
+"""
+    try:
+        raw, model = _call_llm(prompt, api_key, timeout=int(config.get("timeout", 45)))
+        if raw is None:
+            return ["경계 기사 재검토 실패 — 기존 제외 유지"]
+        verdicts = _parse_verdicts(raw)
+    except Exception as exc:
+        return [f"경계 기사 재검토 실패({type(exc).__name__}) — 기존 제외 유지"]
+
+    restored = 0
+    for index, article in enumerate(candidates, 1):
+        verdict = verdicts.get(index, {})
+        article["editor_boundary_reviewed"] = True
+        if not _as_bool(verdict.get("keep")):
+            continue
+        evidence = _quoted_input_evidence(article, verdict.get("review_evidence"))
+        reason = str(verdict.get("review_reason") or "").strip()
+        if not evidence or not 8 <= len(reason) <= 240 or verdict.get("category") not in valid_categories:
+            continue
+        try:
+            score = float(verdict.get("score"))
+        except (TypeError, ValueError):
+            continue
+        if not 0 <= score <= 10 or not _parse_importance(verdict.get("importance")):
+            continue
+        # Same parser and downstream eligibility/dedup rules as first-pass keep.
+        article["editor_initial_reason"] = article.get("editor_reason")
+        _apply(article, verdict, valid_categories)
+        article["editor_boundary_evidence"] = evidence
+        article["editor_boundary_reason"] = reason
+        restored += 1
+    print(f"경계 기사 재검토({model}): {len(candidates)}건 중 근거 있는 {restored}건 재평가")
+    return []
+
+
 def review(articles: list) -> tuple:
     """기사에 편집 판정을 붙인다.
 
@@ -526,6 +614,8 @@ def review(articles: list) -> tuple:
 
     if not reviewed:
         return None, errors + ["편집 게이트가 한 건도 판정하지 못함 — 폴백"]
+
+    errors.extend(_review_boundary_cases(articles, api_key, valid_categories))
 
     # 응답에서 누락된 기사는 버리지 않는다. 판정 실패로 좋은 기사를 조용히
     # 잃는 것보다, 점수를 낮게 줘 뒤로 밀리게 하는 편이 안전하다.

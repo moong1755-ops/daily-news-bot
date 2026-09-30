@@ -477,5 +477,88 @@ class GateReplacesRerankerTestCase(unittest.TestCase):
         self.assertEqual(ranked[0]["title"], "높은 점수")
 
 
+class BoundaryReviewTests(unittest.TestCase):
+    def candidate(self, category="🌱 임팩트", reason="off_topic"):
+        item = _article(
+            "Capital shifts toward energy security",
+            description="Investors shift capital from carbon pledges to reliable clean power.",
+            category=category, feed="TechCrunch Climate",
+        )
+        editor._apply(item, {"keep": False, "reason": reason}, set(editor.CATEGORIES))
+        return item
+
+    def verdict(self, **extra):
+        return {"id": 1, "keep": True, "category": "🌱 임팩트", "score": 7,
+                "importance": 2, "importance_reason": "industry_shift",
+                "event_key": "energy_security_capital_shift",
+                "agenda_key": "clean_energy_capital_reallocation",
+                "impact_basis": "climate_transition",
+                "impact_evidence": "Investors shift capital from carbon pledges to reliable clean power.",
+                "review_evidence": "Investors shift capital from carbon pledges to reliable clean power.",
+                "review_reason": "취재 내용에 청정전력 자본 배분의 변화가 있음", **extra}
+
+    def test_restoration_requires_grounded_evidence_and_clears_old_reject(self):
+        item = self.candidate()
+        with _llm({"verdicts": [self.verdict()]}):
+            errors = editor._review_boundary_cases([item], "test", set(editor.CATEGORIES))
+        self.assertEqual(errors, [])
+        self.assertEqual(item["editor_verdict"], "keep")
+        self.assertEqual(item["editor_initial_reason"], "off_topic")
+        self.assertNotIn("filter_reason", item)
+        self.assertFalse(item["editorial_excluded"])
+
+    def test_missing_or_invented_evidence_does_not_rescue(self):
+        for quote in ("", "Investors doubled clean power funding"):
+            item = self.candidate()
+            with _llm({"verdicts": [self.verdict(review_evidence=quote)]}):
+                editor._review_boundary_cases([item], "test", set(editor.CATEGORIES))
+            self.assertEqual(item["editor_verdict"], "reject")
+
+    def test_ads_jobs_and_mbb_never_enter_boundary_review(self):
+        items = [self.candidate(reason="job_posting"), self.candidate(reason="event_promo"),
+                 self.candidate(reason="pr_promo"), self.candidate("👔 MBB·Big4 인사이트")]
+        with mock.patch.object(editor, "_call_llm") as call:
+            self.assertEqual(editor._review_boundary_cases(items, "test", set(editor.CATEGORIES)), [])
+        call.assert_not_called()
+
+    def test_category_budgets_and_one_call(self):
+        items = [self.candidate(category) for category in editor.CATEGORIES for _ in range(40)]
+        selected = editor._boundary_candidates(items)
+        self.assertEqual(len(selected), 32)
+        self.assertEqual(sum(a["category"] == "🌱 임팩트" for a in selected), 17)
+        with mock.patch.object(editor, "_call_llm", return_value=('{"verdicts":[]}', "test")) as call:
+            editor._review_boundary_cases(items, "test", set(editor.CATEGORIES))
+        call.assert_called_once()
+
+    def test_failed_review_preserves_existing_rejections(self):
+        item = self.candidate()
+        before = dict(item)
+        with mock.patch.object(editor, "_call_llm", side_effect=TimeoutError):
+            errors = editor._review_boundary_cases([item], "test", set(editor.CATEGORIES))
+        self.assertTrue(errors)
+        self.assertEqual(item, before)
+
+    def test_full_editor_flow_reconsiders_only_ambiguous_rejects(self):
+        item = self.candidate()
+        item.pop("editor_verdict")
+        replies = [
+            (json.dumps({"verdicts": [{"id": 1, "keep": False, "reason": "roundup"}]}), "test"),
+            (json.dumps({"verdicts": [self.verdict()]}), "test"),
+        ]
+        with mock.patch.dict(os.environ, {"GEMINI_API_KEY": "test"}), mock.patch.object(
+            editor, "_call_llm", side_effect=replies
+        ) as call:
+            kept, errors = editor.review([item])
+        self.assertEqual(kept, [item])
+        self.assertEqual(errors, [])
+        self.assertEqual(call.call_count, 2)
+        self.assertEqual(item["editor_initial_reason"], "roundup")
+
+    def test_verified_climate_feed_is_collected_via_config(self):
+        from src.config import ALL_FEEDS, RSS_SOURCE_METADATA
+        self.assertEqual(ALL_FEEDS["TechCrunch Climate"], "https://techcrunch.com/category/climate/feed/")
+        self.assertEqual(RSS_SOURCE_METADATA["TechCrunch Climate"]["category"], "🌱 임팩트")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -178,6 +178,18 @@ AGENDA_FLOW_CONFIG = {
     "max_importance_step": 1,
 }
 
+# 대량 편집에서 애매하게 제외된 시장 흐름 보도만 한 번 재검토한다.
+# 확정 노이즈는 대상이 아니며, 근거 인용이 없거나 재검토 실패 시 기존 제외 유지.
+EDITOR_BOUNDARY_REVIEW_CONFIG = {
+    "enabled": True,
+    "reasons": ("off_topic", "roundup"),
+    "excluded_category_prefixes": ("👔",),
+    "max_articles": 32,
+    "per_category": 5,
+    "impact_max_articles": 17,
+    "timeout": 45,
+}
+
 # 포털 주소는 원 발행사가 아니다. 등록된 RSS의 매체명/도메인은 자동으로
 # 연결하고, RSS 밖에서 들어오는 주요 표기 차이만 여기서 보완한다.
 PUBLISHER_ALIASES = {
@@ -519,6 +531,7 @@ RSS_SOURCE_METADATA = {
     "SSIR": {"url": "https://ssir.org/site/rss_2.0/", "category": "🌱 임팩트", "tier": "primary", "priority": 5},
     "Pioneers Post": {"url": "https://www.pioneerspost.com/rss.xml", "category": "🌱 임팩트", "tier": "primary", "priority": 5},
     "Carbon Brief": {"url": "https://www.carbonbrief.org/feed/", "category": "🌱 임팩트", "tier": "primary", "priority": 5},
+    "TechCrunch Climate": {"url": "https://techcrunch.com/category/climate/feed/", "category": "🌱 임팩트", "tier": "primary", "priority": 5},
     "Responsible Investor": {"url": "https://www.responsible-investor.com/feed/", "category": "🌱 임팩트", "tier": "primary", "priority": 5},
     "ImpactOn (임팩트온)": {"url": "https://news.google.com/rss/search?q=(site:impacton.net)+when:3d&hl=ko&gl=KR&ceid=KR:ko", "category": "🌱 임팩트", "tier": "supplemental", "priority": 4},
     "Canary Media": {"url": "https://www.canarymedia.com/rss", "category": "🌱 임팩트", "tier": "supplemental", "priority": 4},
@@ -946,6 +959,7 @@ VERIFIED_RSS_SOURCE_NAMES = frozenset({
     "Carbon Brief",
     "Responsible Investor",
     "TechCrunch AI",
+    "TechCrunch Climate",
     "MIT Tech Review (AI)",
     "SemiAnalysis",
     "PE Hub",
