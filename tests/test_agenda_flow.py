@@ -71,6 +71,7 @@ class AgendaFlowTests(unittest.TestCase):
                 score=6,
             ),
         ]
+        articles[0]["impact_content_verified"] = True
         response = {
             "topics": [{
                 "card_ids": ["T1"],
@@ -128,6 +129,43 @@ class AgendaFlowTests(unittest.TestCase):
 
         self.assertFalse(any(item.get("agenda_strength") for item in articles))
 
+    def test_merged_publishers_are_counted_even_with_google_links(self):
+        merged = article("Climate Week energy demand reshapes investment", "Reuters")
+        merged.update({
+            "source": ["Reuters", "Bloomberg", "TechCrunch"],
+            "link": [
+                "https://news.google.com/rss/articles/one",
+                "https://news.google.com/rss/articles/two",
+                "https://techcrunch.com/climate-week",
+            ],
+            "duplicate_titles": [
+                "Climate Week energy demand reshapes investment",
+                "Climate Week brings new energy investment focus",
+            ],
+        })
+        cards, _ = agenda.build_topic_cards([merged])
+        self.assertEqual(cards[0]["independent_source_count"], 3)
+
+    def test_syndicated_reuters_story_is_one_publisher(self):
+        original = article("Climate finance regulation changes", "Reuters",
+                           link="https://reuters.com/climate-regulation")
+        syndicated = article("Climate finance rules change", "Reuters",
+                             link="https://finance.yahoo.com/climate-regulation")
+        self.assertEqual(agenda._publisher_count([original, syndicated]), 1)
+
+    def test_identical_syndicated_headlines_cannot_raise_agenda(self):
+        first = article("Climate Week energy demand reshapes investment", "Reuters")
+        second = article("Climate Week energy demand reshapes investment", "Bloomberg")
+        response = {"topics": [{
+            "card_ids": ["T1"], "label": "Energy demand", "strength": 3,
+            "basis": "corroborated", "target_category": IMPACT,
+            "representative_id": "A1", "reason": "same_headline",
+        }]}
+        with patch("src.processor.agenda.generate_editor_json",
+                   return_value=(json.dumps(response), "test-model")):
+            agenda.review([first, second])
+        self.assertFalse(first.get("agenda_strength"))
+
     def test_authoritative_single_source_can_be_kept(self):
         articles = [article(
             "Government adopts binding national carbon market regulation",
@@ -137,6 +175,10 @@ class AgendaFlowTests(unittest.TestCase):
             importance=2,
             signals=["policy_or_regulation"],
         )]
+        articles[0].update({
+            "event_status": "confirmed",
+            "reporting_basis": "official_announcement",
+        })
         response = {
             "topics": [{
                 "card_ids": ["T1"],
@@ -158,6 +200,19 @@ class AgendaFlowTests(unittest.TestCase):
         self.assertEqual(articles[0]["agenda_strength"], 3)
         self.assertEqual(articles[0]["agenda_basis"], "authoritative_single")
 
+    def test_unconfirmed_single_source_cannot_claim_authority(self):
+        candidate = article("Company may revise climate plans", "PR Site")
+        candidate.update({"event_status": "outlook", "reporting_basis": "analysis"})
+        response = {"topics": [{
+            "card_ids": ["T1"], "label": "Climate plans", "strength": 3,
+            "basis": "authoritative_single", "target_category": IMPACT,
+            "representative_id": "A1", "reason": "unsupported",
+        }]}
+        with patch("src.processor.agenda.generate_editor_json",
+                   return_value=(json.dumps(response), "test-model")):
+            agenda.review([candidate])
+        self.assertFalse(candidate.get("agenda_strength"))
+
     def test_promotion_is_bounded_and_can_fix_category(self):
         candidate = article(
             "The AI boom reshapes Climate Week investment agenda",
@@ -169,6 +224,7 @@ class AgendaFlowTests(unittest.TestCase):
         candidate.update({
             "agenda_strength": 3,
             "agenda_target_category": IMPACT,
+            "impact_content_verified": True,
         })
 
         applied = agenda.apply_promotions([candidate])
@@ -179,6 +235,18 @@ class AgendaFlowTests(unittest.TestCase):
         self.assertEqual(candidate["importance"], 2)
         self.assertEqual(candidate["editor_score"], 7.0)
         self.assertEqual(candidate["category_reason"], "agenda_flow")
+
+    def test_moderate_agenda_never_creates_top_importance(self):
+        candidate = article("Climate investment changes", "Reuters", importance=2)
+        candidate.update({"agenda_strength": 2, "agenda_target_category": IMPACT})
+        agenda.apply_promotions([candidate])
+        self.assertEqual(candidate["importance"], 2)
+
+    def test_unverified_impact_override_is_blocked(self):
+        candidate = article("Generic healthcare software deal", "TechCrunch", ALT)
+        candidate.update({"agenda_strength": 3, "agenda_target_category": IMPACT})
+        agenda.apply_promotions([candidate])
+        self.assertEqual(candidate["category"], ALT)
 
     def test_mbb_and_unreviewed_articles_cannot_be_promoted(self):
         mbb = article("Global climate outlook", "BCG", INSIGHTS)
@@ -216,6 +284,7 @@ class AgendaFlowTests(unittest.TestCase):
             score=6,
             importance=1,
         )
+        candidate["impact_content_verified"] = True
 
         def mark_agenda(items):
             items[0].update({
@@ -235,6 +304,27 @@ class AgendaFlowTests(unittest.TestCase):
         self.assertEqual(selected, [candidate])
         self.assertEqual(candidate["category"], IMPACT)
         self.assertEqual(candidate["category_reason"], "agenda_flow")
+
+    def test_agenda_sees_article_editors_final_event_key(self):
+        from src import bot
+
+        candidate = article("Climate investment policy changes", "Reuters")
+        candidate.pop("editor_verdict")
+
+        def edit(items):
+            items[0]["editor_event_key"] = "climate_investment_policy"
+            items[0]["editor_verdict"] = "keep"
+            return items, []
+
+        def inspect(items):
+            self.assertEqual(items[0]["editor_event_key"], "climate_investment_policy")
+            return []
+
+        with patch("src.bot.editor_gate_enabled", return_value=True), patch(
+            "src.bot.editor.review", side_effect=edit
+        ), patch("src.bot.agenda.review", side_effect=inspect) as agenda_review:
+            bot.select_for_briefing([candidate])
+        agenda_review.assert_called_once()
 
 
 if __name__ == "__main__":

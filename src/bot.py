@@ -1312,11 +1312,6 @@ def select_for_briefing(classified: list) -> tuple:
     rejected, errors = [], []
     gate_applied = False
 
-    # 기사별 편집과 별도로 여러 매체가 함께 다루는 시장 의제를 짧은 카드로
-    # 살핀다. 여기서는 표시만 하고, 기사 편집이 끝난 뒤 살아남은 대표 기사에만
-    # 제한된 순위 보정을 적용한다. 실패하면 기존 선정 경로를 그대로 유지한다.
-    errors.extend(agenda.review(classified))
-
     # summarize 단계의 확정 제외는 LLM이 되살릴 수 없다. 정례 공지·단독
     # 그래픽처럼 규칙으로 이미 판별된 노이즈를 모델에 보내지 않으면 비용과
     # 실행 시간도 줄고, 모델 응답이 editorial_excluded 값을 덮어쓰지 않는다.
@@ -1349,6 +1344,9 @@ def select_for_briefing(classified: list) -> tuple:
             classified = reviewed
             gate_applied = True
 
+    # 기사별 편집 결과(사건키·최종 분야·자격)를 먼저 확정한다. 그 뒤 살아남은
+    # 후보의 공통 의제를 짧은 카드로 판단하고 대표 기사만 소폭 보정한다.
+    errors.extend(agenda.review(classified))
     agenda.apply_promotions(classified)
 
     # 카테고리 이름만 맞는 운영·법률·보안 기사가 실제 투자 사건을 밀어내지
