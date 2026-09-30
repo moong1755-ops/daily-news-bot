@@ -14,6 +14,7 @@ from ..config import (
     SIMILARITY_THRESHOLD,
 )
 from ..editorial_review import VALID_ALT_SUBTYPES, importance as _editorial_importance
+from ..utils.publishers import merge_coverage
 
 _model = None
 
@@ -599,6 +600,7 @@ def collapse_editor_event_duplicates(
         representative["impact_must_read"] = any(
             article.get("impact_must_read", False) for article in group
         )
+        representative["coverage_sources"] = merge_coverage(group)
         collapsed.append(representative)
 
     dropped = len(articles) - len(collapsed)
@@ -787,6 +789,7 @@ def _merge_group(group: list) -> dict:
 
     merged["source"] = _unique_values(ordered, "source")
     merged["link"] = _unique_values(ordered, "link")
+    merged["coverage_sources"] = merge_coverage(ordered)
     # Keep the description attached to the chosen representative.  Picking the
     # longest description from the whole group can silently pair one article's
     # headline and link with another article's body when deduplication makes a

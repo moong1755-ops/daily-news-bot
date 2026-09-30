@@ -42,6 +42,36 @@ class EditorGateTestCase(unittest.TestCase):
         self.assertEqual(articles[0]["filter_reason"], "editor:job_posting")
         self.assertTrue(articles[0]["editorial_excluded"])
 
+    def test_impact_evidence_must_be_grounded_in_visible_input(self):
+        candidate = _article("Software company acquires healthcare platform", category="📈 대체투자")
+        verdict = {"keep": True, "category": "🌱 임팩트", "score": 7,
+                   "impact_basis": "social_access", "impact_evidence": "reduces patient costs"}
+        editor._apply(candidate, verdict, set(editor.CATEGORIES))
+        self.assertEqual(candidate["category"], "📈 대체투자")
+        self.assertEqual(candidate["editor_impact_evidence"], "")
+
+        candidate["description"] = "A national programme reduces patient costs for underserved communities."
+        editor._apply(candidate, verdict, set(editor.CATEGORIES))
+        self.assertEqual(candidate["category"], "🌱 임팩트")
+        self.assertEqual(candidate["editor_impact_basis"], "social_access")
+
+    def test_unseen_description_suffix_cannot_supply_impact_evidence(self):
+        candidate = _article("Software acquisition", category="📈 대체투자",
+                             description="x" * 301 + " reduces patient costs")
+        editor._apply(candidate, {"keep": True, "category": "🌱 임팩트", "score": 7,
+                                 "impact_basis": "social_access",
+                                 "impact_evidence": "reduces patient costs"}, set(editor.CATEGORIES))
+        self.assertEqual(candidate["category"], "📈 대체투자")
+
+    def test_agenda_key_is_bounded_and_not_a_single_generic_word(self):
+        candidate = _article("A market story")
+        for invalid in ("funding", "series_b", ["some", "data"], "a_" * 100):
+            editor._apply(candidate, {"keep": True, "agenda_key": invalid}, set(editor.CATEGORIES))
+            self.assertEqual(candidate["editor_agenda_key"], "")
+        editor._apply(candidate, {"keep": True, "agenda_key": "ai_datacenter_grid_constraints"},
+                      set(editor.CATEGORIES))
+        self.assertEqual(candidate["editor_agenda_key"], "ai_datacenter_grid_constraints")
+
     def test_string_false_is_not_mistaken_for_keep(self):
         """Some models occasionally serialize a boolean as a string."""
         articles = [_article("근거 없는 시장 소문")]

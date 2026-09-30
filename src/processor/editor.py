@@ -30,6 +30,10 @@ BATCH_SIZE = 80
 # 기사마다 판정 한 줄씩을 생성해야 해서 응답이 길다. 리랭커의 기본 12초로는
 # 배치가 조금만 커져도 읽기 타임아웃이 난다.
 CALL_TIMEOUT = 120
+_IMPACT_BASES = frozenset({
+    "climate_transition", "social_access", "social_outcomes",
+    "circular_economy", "impact_capital", "sustainability_rules",
+})
 
 # 벌금·합의금·손해배상액은 투자금액이 아니다. 이런 법률 사건이 대체투자로
 # 잘못 분류돼 실제 딜보다 위에 서지 않도록 최종 점수를 보수적으로 제한한다.
@@ -89,6 +93,14 @@ _INSTRUCTIONS = """너는 임팩트 투자·벤처캐피탈 전문 뉴스 브리
   취약계층 성과, 측정 가능한 사회적 성과 같은 근거가 없으면 대체투자로 보낸다.
 - 기후 기사만 임팩트를 독점하지 않도록 중요도가 비슷하면 돌봄·헬스케어·교육·
   포용·순환경제 등 다른 임팩트 분야도 높게 평가한다.
+- 임팩트로 판정할 때 impact_basis와 impact_evidence를 붙인다. basis는
+  climate_transition, social_access, social_outcomes, circular_economy,
+  impact_capital, sustainability_rules 중 하나다. evidence는 제공된 제목 또는
+  요약에서 그 판단을 뒷받침하는 구절을 원문 그대로 짧게 인용한다(8~160자).
+  기후 의제에 대한 자본·산업의 방향 변화도 근거다. 행사명·업종명만으로는
+  부족하다. 구체적인 변화나 접근성·성과가 드러나는 부분을 인용한다.
+  '임팩트근거: 없음'은 사전 키워드 미검출이지 제외 판정이 아니다.
+  원문에 근거가 있으면 내용으로 판정하고, 없는 근거를 만들어서는 안 된다.
 
 [반드시 제외]
 - 채용공고·구인·직위 모집. 직함만 있는 제목이 대표적이다.
@@ -204,9 +216,18 @@ keep=false 기사에는 점수를 부여하지 않는다.
   stability_ai_funding_76m, 한국은행의 같은 날 기준금리 인상은
   bank_of_korea_rate_hike_2026_08_27 로 쓴다.
 
+[공통 의제]
+- keep=true 기사에는 agenda_key 하나를 추가한다. 분야명이 아니라 해당 기사의
+  구체적 시장 흐름(주체/원인 + 변화)을 짧은 영문 스네이크케이스로 표현한다.
+- 다른 회사·언어라도 같은 구조적 변화를 다루면 같은 키를 쓴다. 개별 사건키와는
+  구분한다. 예: ai_datacenter_grid_constraints, european_carbon_market_reform.
+- ai, funding, series_b, market_outlook처럼 광범위한 말만 쓰지 않는다.
+  같은 투자 라운드·금액 표현만 공유하는 다른 업종의 딜은 같은 의제가 아니다.
+- 뚜렷한 공통 의제가 없는 개별 딜·단발 기사, MBB·Big4에는 빈 문자열을 쓴다.
+
 [출력] 후보 전부에 대해 아래 형식의 JSON 만 반환한다. 설명 문장을 쓰지 마라.
 {{"verdicts": [
-  {{"id": 1, "keep": true, "category": "📈 대체투자", "score": 8, "reason": "funding_round", "event_key": "example_funding_series_b", "importance": 2, "importance_reason": "major_deal", "alt_subtype": "venture_growth"}},
+  {{"id": 1, "keep": true, "category": "📈 대체투자", "score": 8, "reason": "funding_round", "event_key": "example_funding_series_b", "importance": 2, "importance_reason": "major_deal", "alt_subtype": "venture_growth", "agenda_key": "", "impact_basis": "", "impact_evidence": ""}},
   {{"id": 2, "keep": false, "reason": "job_posting"}}
 ]}}
 
@@ -345,6 +366,21 @@ def _parse_importance(value: object) -> int:
     return 0
 
 
+def _grounded_impact_evidence(article: dict, verdict: dict) -> tuple[str, str]:
+    """Validate attribution, not truth: the editor must quote the text it saw."""
+    basis = str(verdict.get("impact_basis") or "")
+    evidence = str(verdict.get("impact_evidence") or "").strip()
+    if basis not in _IMPACT_BASES or not 8 <= len(evidence) <= 160:
+        return "", ""
+    description = str(article.get("description") or article.get("summary") or "")[:300]
+    normalize = lambda text: " ".join(str(text).casefold().split())
+    # Do not join fields: a quote must occur within one actual input field.
+    if not any(normalize(evidence) in normalize(text)
+               for text in (article.get("title", ""), description)):
+        return "", ""
+    return basis, evidence
+
+
 def _apply(article: dict, verdict: dict, valid_categories: set) -> None:
     keep = _as_bool(verdict.get("keep"))
     article["editor_verdict"] = "keep" if keep else "reject"
@@ -364,6 +400,14 @@ def _apply(article: dict, verdict: dict, valid_categories: set) -> None:
     ).strip("_")
     if event_key:
         article["editor_event_key"] = event_key[:120]
+    agenda_key = str(verdict.get("agenda_key") or "").strip().casefold()
+    article["editor_agenda_key"] = (
+        agenda_key if re.fullmatch(r"[a-z0-9]+(?:_[a-z0-9]+){2,10}", agenda_key)
+        and len(agenda_key) <= 100 else ""
+    )
+    impact_basis, impact_evidence = _grounded_impact_evidence(article, verdict)
+    article["editor_impact_basis"] = impact_basis
+    article["editor_impact_evidence"] = impact_evidence
     category = verdict.get("category")
     current_category = article.get("category")
     impact_category = next(
@@ -374,10 +418,13 @@ def _apply(article: dict, verdict: dict, valid_categories: set) -> None:
         category == impact_category
         and current_category != impact_category
         and not article.get("impact_content_verified", False)
+        and not impact_evidence
     )
     if unverified_impact_override:
         category = current_category
         article["editor_category_blocked_reason"] = "unverified_impact_override"
+    else:
+        article.pop("editor_category_blocked_reason", None)
     deterministic_category_locked = (
         article.get("category_reason") in {
             "official_insights_source",

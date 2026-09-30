@@ -19,19 +19,10 @@ import re
 from urllib.parse import urlsplit
 
 from ..config import AGENDA_FLOW_CONFIG, CATEGORIES
+from ..utils.publishers import coverage_records
 from .reranker import generate_editor_json
 
 
-_TOKEN_RE = re.compile(r"[a-z0-9]+|[가-힣]{2,}", re.IGNORECASE)
-_GENERIC_TOKENS = {
-    "a", "an", "and", "as", "at", "by", "for", "from", "in", "into",
-    "is", "it", "new", "of", "on", "or", "says", "the", "to", "with",
-    "after", "amid", "over", "about", "news", "report", "reports",
-    "market", "markets", "company", "companies", "global", "today",
-    "ai", "vc", "pe", "fund", "funds", "investment", "investors",
-    "investment", "startup", "startups", "한국", "국내", "해외", "글로벌",
-    "시장", "기업", "투자", "관련", "대한", "위한", "통해", "발표",
-}
 _SUBSTANTIVE_SIGNALS = {
     "investment_or_ma",
     "policy_or_regulation",
@@ -67,43 +58,10 @@ def _domain(link: str) -> str:
         return ""
 
 
-def _publisher_identities(article: dict) -> list[tuple[str, str]]:
-    """Keep both source name and original domain for publisher matching."""
-    sources = [str(value).strip().casefold() for value in _as_list(article.get("source"))]
-    links = [str(value).strip() for value in _as_list(article.get("link"))]
-    sources = [source for source in sources if source not in {"google news", "구글 뉴스"}]
-    if len(sources) > 1:
-        # The deduplicator stores distinct sources and distinct links in
-        # separate lists; their positions no longer correspond. Preserve the
-        # complete publisher list instead of pairing each with the wrong URL.
-        return [(source, "") for source in sources]
-    domains = [_domain(link) for link in links]
-    domains = [domain for domain in domains if domain and domain != "news.google.com"]
-    source = sources[0] if sources else ""
-    if source:
-        return [(source, domains[0] if domains else "")]
-    return [("", domain) for domain in domains]
-
-
 def _publisher_count(articles: list[dict]) -> int:
-    """A repeated publisher name or original domain counts once."""
-    records = [identity for article in articles for identity in _publisher_identities(article)]
-    groups: list[tuple[set[str], set[str]]] = []
-    for source, domain in records:
-        if not (source or domain):
-            continue
-        matched = [
-            index for index, (names, domains) in enumerate(groups)
-            if (source and source in names) or (domain and domain in domains)
-        ]
-        names = {source} if source else set()
-        domains = {domain} if domain else set()
-        for index in reversed(matched):
-            old_names, old_domains = groups.pop(index)
-            names.update(old_names)
-            domains.update(old_domains)
-        groups.append((names, domains))
-    return len(groups)
+    """Count original publishers, not category feeds or portal hosts."""
+    return len({record["publisher"] for article in articles
+                for record in coverage_records(article) if record.get("publisher")})
 
 
 def _is_excluded_category(category: str) -> bool:
@@ -111,50 +69,15 @@ def _is_excluded_category(category: str) -> bool:
     return bool(prefixes and str(category).startswith(prefixes))
 
 
-def _tokens(article: dict) -> set[str]:
-    event_key = str(article.get("editor_event_key") or "").replace("_", " ")
-    text = f"{_title(article)} {event_key}".casefold()
-    return {
-        token
-        for token in _TOKEN_RE.findall(text)
-        if len(token) >= 2 and token not in _GENERIC_TOKENS
-    }
-
-
-def _bigrams(tokens_in_order: list[str]) -> set[tuple[str, str]]:
-    cleaned = [
-        token
-        for token in tokens_in_order
-        if len(token) >= 2 and token not in _GENERIC_TOKENS
-    ]
-    return set(zip(cleaned, cleaned[1:]))
-
-
-def _ordered_tokens(article: dict) -> list[str]:
-    return _TOKEN_RE.findall(_title(article).casefold())
-
-
-def _topic_signature(article: dict) -> tuple[str, set[str], set[tuple[str, str]]]:
+def _topic_signature(article: dict) -> tuple[str, str]:
     return (
         str(article.get("editor_event_key") or "").strip().casefold(),
-        _tokens(article),
-        _bigrams(_ordered_tokens(article)),
+        str(article.get("editor_agenda_key") or "").strip().casefold(),
     )
 
 
 def _same_topic_signature(left: tuple, right: tuple) -> bool:
-    left_key, left_tokens, left_bigrams = left
-    right_key, right_tokens, right_bigrams = right
-    if left_key and left_key == right_key:
-        return True
-
-    shared = left_tokens & right_tokens
-    if len(shared) < 2:
-        return False
-    union = left_tokens | right_tokens
-    if union and len(shared) / len(union) >= 0.30:
-        return True
-    return bool(left_bigrams & right_bigrams)
+    return any(a and a == b for a, b in zip(left, right))
 
 
 def _same_topic(left: dict, right: dict) -> bool:
@@ -185,12 +108,12 @@ def _eligible_articles(articles: list[dict]) -> list[dict]:
         if _title(article)
         and not _is_excluded_category(str(article.get("category") or ""))
         and not article.get("editorial_excluded", False)
-        and article.get("editor_verdict") not in {"reject", "unreviewed"}
+        and article.get("editor_verdict") == "keep"
     ]
 
 
 def _cluster_articles(articles: list[dict]) -> list[list[dict]]:
-    """Return conservative title/event clusters without network or embeddings."""
+    """Group by meaning emitted in the existing editor call, never title bigrams."""
     eligible = _eligible_articles(articles)
     signatures = [_topic_signature(article) for article in eligible]
     parents = list(range(len(eligible)))
@@ -206,24 +129,15 @@ def _cluster_articles(articles: list[dict]) -> list[list[dict]]:
         if left_root != right_root:
             parents[right_root] = left_root
 
-    # Only compare articles that share a meaningful token or an exact editor
-    # event key.  This avoids an all-pairs title comparison on 500+ article days.
-    token_index: dict[str, list[int]] = defaultdict(list)
-    event_index: dict[str, list[int]] = defaultdict(list)
+    key_index: dict[tuple[int, str], int] = {}
     for right, signature in enumerate(signatures):
-        event_key, tokens, _bigrams_for_article = signature
-        candidates: set[int] = set()
-        for token in tokens:
-            candidates.update(token_index[token])
-        if event_key:
-            candidates.update(event_index[event_key])
-        for left in candidates:
-            if _same_topic_signature(signatures[left], signature):
-                union(left, right)
-        for token in tokens:
-            token_index[token].append(right)
-        if event_key:
-            event_index[event_key].append(right)
+        for kind, key in enumerate(signature):
+            if not key:
+                continue
+            identity = (kind, key)
+            if identity in key_index:
+                union(key_index[identity], right)
+            key_index[identity] = right
 
     grouped: dict[int, list[dict]] = defaultdict(list)
     for index, article in enumerate(eligible):
@@ -297,16 +211,26 @@ def _select_clusters(clusters: list[list[dict]], maximum: int) -> list[list[dict
     return selected
 
 
-def build_topic_cards(articles: list[dict]) -> tuple[list[dict], dict[str, dict]]:
+def build_topic_cards(
+    articles: list[dict], *, coverage_articles: list[dict] | None = None,
+) -> tuple[list[dict], dict[str, dict]]:
     """Build compact, category-balanced cards and an article ID lookup."""
     maximum = int(AGENDA_FLOW_CONFIG.get("max_topic_cards", 16))
     title_limit = int(AGENDA_FLOW_CONFIG.get("max_titles_per_card", 3))
-    clusters = _select_clusters(_cluster_articles(articles), maximum)
+    eligible_ids = {id(article) for article in _eligible_articles(articles)}
+    coverage = articles if coverage_articles is None else coverage_articles
+    clusters = _select_clusters([
+        cluster for cluster in _cluster_articles(coverage)
+        if any(id(article) in eligible_ids for article in cluster)
+    ], maximum)
     cards, article_lookup = [], {}
     article_counter = 1
 
     for card_index, cluster in enumerate(clusters, start=1):
-        representatives = sorted(cluster, key=_article_strength, reverse=True)[:title_limit]
+        representatives = sorted(
+            (article for article in cluster if id(article) in eligible_ids),
+            key=_article_strength, reverse=True,
+        )[:title_limit]
         titles = []
         for article in representatives:
             article_id = f"A{article_counter}"
@@ -317,6 +241,7 @@ def build_topic_cards(articles: list[dict]) -> tuple[list[dict], dict[str, dict]
                 "title": _title(article)[:220],
                 "source": _first_text(article.get("source") or article.get("feed"))[:80],
                 "category": str(article.get("category") or ""),
+                "agenda_key": str(article.get("editor_agenda_key") or ""),
                 "signals": sorted(
                     set(_as_list(article.get("editorial_signals"))) & _SUBSTANTIVE_SIGNALS
                 ),
@@ -327,7 +252,10 @@ def build_topic_cards(articles: list[dict]) -> tuple[list[dict], dict[str, dict]
         source_count = _publisher_count(cluster)
         coverage_titles = []
         for article in cluster:
-            for title in _as_list(article.get("duplicate_titles")) or [_title(article)]:
+            originals = [record.get("title") for record in coverage_records(article)]
+            for title in originals + _as_list(article.get("duplicate_titles")) + [_title(article)]:
+                if not title:
+                    continue
                 title = str(title).strip()
                 if title and title.casefold() not in {item.casefold() for item in coverage_titles}:
                     coverage_titles.append(title[:220])
@@ -358,9 +286,6 @@ def _prompt(cards: list[dict]) -> str:
         if additional:
             public_card["additional_headlines"] = additional
         public_cards.append(public_card)
-    allowed_categories = [
-        category for category in CATEGORIES if not _is_excluded_category(category)
-    ]
     maximum = int(AGENDA_FLOW_CONFIG.get("max_selected_topics", 5))
     minimum_sources = int(AGENDA_FLOW_CONFIG.get("min_independent_sources", 2))
     return f"""너는 임팩트 VC의 데일리 의제 데스크다.
@@ -381,11 +306,14 @@ def _prompt(cards: list[dict]) -> str:
 - 단일 기사라도 공식 결정 또는 신뢰도 높은 원문이 구조적 정책·자본·산업 변화를 보여주면
   basis=authoritative_single로 선택할 수 있다. 단순 전망·오피니언·홍보에는 쓰지 않는다.
 - 대표 기사는 카드 안에서 사실과 투자 의미가 가장 분명한 article_id 하나를 고른다.
-- 현재 분야가 잘못됐을 때만 target_category를 바꾼다. 허용 분야: {allowed_categories}
+- additional_headlines는 보도 집중도 참고용이며 이미 발송/중복 제외된 기사도 포함한다.
+  대표 기사는 반드시 titles 안의 발송 가능한 article_id 중에서만 고른다.
+- 카드가 잘못 묶였다면 선택하지 않는다. 동일 라운드·업종 표현만으로 공통 의제가 아니다.
+- 분야 분류는 앞선 기사 편집 판정으로 확정됐으므로 여기서는 바꾸지 않는다.
 
 JSON만 반환한다:
 {{"topics":[{{"card_ids":["T1"],"label":"짧은 의제명","strength":3,
-"basis":"corroborated","target_category":"🌱 임팩트",
+"basis":"corroborated",
 "representative_id":"A1","reason":"짧은 스네이크케이스"}}]}}
 
 [주제 카드]
@@ -413,15 +341,18 @@ def _authoritative_single(article: dict) -> bool:
     )
 
 
-def review(articles: list[dict]) -> list[str]:
+def review(articles: list[dict], *, coverage_articles: list[dict] | None = None) -> list[str]:
     """Annotate representatives of important agenda topics; return soft errors."""
     if not AGENDA_FLOW_CONFIG.get("enabled", True):
         return []
-    cards, article_lookup = build_topic_cards(articles)
+    cards, article_lookup = build_topic_cards(articles, coverage_articles=coverage_articles)
     if not cards:
         return []
 
-    raw, model = generate_editor_json(_prompt(cards), timeout=45)
+    try:
+        raw, model = generate_editor_json(_prompt(cards), timeout=45)
+    except Exception as exc:
+        return [f"의제 데스크 호출 실패: {type(exc).__name__}"]
     if raw is None:
         print("의제 데스크를 사용할 수 없어 기존 기사 순위를 유지합니다.")
         return []
@@ -431,13 +362,11 @@ def review(articles: list[dict]) -> list[str]:
         return [f"의제 집중도 응답 파싱 실패: {exc}"]
 
     card_lookup = {card["card_id"]: card for card in cards}
-    valid_categories = {
-        category for category in CATEGORIES if not _is_excluded_category(category)
-    }
     maximum = int(AGENDA_FLOW_CONFIG.get("max_selected_topics", 5))
     minimum_sources = int(AGENDA_FLOW_CONFIG.get("min_independent_sources", 2))
     applied = 0
     used_representatives = set()
+    used_cards = set()
 
     for topic in topics:
         if applied >= maximum:
@@ -447,6 +376,8 @@ def review(articles: list[dict]) -> list[str]:
         if representative is None or id(representative) in used_representatives:
             continue
         card_ids = [str(item) for item in _as_list(topic.get("card_ids"))]
+        if set(card_ids) & used_cards:
+            continue
         cards_for_topic = [card_lookup[item] for item in card_ids if item in card_lookup]
         if not cards_for_topic:
             continue
@@ -481,34 +412,15 @@ def review(articles: list[dict]) -> list[str]:
         )
         if not (corroborated or authoritative):
             continue
-        target_category = str(topic.get("target_category") or "")
-        if target_category not in valid_categories:
-            target_category = str(representative.get("category") or "")
-        if target_category.startswith("🌱") and representative.get("category") != target_category:
-            # The article editor requires concrete impact evidence for this
-            # override. Prefer an already verified article from the same topic.
-            if not representative.get("impact_content_verified"):
-                replacement = next(
-                    (
-                        article_lookup[item["article_id"]]
-                         for card in cards_for_topic for item in card["titles"]
-                         if article_lookup[item["article_id"]].get("impact_content_verified")
-                         and id(article_lookup[item["article_id"]]) not in used_representatives),
-                    None,
-                )
-                if replacement is not None:
-                    representative = replacement
-                else:
-                    target_category = str(representative.get("category") or "")
-
         representative["agenda_topic"] = str(topic.get("label") or "")[:100]
         representative["agenda_strength"] = strength
         representative["agenda_basis"] = basis
         representative["agenda_reason"] = str(topic.get("reason") or "")[:60]
         representative["agenda_source_count"] = source_count
-        representative["agenda_target_category"] = target_category
+        representative["agenda_target_category"] = str(representative.get("category") or "")
         representative["agenda_model"] = model or ""
         used_representatives.add(id(representative))
+        used_cards.update(card_ids)
         applied += 1
 
     print(
@@ -519,14 +431,16 @@ def review(articles: list[dict]) -> list[str]:
 
 
 def apply_promotions(articles: list[dict]) -> int:
-    """Apply a bounded category/priority adjustment after article review."""
+    """Adjust priority once, without changing the editor's category or eligibility."""
     boosts = AGENDA_FLOW_CONFIG.get("score_boost", {})
     max_step = int(AGENDA_FLOW_CONFIG.get("max_importance_step", 1))
     applied = 0
     for article in articles:
         if (
             _is_excluded_category(str(article.get("category") or ""))
-            or article.get("editor_verdict") in {"reject", "unreviewed"}
+            or article.get("editor_verdict") != "keep"
+            or article.get("editorial_excluded")
+            or article.get("agenda_promoted")
         ):
             continue
         try:
@@ -535,22 +449,6 @@ def apply_promotions(articles: list[dict]) -> int:
             continue
         if strength not in (2, 3):
             continue
-
-        target = str(article.get("agenda_target_category") or "")
-        current = str(article.get("category") or "")
-        category_locked = article.get("category_reason") in {
-            "official_insights_source", "ai_public_procurement"
-        }
-        impact_override_unverified = (
-            target.startswith("🌱") and current != target
-            and not article.get("impact_content_verified", False)
-        )
-        if (target in CATEGORIES and not _is_excluded_category(target)
-                and target != current and not category_locked
-                and not impact_override_unverified):
-            article["agenda_original_category"] = current
-            article["category"] = target
-            article["category_reason"] = "agenda_flow"
 
         try:
             old_importance = int(article.get("importance") or 0)

@@ -178,6 +178,20 @@ AGENDA_FLOW_CONFIG = {
     "max_importance_step": 1,
 }
 
+# 포털 주소는 원 발행사가 아니다. 등록된 RSS의 매체명/도메인은 자동으로
+# 연결하고, RSS 밖에서 들어오는 주요 표기 차이만 여기서 보완한다.
+PUBLISHER_ALIASES = {
+    "reuters": "reuters.com", "로이터": "reuters.com",
+    "bloomberg": "bloomberg.com", "블룸버그": "bloomberg.com",
+    "techcrunch": "techcrunch.com",
+    "임팩트온": "impacton.net", "impacton": "impacton.net",
+    "연합뉴스": "yna.co.kr", "yonhap": "yna.co.kr",
+    "한국경제": "hankyung.com", "한경": "hankyung.com",
+}
+PUBLISHER_AGGREGATOR_DOMAINS = (
+    "google.com", "naver.com", "daum.net", "yahoo.com", "feedburner.com",
+)
+
 # 기사 자격은 유지하지만 상대 순위만 낮출 항목. 값은 최종 선정 점수에 더한다.
 SELECTION_SCORE_ADJUSTMENTS = {
     "branded_roundup": -1.0,

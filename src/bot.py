@@ -1344,11 +1344,6 @@ def select_for_briefing(classified: list) -> tuple:
             classified = reviewed
             gate_applied = True
 
-    # 기사별 편집 결과(사건키·최종 분야·자격)를 먼저 확정한다. 그 뒤 살아남은
-    # 후보의 공통 의제를 짧은 카드로 판단하고 대표 기사만 소폭 보정한다.
-    errors.extend(agenda.review(classified))
-    agenda.apply_promotions(classified)
-
     # 카테고리 이름만 맞는 운영·법률·보안 기사가 실제 투자 사건을 밀어내지
     # 않도록, LLM 판정 뒤에도 VC·PE 자격을 구조화 신호로 한 번 확인한다.
     classified, qualification_rejected = _filter_final_category_qualification(classified)
@@ -1371,6 +1366,17 @@ def select_for_briefing(classified: list) -> tuple:
             print("LLM 리랭크 적용됨 (Gemini)")
 
     return classified, rejected, errors
+
+
+def review_final_agenda(articles: list, coverage_articles: list) -> tuple:
+    """중복 제거 후 살아남은 기사만 대표로 고르고 원래 보도량은 참고한다."""
+    survivors = collapse_editor_event_duplicates(
+        [article for article in articles if _is_sendable(article)],
+        EDITOR_EVENT_CATEGORY_PRIORITY,
+    )
+    errors = agenda.review(survivors, coverage_articles=coverage_articles)
+    agenda.apply_promotions(survivors)
+    return survivors, errors
 
 
 def _decision_record(article: dict, verdict: str) -> dict:
@@ -1399,6 +1405,10 @@ def _decision_record(article: dict, verdict: str) -> dict:
         "selection_adjustments": article.get("selection_adjustments"),
         "selection_score_adjustment": article.get("selection_score_adjustment"),
         "agenda_topic": article.get("agenda_topic"),
+        "editor_agenda_key": article.get("editor_agenda_key"),
+        "editor_impact_basis": article.get("editor_impact_basis"),
+        "editor_impact_evidence": article.get("editor_impact_evidence"),
+        "coverage_sources": article.get("coverage_sources", []),
         "agenda_strength": article.get("agenda_strength"),
         "agenda_basis": article.get("agenda_basis"),
         "agenda_reason": article.get("agenda_reason"),
@@ -1826,6 +1836,9 @@ def main():
     classified, gate_rejected, gate_errors = select_for_briefing(classified)
     rejected.extend(gate_rejected)
     all_errors.extend(gate_errors)
+    # 과거 발송분과 오늘 중복을 제거하더라도 실제 관측한 출처/의제는 보존한다.
+    # 이 목록은 보도 집중도 근거일 뿐, 제외 기사를 다시 발송하지 않는다.
+    agenda_coverage = list(classified)
 
     # Gemini가 붙인 사건키를 최근 성공 발송 기록과 비교한다. 매체·금액·
     # 제목이 달라도 같은 자금조달·M&A·IPO·정책·미 10년물 사건은 한 번만
@@ -1847,6 +1860,14 @@ def main():
     sent_articles = []
     delivery_failed = False
     if classified:
+        before_agenda = classified
+        classified, agenda_errors = review_final_agenda(classified, agenda_coverage)
+        survivor_ids = {id(article) for article in classified}
+        for article in before_agenda:
+            if id(article) not in survivor_ids:
+                article.setdefault("filter_reason", "final_duplicate_or_unsendable")
+                rejected.append(article)
+        all_errors.extend(agenda_errors)
         success, sent_articles = send_aggregated_slack_news(classified)
         delivery_failed = not success
         if success and not is_dry_run():
