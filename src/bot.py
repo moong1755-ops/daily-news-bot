@@ -20,7 +20,7 @@ except ImportError:
         HAS_NEWSLETTERS = False
         print("ℹ️ 뉴스레터/Gmail 모듈을 찾을 수 없어 수집 단계에서 제외합니다.")
 
-from .processor import editor
+from .processor import agenda, editor
 from .processor.deduplicator import (
     collapse_editor_event_duplicates,
     deduplicate_and_merge,
@@ -1312,6 +1312,11 @@ def select_for_briefing(classified: list) -> tuple:
     rejected, errors = [], []
     gate_applied = False
 
+    # 기사별 편집과 별도로 여러 매체가 함께 다루는 시장 의제를 짧은 카드로
+    # 살핀다. 여기서는 표시만 하고, 기사 편집이 끝난 뒤 살아남은 대표 기사에만
+    # 제한된 순위 보정을 적용한다. 실패하면 기존 선정 경로를 그대로 유지한다.
+    errors.extend(agenda.review(classified))
+
     # summarize 단계의 확정 제외는 LLM이 되살릴 수 없다. 정례 공지·단독
     # 그래픽처럼 규칙으로 이미 판별된 노이즈를 모델에 보내지 않으면 비용과
     # 실행 시간도 줄고, 모델 응답이 editorial_excluded 값을 덮어쓰지 않는다.
@@ -1343,6 +1348,8 @@ def select_for_briefing(classified: list) -> tuple:
             rejected.extend(a for a in classified if a.get("editor_verdict") == "reject")
             classified = reviewed
             gate_applied = True
+
+    agenda.apply_promotions(classified)
 
     # 카테고리 이름만 맞는 운영·법률·보안 기사가 실제 투자 사건을 밀어내지
     # 않도록, LLM 판정 뒤에도 VC·PE 자격을 구조화 신호로 한 번 확인한다.
@@ -1393,6 +1400,13 @@ def _decision_record(article: dict, verdict: str) -> dict:
         "deal_signals": article.get("deal_signals"),
         "selection_adjustments": article.get("selection_adjustments"),
         "selection_score_adjustment": article.get("selection_score_adjustment"),
+        "agenda_topic": article.get("agenda_topic"),
+        "agenda_strength": article.get("agenda_strength"),
+        "agenda_basis": article.get("agenda_basis"),
+        "agenda_reason": article.get("agenda_reason"),
+        "agenda_source_count": article.get("agenda_source_count"),
+        "agenda_target_category": article.get("agenda_target_category"),
+        "agenda_promoted": article.get("agenda_promoted", False),
     }
 
 

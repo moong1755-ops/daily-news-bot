@@ -162,6 +162,22 @@ INSIGHTS_DOMESTIC_SCORE_TOLERANCE = 1.0
 # 절대 컷이나 강제 할당이 아니라 동급 후보 사이의 다양성 보정이다.
 IMPACT_THEME_DIVERSITY_SCORE_TOLERANCE = 1.0
 
+# 여러 매체가 동시에 다루는 시장 의제를 기사 단위 점수와 별도로 읽는다.
+# MBB·Big4는 보도 집중도보다 공식 보고서 자체의 품질이 중요하므로 제외한다.
+# 기사 전문을 다시 보내지 않고 분야별 상위 주제 카드만 한 번 검토해 비용과
+# 실행 시간을 제한한다. 실패하면 기존 기사 단위 선정 결과를 그대로 사용한다.
+AGENDA_FLOW_CONFIG = {
+    "enabled": True,
+    "excluded_category_prefixes": ("👔",),
+    "max_topic_cards": 16,
+    "max_titles_per_card": 3,
+    "max_selected_topics": 5,
+    "min_independent_sources": 2,
+    "score_boost": {2: 0.5, 3: 1.0},
+    # 의제 판단 하나가 기사 중요도를 한 번에 여러 단계 뒤집지 않게 한다.
+    "max_importance_step": 1,
+}
+
 # 기사 자격은 유지하지만 상대 순위만 낮출 항목. 값은 최종 선정 점수에 더한다.
 SELECTION_SCORE_ADJUSTMENTS = {
     "branded_roundup": -1.0,
