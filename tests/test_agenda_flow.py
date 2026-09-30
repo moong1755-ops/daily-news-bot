@@ -399,6 +399,11 @@ class AgendaFlowTests(unittest.TestCase):
         self.assertEqual(errors, [])
         self.assertTrue(fresh["agenda_promoted"])
         self.assertEqual(fresh["agenda_source_count"], 2)
+        self.assertEqual({item["publisher"] for item in fresh["agenda_evidence"]},
+                         {"reuters.com", "bloomberg.com"})
+        self.assertEqual({item["title"] for item in fresh["agenda_evidence"]},
+                         {old["title"], fresh["title"]})
+        self.assertFalse(any("url" in item for item in fresh["agenda_evidence"]))
         self.assertFalse(old.get("agenda_promoted"))
 
     def test_removed_semantic_duplicate_cannot_be_a_representative(self):

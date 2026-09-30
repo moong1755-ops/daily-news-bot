@@ -19,7 +19,7 @@ import re
 from urllib.parse import urlsplit
 
 from ..config import AGENDA_FLOW_CONFIG, CATEGORIES
-from ..utils.publishers import coverage_records
+from ..utils.publishers import coverage_records, merge_coverage
 from .reranker import generate_editor_json
 
 
@@ -417,6 +417,12 @@ def review(articles: list[dict], *, coverage_articles: list[dict] | None = None)
         representative["agenda_basis"] = basis
         representative["agenda_reason"] = str(topic.get("reason") or "")[:60]
         representative["agenda_source_count"] = source_count
+        # Keep the exact observed coverage for audit, including references that
+        # history/semantic dedup removed. No tracking URLs or article bodies.
+        representative["agenda_evidence"] = [
+            {"publisher": record.get("publisher"), "title": record.get("title")}
+            for record in merge_coverage(members)
+        ]
         representative["agenda_target_category"] = str(representative.get("category") or "")
         representative["agenda_model"] = model or ""
         used_representatives.add(id(representative))

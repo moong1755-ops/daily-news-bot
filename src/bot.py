@@ -1413,6 +1413,7 @@ def _decision_record(article: dict, verdict: str) -> dict:
         "agenda_basis": article.get("agenda_basis"),
         "agenda_reason": article.get("agenda_reason"),
         "agenda_source_count": article.get("agenda_source_count"),
+        "agenda_evidence": article.get("agenda_evidence", []),
         "agenda_target_category": article.get("agenda_target_category"),
         "agenda_promoted": article.get("agenda_promoted", False),
     }
