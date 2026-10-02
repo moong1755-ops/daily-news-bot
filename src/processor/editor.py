@@ -18,7 +18,7 @@ import os
 import re
 from urllib.parse import urlsplit
 
-from ..config import CATEGORIES
+from ..config import CATEGORIES, EDITOR_BOUNDARY_REVIEW_CONFIG, RSS_SOURCE_METADATA
 from ..editorial_review import (
     VALID_ALT_SUBTYPES as ALT_SUBTYPES,
     VALID_IMPORTANCE_REASONS as IMPORTANCE_REASONS,
@@ -30,6 +30,10 @@ BATCH_SIZE = 80
 # 기사마다 판정 한 줄씩을 생성해야 해서 응답이 길다. 리랭커의 기본 12초로는
 # 배치가 조금만 커져도 읽기 타임아웃이 난다.
 CALL_TIMEOUT = 120
+_IMPACT_BASES = frozenset({
+    "climate_transition", "social_access", "social_outcomes",
+    "circular_economy", "impact_capital", "sustainability_rules",
+})
 
 # 벌금·합의금·손해배상액은 투자금액이 아니다. 이런 법률 사건이 대체투자로
 # 잘못 분류돼 실제 딜보다 위에 서지 않도록 최종 점수를 보수적으로 제한한다.
@@ -89,6 +93,18 @@ _INSTRUCTIONS = """너는 임팩트 투자·벤처캐피탈 전문 뉴스 브리
   취약계층 성과, 측정 가능한 사회적 성과 같은 근거가 없으면 대체투자로 보낸다.
 - 기후 기사만 임팩트를 독점하지 않도록 중요도가 비슷하면 돌봄·헬스케어·교육·
   포용·순환경제 등 다른 임팩트 분야도 높게 평가한다.
+- 행사·정상회의·산업 박람회를 계기로 드러난 자본의 쏠림, 에너지 수요 변화,
+  산업 간 충돌, 투자 논점의 이동은 시장 흐름 보도다. 계약 금액이나 확정 정책이
+  없더라도 임팩트 투자환경을 설명하면 keep 후보로 평가한다. 특정 행사명을
+  외워 우대하지 말고 무엇이 시장 의제를 바꾸었는지를 본다.
+- 임팩트로 판정할 때 impact_basis와 impact_evidence를 붙인다. basis는
+  climate_transition, social_access, social_outcomes, circular_economy,
+  impact_capital, sustainability_rules 중 하나다. evidence는 제공된 제목 또는
+  요약에서 그 판단을 뒷받침하는 구절을 원문 그대로 짧게 인용한다(8~160자).
+  기후 의제에 대한 자본·산업의 방향 변화도 근거다. 행사명·업종명만으로는
+  부족하다. 구체적인 변화나 접근성·성과가 드러나는 부분을 인용한다.
+  '임팩트근거: 없음'은 사전 키워드 미검출이지 제외 판정이 아니다.
+  원문에 근거가 있으면 내용으로 판정하고, 없는 근거를 만들어서는 안 된다.
 
 [반드시 제외]
 - 채용공고·구인·직위 모집. 직함만 있는 제목이 대표적이다.
@@ -116,6 +132,18 @@ _INSTRUCTIONS = """너는 임팩트 투자·벤처캐피탈 전문 뉴스 브리
   금융시스템 위험, 대규모 규제 변화처럼 시장 파급이 명확한 경우만 예외다.
 - 단순 행사 일정, 주간 경제일정, 여러 헤드라인을 사실 추가 없이 모은 기사
 - 신뢰할 만한 매체나 구체적 취재 근거가 없는 단순 소문
+
+[제외 사유의 경계 — 시장 흐름을 실수로 버리지 말 것]
+- event_promo는 참가 신청·일정·연사 소개 등 행사 자체의 홍보다. 행사가 제목에
+  등장한다는 이유로 현장 취재와 산업 동향 분석까지 제외하지 않는다.
+- roundup은 새로운 취재나 해석 없이 서로 무관한 헤드라인을 나열한 것이다.
+  여러 현상을 하나의 자본·기술·정책 흐름으로 종합한 기사는 roundup이 아니다.
+- opinion/interview는 개인 의견 자체가 상품인 사설·칼럼·일문일답이다. 기자가
+  복수의 시장 참여자 움직임을 취재한 분석에 인용문이 있다는 이유로 제외하지 않는다.
+- off_topic은 다섯 분야 모두와 관계없는 내용에만 쓴다. 현재분야·피드·사전 신호가
+  틀리거나 비어 있으면 내용에 맞게 재분류한다. 새 딜이나 숫자가 없다는 이유만으로
+  자본·산업 의제의 이동을 off_topic 처리하지 않는다. 정보가 짧으면 확정적 주장을
+  만들지 않되, 제목이 나타내는 시장 변화 자체를 검토한다.
 
 [선정 우선순위]
 1순위: 규제·정책 변화, 시장 구조 변화, 신규 투자·펀드 결성, M&A, IPO,
@@ -204,9 +232,18 @@ keep=false 기사에는 점수를 부여하지 않는다.
   stability_ai_funding_76m, 한국은행의 같은 날 기준금리 인상은
   bank_of_korea_rate_hike_2026_08_27 로 쓴다.
 
+[공통 의제]
+- keep=true 기사에는 agenda_key 하나를 추가한다. 분야명이 아니라 해당 기사의
+  구체적 시장 흐름(주체/원인 + 변화)을 짧은 영문 스네이크케이스로 표현한다.
+- 다른 회사·언어라도 같은 구조적 변화를 다루면 같은 키를 쓴다. 개별 사건키와는
+  구분한다. 예: ai_datacenter_grid_constraints, european_carbon_market_reform.
+- ai, funding, series_b, market_outlook처럼 광범위한 말만 쓰지 않는다.
+  같은 투자 라운드·금액 표현만 공유하는 다른 업종의 딜은 같은 의제가 아니다.
+- 뚜렷한 공통 의제가 없는 개별 딜·단발 기사, MBB·Big4에는 빈 문자열을 쓴다.
+
 [출력] 후보 전부에 대해 아래 형식의 JSON 만 반환한다. 설명 문장을 쓰지 마라.
 {{"verdicts": [
-  {{"id": 1, "keep": true, "category": "📈 대체투자", "score": 8, "reason": "funding_round", "event_key": "example_funding_series_b", "importance": 2, "importance_reason": "major_deal", "alt_subtype": "venture_growth"}},
+  {{"id": 1, "keep": true, "category": "📈 대체투자", "score": 8, "reason": "funding_round", "event_key": "example_funding_series_b", "importance": 2, "importance_reason": "major_deal", "alt_subtype": "venture_growth", "agenda_key": "", "impact_basis": "", "impact_evidence": ""}},
   {{"id": 2, "keep": false, "reason": "job_posting"}}
 ]}}
 
@@ -345,6 +382,27 @@ def _parse_importance(value: object) -> int:
     return 0
 
 
+def _quoted_input_evidence(article: dict, value: object) -> str:
+    """Check that an attribution is present in the actual visible input."""
+    evidence = str(value or "").strip()
+    if not 8 <= len(evidence) <= 160:
+        return ""
+    description = str(article.get("description") or article.get("summary") or "")[:300]
+    normalize = lambda text: " ".join(str(text).casefold().split())
+    # Do not join fields: a quote must occur within one actual input field.
+    if not any(normalize(evidence) in normalize(text)
+               for text in (article.get("title", ""), description)):
+        return ""
+    return evidence
+
+
+def _grounded_impact_evidence(article: dict, verdict: dict) -> tuple[str, str]:
+    """Validate attribution, not truth: the editor must quote the text it saw."""
+    basis = str(verdict.get("impact_basis") or "")
+    evidence = _quoted_input_evidence(article, verdict.get("impact_evidence"))
+    return (basis, evidence) if basis in _IMPACT_BASES and evidence else ("", "")
+
+
 def _apply(article: dict, verdict: dict, valid_categories: set) -> None:
     keep = _as_bool(verdict.get("keep"))
     article["editor_verdict"] = "keep" if keep else "reject"
@@ -357,6 +415,8 @@ def _apply(article: dict, verdict: dict, valid_categories: set) -> None:
         return
 
     article["editorial_excluded"] = False
+    if str(article.get("filter_reason") or "").startswith("editor:"):
+        article.pop("filter_reason", None)
     event_key = re.sub(
         r"[^a-z0-9가-힣]+",
         "_",
@@ -364,6 +424,14 @@ def _apply(article: dict, verdict: dict, valid_categories: set) -> None:
     ).strip("_")
     if event_key:
         article["editor_event_key"] = event_key[:120]
+    agenda_key = str(verdict.get("agenda_key") or "").strip().casefold()
+    article["editor_agenda_key"] = (
+        agenda_key if re.fullmatch(r"[a-z0-9]+(?:_[a-z0-9]+){2,10}", agenda_key)
+        and len(agenda_key) <= 100 else ""
+    )
+    impact_basis, impact_evidence = _grounded_impact_evidence(article, verdict)
+    article["editor_impact_basis"] = impact_basis
+    article["editor_impact_evidence"] = impact_evidence
     category = verdict.get("category")
     current_category = article.get("category")
     impact_category = next(
@@ -374,10 +442,13 @@ def _apply(article: dict, verdict: dict, valid_categories: set) -> None:
         category == impact_category
         and current_category != impact_category
         and not article.get("impact_content_verified", False)
+        and not impact_evidence
     )
     if unverified_impact_override:
         category = current_category
         article["editor_category_blocked_reason"] = "unverified_impact_override"
+    else:
+        article.pop("editor_category_blocked_reason", None)
     deterministic_category_locked = (
         article.get("category_reason") in {
             "official_insights_source",
@@ -423,6 +494,86 @@ def _apply(article: dict, verdict: dict, valid_categories: set) -> None:
     )
 
 
+def _boundary_candidates(articles: list) -> list:
+    config = EDITOR_BOUNDARY_REVIEW_CONFIG
+    excluded = tuple(config.get("excluded_category_prefixes", ()))
+    reasons = set(config.get("reasons", ()))
+    candidates = [a for a in articles
+                  if a.get("editor_verdict") == "reject"
+                  and a.get("editor_reason") in reasons
+                  and a.get("category") in CATEGORIES
+                  and not str(a.get("category")).startswith(excluded)]
+
+    def rank(article):
+        names = _metadata_values(article.get("source")) + _metadata_values(article.get("feed"))
+        priority = max((RSS_SOURCE_METADATA.get(name, {}).get("priority", 0)
+                        for name in names), default=0)
+        description = str(article.get("description") or article.get("summary") or "")
+        return priority, min(len(description), 300)
+
+    selected = []
+    for category in CATEGORIES:
+        limit = int(config.get("impact_max_articles", 17) if category.startswith("🌱")
+                    else config.get("per_category", 5))
+        selected.extend(sorted((a for a in candidates if a.get("category") == category),
+                               key=rank, reverse=True)[:max(0, limit)])
+    return selected[:max(0, int(config.get("max_articles", 32)))]
+
+
+def _review_boundary_cases(articles: list, api_key: str, valid_categories: set) -> list:
+    """One bounded second look; no automatic rescue or per-article calls."""
+    config = EDITOR_BOUNDARY_REVIEW_CONFIG
+    if not config.get("enabled", False):
+        return []
+    candidates = _boundary_candidates(articles)
+    if not candidates:
+        return []
+    prompt = _build_prompt(candidates, 1) + """
+
+[경계 사례 재검토]
+위 후보는 1차 대량 검토에서 주제 밖 또는 단순 모음으로 제외됐다. 숫자를 채우거나
+이전 판단을 무조건 뒤집으라는 요청이 아니다. 새로운 거래가 없어도 자본의 방향,
+산업 논점, 정책 파급을 종합 취재한 기사인지 원문 근거로 다시 판단한다.
+진짜 행사 홍보·사설·인터뷰·헤드라인 나열은 계속 keep=false다.
+keep=true를 반환할 경우 원문 제목/요약에서 시장 변화 근거를 그대로 인용한
+review_evidence(8~160자), 무엇이 투자환경을 바꾸는지 짧게 설명하는 review_reason을
+추가해야 한다. 원문 근거가 없거나 판단할 수 없으면 keep=false를 유지한다.
+임팩트 분류 근거, 사건키, 공통 의제, 중요도와 점수도 위의 동일 기준을 적용한다.
+"""
+    try:
+        raw, model = _call_llm(prompt, api_key, timeout=int(config.get("timeout", 45)))
+        if raw is None:
+            return ["경계 기사 재검토 실패 — 기존 제외 유지"]
+        verdicts = _parse_verdicts(raw)
+    except Exception as exc:
+        return [f"경계 기사 재검토 실패({type(exc).__name__}) — 기존 제외 유지"]
+
+    restored = 0
+    for index, article in enumerate(candidates, 1):
+        verdict = verdicts.get(index, {})
+        article["editor_boundary_reviewed"] = True
+        if not _as_bool(verdict.get("keep")):
+            continue
+        evidence = _quoted_input_evidence(article, verdict.get("review_evidence"))
+        reason = str(verdict.get("review_reason") or "").strip()
+        if not evidence or not 8 <= len(reason) <= 240 or verdict.get("category") not in valid_categories:
+            continue
+        try:
+            score = float(verdict.get("score"))
+        except (TypeError, ValueError):
+            continue
+        if not 0 <= score <= 10 or not _parse_importance(verdict.get("importance")):
+            continue
+        # Same parser and downstream eligibility/dedup rules as first-pass keep.
+        article["editor_initial_reason"] = article.get("editor_reason")
+        _apply(article, verdict, valid_categories)
+        article["editor_boundary_evidence"] = evidence
+        article["editor_boundary_reason"] = reason
+        restored += 1
+    print(f"경계 기사 재검토({model}): {len(candidates)}건 중 근거 있는 {restored}건 재평가")
+    return []
+
+
 def review(articles: list) -> tuple:
     """기사에 편집 판정을 붙인다.
 
@@ -463,6 +614,8 @@ def review(articles: list) -> tuple:
 
     if not reviewed:
         return None, errors + ["편집 게이트가 한 건도 판정하지 못함 — 폴백"]
+
+    errors.extend(_review_boundary_cases(articles, api_key, valid_categories))
 
     # 응답에서 누락된 기사는 버리지 않는다. 판정 실패로 좋은 기사를 조용히
     # 잃는 것보다, 점수를 낮게 줘 뒤로 밀리게 하는 편이 안전하다.
