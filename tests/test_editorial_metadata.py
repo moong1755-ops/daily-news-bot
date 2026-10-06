@@ -220,6 +220,7 @@ class HighPriorityEditorialPolicyTests(unittest.TestCase):
             with self.subTest(title=candidate["title"]):
                 self.assertTrue(bot._is_vc_pe_eligible(candidate))
 
+    @patch.dict(bot.MAX_PER_CATEGORY_DICT, {IMPACT: 3})
     def test_impact_selection_uses_comparable_non_climate_candidate(self):
         ranked = [
             {
@@ -250,6 +251,7 @@ class HighPriorityEditorialPolicyTests(unittest.TestCase):
             item["title"] for item in selected
         })
 
+    @patch.dict(bot.MAX_PER_CATEGORY_DICT, {IMPACT: 3})
     def test_impact_selection_does_not_force_weak_theme_diversity(self):
         ranked = [
             {
@@ -309,6 +311,7 @@ class HighPriorityEditorialPolicyTests(unittest.TestCase):
         self.assertEqual(len(balanced), 3)
         self.assertIs(balanced[-1], domestic)
 
+    @patch.dict(bot.MAX_PER_CATEGORY_DICT, {IMPACT: 3})
     def test_llm_fallback_path_also_balances_impact_themes(self):
         selected = [
             {

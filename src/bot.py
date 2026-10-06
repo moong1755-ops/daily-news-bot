@@ -20,7 +20,7 @@ except ImportError:
         HAS_NEWSLETTERS = False
         print("ℹ️ 뉴스레터/Gmail 모듈을 찾을 수 없어 수집 단계에서 제외합니다.")
 
-from .processor import agenda, editor
+from .processor import agenda, editor, impact
 from .processor.deduplicator import (
     collapse_editor_event_duplicates,
     deduplicate_and_merge,
@@ -1080,6 +1080,12 @@ def _is_sendable(article: dict) -> bool:
 def _select_category_articles(ranked: list, category: str) -> list:
     """Apply category caps after importance-first ranking."""
     base_limit = MAX_PER_CATEGORY_DICT.get(category, MAX_PER_CATEGORY)
+    if category == IMPACT_CATEGORY:
+        final = impact.selected(ranked)
+        if final is not None:
+            # The final desk owns both order and count. Never re-fill its omissions
+            # or re-sort it by the old, context-free article scores.
+            return filter_near_duplicates(final, SELECTION_SIMILARITY_THRESHOLD)
 
     # 거시는 같은 중앙은행 금리 이벤트의 본 결정/전망/코멘트가 서로
     # 슬롯을 잡아먹기 전에 대표기사 하나로 접는다. 대표는 본 결정이 우선한다.
@@ -1374,8 +1380,12 @@ def review_final_agenda(articles: list, coverage_articles: list) -> tuple:
         [article for article in articles if _is_sendable(article)],
         EDITOR_EVENT_CATEGORY_PRIORITY,
     )
-    errors = agenda.review(survivors, coverage_articles=coverage_articles)
-    agenda.apply_promotions(survivors)
+    # Impact now has a whole-field final desk, not a second additive boost.
+    other_articles = [article for article in survivors if not impact.is_impact(article)]
+    other_coverage = [article for article in coverage_articles if not impact.is_impact(article)]
+    errors = agenda.review(other_articles, coverage_articles=other_coverage)
+    agenda.apply_promotions(other_articles)
+    errors.extend(impact.review(survivors))
     return survivors, errors
 
 
@@ -1397,6 +1407,15 @@ def _decision_record(article: dict, verdict: str) -> dict:
         "editor_score": article.get("editor_score"),
         "importance": article.get("importance"),
         "importance_reason": article.get("importance_reason"),
+        "impact_type": article.get("impact_type"),
+        "impact_final_status": article.get("impact_final_status"),
+        "impact_final_rank": article.get("impact_final_rank"),
+        "impact_final_reason": article.get("impact_final_reason"),
+        "impact_final_topic": article.get("impact_final_topic"),
+        "impact_final_evidence": article.get("impact_final_evidence"),
+        "impact_final_event_key": article.get("impact_final_event_key"),
+        "impact_final_extension_reason": article.get("impact_final_extension_reason"),
+        "impact_final_model": article.get("impact_final_model"),
         "alt_subtype": article.get("alt_subtype"),
         "editor_event_key": article.get("editor_event_key"),
         "relevance_signal": article.get("relevance_signal"),
@@ -1465,7 +1484,7 @@ def _format_article_line(article: dict) -> str:
     url = get_primary_link(article) or "#"
     source = clean_source_name(get_primary_source(article) or "출처미상")
     date = fmt_date(article.get("date", ""))
-    return f"• <{url}|{title}> ({source}, {date})"
+    return f"• {impact.label(article)}<{url}|{title}> ({source}, {date})"
 
 
 def _slack_list_items(lines: list) -> list:
@@ -1485,6 +1504,8 @@ def _slack_list_items(lines: list) -> list:
             else:
                 item_elements = [{"type": "text", "text": title}]
             item_elements.append({"type": "text", "text": f" ({source}, {date})"})
+            if impact.label(article):
+                item_elements.insert(0, {"type": "text", "text": impact.label(article)})
 
         list_items.append({
             "type": "rich_text_section",

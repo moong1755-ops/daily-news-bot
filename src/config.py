@@ -132,17 +132,25 @@ CATEGORY_DISPLAY_NAMES = {
     "📈 대체투자": "📈 VC·PE",
 }
 
+# 일간 전용. 6~7번째는 최종 편집에서 별도 가치가 검증된 경우만 허용한다.
+IMPACT_DAILY_CONFIG = {
+    "category": "🌱 임팩트",
+    "base_limit": 5,
+    "max_limit": 7,
+    "summary_chars": 600,
+    "max_input_chars": 100000,
+    "timeout": 45,
+    "labels": {"industry": "산업", "policy": "정책", "investment": "투자"},
+}
 MAX_PER_CATEGORY_DICT = {
-    "🌱 임팩트": 3,
+    "🌱 임팩트": IMPACT_DAILY_CONFIG["base_limit"],
     "🤖 AI": 3,
     "📈 대체투자": 3,
     "🌐 거시·정책·지정학": 3,
     "👔 MBB·Big4 인사이트": 3,
 }
 MAX_PER_CATEGORY = 3
-# 임팩트는 필수 카테고리지만 Slack의 일간 상한은 다른 카테고리와 동일하게
-# 3개다. impact_must_read는 3개 안에서 우선순위만 높이고 개수를 늘리지 않는다.
-IMPACT_MUST_READ_MAX = 3
+IMPACT_MUST_READ_MAX = IMPACT_DAILY_CONFIG["base_limit"]
 ALTERNATIVE_MAJOR_DEAL_MAX = 6
 LLM_CANDIDATES_PER_CATEGORY = 12
 IMPACT_CANDIDATES_PER_THEME = 3
@@ -157,7 +165,7 @@ LLM_SEND_MIN_SCORE = 0
 # 이 점수 차이 안에 있으면 국내 자료 1건을 포함할 수 있다.
 INSIGHTS_DOMESTIC_SCORE_TOLERANCE = 1.0
 
-# 임팩트 상위 3건이 모두 기후·ESG에 몰렸을 때, 돌봄·헬스케어·교육·포용·
+# 임팩트 기본 선정분이 모두 기후·ESG에 몰렸을 때, 돌봄·헬스케어·교육·포용·
 # 순환경제 후보가 마지막 선정 기사와 이 점수 차이 안이면 한 자리를 교체한다.
 # 절대 컷이나 강제 할당이 아니라 동급 후보 사이의 다양성 보정이다.
 IMPACT_THEME_DIVERSITY_SCORE_TOLERANCE = 1.0

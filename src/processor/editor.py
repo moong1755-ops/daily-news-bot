@@ -18,7 +18,7 @@ import os
 import re
 from urllib.parse import urlsplit
 
-from ..config import CATEGORIES, EDITOR_BOUNDARY_REVIEW_CONFIG, RSS_SOURCE_METADATA
+from ..config import CATEGORIES, EDITOR_BOUNDARY_REVIEW_CONFIG, RSS_SOURCE_METADATA, IMPACT_DAILY_CONFIG
 from ..editorial_review import (
     VALID_ALT_SUBTYPES as ALT_SUBTYPES,
     VALID_IMPORTANCE_REASONS as IMPORTANCE_REASONS,
@@ -233,6 +233,8 @@ keep=false 기사에는 점수를 부여하지 않는다.
   bank_of_korea_rate_hike_2026_08_27 로 쓴다.
 
 [공통 의제]
+- 임팩트 기사에는 impact_type을 industry(산업·기술·수요 변화), policy(규제·제도),
+  investment(투자·M&A·펀드·자본 이동) 중 핵심 내용 하나로 표시한다. 다른 분야는 빈 문자열.
 - keep=true 기사에는 agenda_key 하나를 추가한다. 분야명이 아니라 해당 기사의
   구체적 시장 흐름(주체/원인 + 변화)을 짧은 영문 스네이크케이스로 표현한다.
 - 다른 회사·언어라도 같은 구조적 변화를 다루면 같은 키를 쓴다. 개별 사건키와는
@@ -432,6 +434,10 @@ def _apply(article: dict, verdict: dict, valid_categories: set) -> None:
     impact_basis, impact_evidence = _grounded_impact_evidence(article, verdict)
     article["editor_impact_basis"] = impact_basis
     article["editor_impact_evidence"] = impact_evidence
+    impact_type = verdict.get("impact_type")
+    article["impact_type"] = (
+        impact_type if isinstance(impact_type, str) and impact_type in IMPACT_DAILY_CONFIG["labels"] else ""
+    )
     category = verdict.get("category")
     current_category = article.get("category")
     impact_category = next(

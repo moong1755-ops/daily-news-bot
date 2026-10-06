@@ -318,7 +318,7 @@ class AgendaFlowTests(unittest.TestCase):
     def test_agenda_runs_only_after_article_selection_and_dedup(self):
         from src import bot
 
-        candidate = article("Climate investment policy changes", "Reuters")
+        candidate = article("Climate investment policy changes", "Reuters", MACRO)
         candidate.pop("editor_verdict")
 
         def edit(items):
@@ -377,8 +377,8 @@ class AgendaFlowTests(unittest.TestCase):
 
     def test_previous_sent_article_is_evidence_not_representative(self):
         from src import bot
-        old = article("Helios raises $100 million for AI power grid capacity", "Reuters", score=9, importance=3)
-        fresh = article("Grid operators expand investment as AI demand grows", "Bloomberg")
+        old = article("Helios raises $100 million for AI power grid capacity", "Reuters", AI, score=9, importance=3)
+        fresh = article("Grid operators expand investment as AI demand grows", "Bloomberg", AI)
         old["editor_event_key"] = "helios_funding_100m"
         fresh["editor_event_key"] = "grid_operators_capex_increase"
         for item in (old, fresh):

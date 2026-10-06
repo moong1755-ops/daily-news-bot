@@ -1543,7 +1543,7 @@ class SelectionAndDateTests(unittest.TestCase):
 
         selected = _fallback_rule_based(buckets, CATEGORY_ORDER)
 
-        self.assertEqual(sum(a["category"] == IMPACT for a in selected), 3)
+        self.assertEqual(sum(a["category"] == IMPACT for a in selected), 4)
         self.assertEqual(sum(a["category"] == ALTERNATIVE for a in selected), 5)
         self.assertEqual(sum(a["category"] == AI for a in selected), 3)
 
@@ -1554,7 +1554,7 @@ class SelectionAndDateTests(unittest.TestCase):
                 "source": "ImpactOn",
                 "category": IMPACT,
             }
-            for index in range(3)
+            for index in range(5)
         ] + [{
             "title": "ImpactAlpha article",
             "source": "ImpactAlpha",
@@ -1567,10 +1567,10 @@ class SelectionAndDateTests(unittest.TestCase):
         ):
             selected = _select_category_articles(ranked, IMPACT)
 
-        self.assertEqual(len(selected), 3)
+        self.assertEqual(len(selected), 5)
         self.assertEqual(
             [article["source"] for article in selected],
-            ["ImpactOn", "ImpactOn", "ImpactAlpha"],
+            ["ImpactOn", "ImpactOn", "ImpactAlpha", "ImpactOn", "ImpactOn"],
         )
 
     def test_final_impact_selection_does_not_stop_at_two_with_one_source(self):
