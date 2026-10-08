@@ -42,6 +42,36 @@ class EditorGateTestCase(unittest.TestCase):
         self.assertEqual(articles[0]["filter_reason"], "editor:job_posting")
         self.assertTrue(articles[0]["editorial_excluded"])
 
+    def test_impact_evidence_must_be_grounded_in_visible_input(self):
+        candidate = _article("Software company acquires healthcare platform", category="📈 대체투자")
+        verdict = {"keep": True, "category": "🌱 임팩트", "score": 7,
+                   "impact_basis": "social_access", "impact_evidence": "reduces patient costs"}
+        editor._apply(candidate, verdict, set(editor.CATEGORIES))
+        self.assertEqual(candidate["category"], "📈 대체투자")
+        self.assertEqual(candidate["editor_impact_evidence"], "")
+
+        candidate["description"] = "A national programme reduces patient costs for underserved communities."
+        editor._apply(candidate, verdict, set(editor.CATEGORIES))
+        self.assertEqual(candidate["category"], "🌱 임팩트")
+        self.assertEqual(candidate["editor_impact_basis"], "social_access")
+
+    def test_unseen_description_suffix_cannot_supply_impact_evidence(self):
+        candidate = _article("Software acquisition", category="📈 대체투자",
+                             description="x" * 301 + " reduces patient costs")
+        editor._apply(candidate, {"keep": True, "category": "🌱 임팩트", "score": 7,
+                                 "impact_basis": "social_access",
+                                 "impact_evidence": "reduces patient costs"}, set(editor.CATEGORIES))
+        self.assertEqual(candidate["category"], "📈 대체투자")
+
+    def test_agenda_key_is_bounded_and_not_a_single_generic_word(self):
+        candidate = _article("A market story")
+        for invalid in ("funding", "series_b", ["some", "data"], "a_" * 100):
+            editor._apply(candidate, {"keep": True, "agenda_key": invalid}, set(editor.CATEGORIES))
+            self.assertEqual(candidate["editor_agenda_key"], "")
+        editor._apply(candidate, {"keep": True, "agenda_key": "ai_datacenter_grid_constraints"},
+                      set(editor.CATEGORIES))
+        self.assertEqual(candidate["editor_agenda_key"], "ai_datacenter_grid_constraints")
+
     def test_string_false_is_not_mistaken_for_keep(self):
         """Some models occasionally serialize a boolean as a string."""
         articles = [_article("근거 없는 시장 소문")]
@@ -445,6 +475,89 @@ class GateReplacesRerankerTestCase(unittest.TestCase):
             reverse=True,
         )
         self.assertEqual(ranked[0]["title"], "높은 점수")
+
+
+class BoundaryReviewTests(unittest.TestCase):
+    def candidate(self, category="🌱 임팩트", reason="off_topic"):
+        item = _article(
+            "Capital shifts toward energy security",
+            description="Investors shift capital from carbon pledges to reliable clean power.",
+            category=category, feed="TechCrunch Climate",
+        )
+        editor._apply(item, {"keep": False, "reason": reason}, set(editor.CATEGORIES))
+        return item
+
+    def verdict(self, **extra):
+        return {"id": 1, "keep": True, "category": "🌱 임팩트", "score": 7,
+                "importance": 2, "importance_reason": "industry_shift",
+                "event_key": "energy_security_capital_shift",
+                "agenda_key": "clean_energy_capital_reallocation",
+                "impact_basis": "climate_transition",
+                "impact_evidence": "Investors shift capital from carbon pledges to reliable clean power.",
+                "review_evidence": "Investors shift capital from carbon pledges to reliable clean power.",
+                "review_reason": "취재 내용에 청정전력 자본 배분의 변화가 있음", **extra}
+
+    def test_restoration_requires_grounded_evidence_and_clears_old_reject(self):
+        item = self.candidate()
+        with _llm({"verdicts": [self.verdict()]}):
+            errors = editor._review_boundary_cases([item], "test", set(editor.CATEGORIES))
+        self.assertEqual(errors, [])
+        self.assertEqual(item["editor_verdict"], "keep")
+        self.assertEqual(item["editor_initial_reason"], "off_topic")
+        self.assertNotIn("filter_reason", item)
+        self.assertFalse(item["editorial_excluded"])
+
+    def test_missing_or_invented_evidence_does_not_rescue(self):
+        for quote in ("", "Investors doubled clean power funding"):
+            item = self.candidate()
+            with _llm({"verdicts": [self.verdict(review_evidence=quote)]}):
+                editor._review_boundary_cases([item], "test", set(editor.CATEGORIES))
+            self.assertEqual(item["editor_verdict"], "reject")
+
+    def test_ads_jobs_and_mbb_never_enter_boundary_review(self):
+        items = [self.candidate(reason="job_posting"), self.candidate(reason="event_promo"),
+                 self.candidate(reason="pr_promo"), self.candidate("👔 MBB·Big4 인사이트")]
+        with mock.patch.object(editor, "_call_llm") as call:
+            self.assertEqual(editor._review_boundary_cases(items, "test", set(editor.CATEGORIES)), [])
+        call.assert_not_called()
+
+    def test_category_budgets_and_one_call(self):
+        items = [self.candidate(category) for category in editor.CATEGORIES for _ in range(40)]
+        selected = editor._boundary_candidates(items)
+        self.assertEqual(len(selected), 32)
+        self.assertEqual(sum(a["category"] == "🌱 임팩트" for a in selected), 17)
+        with mock.patch.object(editor, "_call_llm", return_value=('{"verdicts":[]}', "test")) as call:
+            editor._review_boundary_cases(items, "test", set(editor.CATEGORIES))
+        call.assert_called_once()
+
+    def test_failed_review_preserves_existing_rejections(self):
+        item = self.candidate()
+        before = dict(item)
+        with mock.patch.object(editor, "_call_llm", side_effect=TimeoutError):
+            errors = editor._review_boundary_cases([item], "test", set(editor.CATEGORIES))
+        self.assertTrue(errors)
+        self.assertEqual(item, before)
+
+    def test_full_editor_flow_reconsiders_only_ambiguous_rejects(self):
+        item = self.candidate()
+        item.pop("editor_verdict")
+        replies = [
+            (json.dumps({"verdicts": [{"id": 1, "keep": False, "reason": "roundup"}]}), "test"),
+            (json.dumps({"verdicts": [self.verdict()]}), "test"),
+        ]
+        with mock.patch.dict(os.environ, {"GEMINI_API_KEY": "test"}), mock.patch.object(
+            editor, "_call_llm", side_effect=replies
+        ) as call:
+            kept, errors = editor.review([item])
+        self.assertEqual(kept, [item])
+        self.assertEqual(errors, [])
+        self.assertEqual(call.call_count, 2)
+        self.assertEqual(item["editor_initial_reason"], "roundup")
+
+    def test_verified_climate_feed_is_collected_via_config(self):
+        from src.config import ALL_FEEDS, RSS_SOURCE_METADATA
+        self.assertEqual(ALL_FEEDS["TechCrunch Climate"], "https://techcrunch.com/category/climate/feed/")
+        self.assertEqual(RSS_SOURCE_METADATA["TechCrunch Climate"]["category"], "🌱 임팩트")
 
 
 if __name__ == "__main__":

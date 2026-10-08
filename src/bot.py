@@ -20,7 +20,7 @@ except ImportError:
         HAS_NEWSLETTERS = False
         print("ℹ️ 뉴스레터/Gmail 모듈을 찾을 수 없어 수집 단계에서 제외합니다.")
 
-from .processor import editor
+from .processor import agenda, editor, impact
 from .processor.deduplicator import (
     collapse_editor_event_duplicates,
     deduplicate_and_merge,
@@ -1080,6 +1080,12 @@ def _is_sendable(article: dict) -> bool:
 def _select_category_articles(ranked: list, category: str) -> list:
     """Apply category caps after importance-first ranking."""
     base_limit = MAX_PER_CATEGORY_DICT.get(category, MAX_PER_CATEGORY)
+    if category == IMPACT_CATEGORY:
+        final = impact.selected(ranked)
+        if final is not None:
+            # The final desk owns both order and count. Never re-fill its omissions
+            # or re-sort it by the old, context-free article scores.
+            return filter_near_duplicates(final, SELECTION_SIMILARITY_THRESHOLD)
 
     # 거시는 같은 중앙은행 금리 이벤트의 본 결정/전망/코멘트가 서로
     # 슬롯을 잡아먹기 전에 대표기사 하나로 접는다. 대표는 본 결정이 우선한다.
@@ -1368,6 +1374,21 @@ def select_for_briefing(classified: list) -> tuple:
     return classified, rejected, errors
 
 
+def review_final_agenda(articles: list, coverage_articles: list) -> tuple:
+    """중복 제거 후 살아남은 기사만 대표로 고르고 원래 보도량은 참고한다."""
+    survivors = collapse_editor_event_duplicates(
+        [article for article in articles if _is_sendable(article)],
+        EDITOR_EVENT_CATEGORY_PRIORITY,
+    )
+    # Impact now has a whole-field final desk, not a second additive boost.
+    other_articles = [article for article in survivors if not impact.is_impact(article)]
+    other_coverage = [article for article in coverage_articles if not impact.is_impact(article)]
+    errors = agenda.review(other_articles, coverage_articles=other_coverage)
+    agenda.apply_promotions(other_articles)
+    errors.extend(impact.review(survivors))
+    return survivors, errors
+
+
 def _decision_record(article: dict, verdict: str) -> dict:
     """평가셋 구축과 사후 추적에 필요한 필드만 추린다."""
     return {
@@ -1386,6 +1407,15 @@ def _decision_record(article: dict, verdict: str) -> dict:
         "editor_score": article.get("editor_score"),
         "importance": article.get("importance"),
         "importance_reason": article.get("importance_reason"),
+        "impact_type": article.get("impact_type"),
+        "impact_final_status": article.get("impact_final_status"),
+        "impact_final_rank": article.get("impact_final_rank"),
+        "impact_final_reason": article.get("impact_final_reason"),
+        "impact_final_topic": article.get("impact_final_topic"),
+        "impact_final_evidence": article.get("impact_final_evidence"),
+        "impact_final_event_key": article.get("impact_final_event_key"),
+        "impact_final_extension_reason": article.get("impact_final_extension_reason"),
+        "impact_final_model": article.get("impact_final_model"),
         "alt_subtype": article.get("alt_subtype"),
         "editor_event_key": article.get("editor_event_key"),
         "relevance_signal": article.get("relevance_signal"),
@@ -1393,6 +1423,22 @@ def _decision_record(article: dict, verdict: str) -> dict:
         "deal_signals": article.get("deal_signals"),
         "selection_adjustments": article.get("selection_adjustments"),
         "selection_score_adjustment": article.get("selection_score_adjustment"),
+        "agenda_topic": article.get("agenda_topic"),
+        "editor_agenda_key": article.get("editor_agenda_key"),
+        "editor_impact_basis": article.get("editor_impact_basis"),
+        "editor_impact_evidence": article.get("editor_impact_evidence"),
+        "editor_boundary_reviewed": article.get("editor_boundary_reviewed", False),
+        "editor_initial_reason": article.get("editor_initial_reason"),
+        "editor_boundary_evidence": article.get("editor_boundary_evidence"),
+        "editor_boundary_reason": article.get("editor_boundary_reason"),
+        "coverage_sources": article.get("coverage_sources", []),
+        "agenda_strength": article.get("agenda_strength"),
+        "agenda_basis": article.get("agenda_basis"),
+        "agenda_reason": article.get("agenda_reason"),
+        "agenda_source_count": article.get("agenda_source_count"),
+        "agenda_evidence": article.get("agenda_evidence", []),
+        "agenda_target_category": article.get("agenda_target_category"),
+        "agenda_promoted": article.get("agenda_promoted", False),
     }
 
 
@@ -1438,7 +1484,7 @@ def _format_article_line(article: dict) -> str:
     url = get_primary_link(article) or "#"
     source = clean_source_name(get_primary_source(article) or "출처미상")
     date = fmt_date(article.get("date", ""))
-    return f"• <{url}|{title}> ({source}, {date})"
+    return f"• {impact.label(article)}<{url}|{title}> ({source}, {date})"
 
 
 def _slack_list_items(lines: list) -> list:
@@ -1458,6 +1504,8 @@ def _slack_list_items(lines: list) -> list:
             else:
                 item_elements = [{"type": "text", "text": title}]
             item_elements.append({"type": "text", "text": f" ({source}, {date})"})
+            if impact.label(article):
+                item_elements.insert(0, {"type": "text", "text": impact.label(article)})
 
         list_items.append({
             "type": "rich_text_section",
@@ -1814,6 +1862,9 @@ def main():
     classified, gate_rejected, gate_errors = select_for_briefing(classified)
     rejected.extend(gate_rejected)
     all_errors.extend(gate_errors)
+    # 과거 발송분과 오늘 중복을 제거하더라도 실제 관측한 출처/의제는 보존한다.
+    # 이 목록은 보도 집중도 근거일 뿐, 제외 기사를 다시 발송하지 않는다.
+    agenda_coverage = list(classified)
 
     # Gemini가 붙인 사건키를 최근 성공 발송 기록과 비교한다. 매체·금액·
     # 제목이 달라도 같은 자금조달·M&A·IPO·정책·미 10년물 사건은 한 번만
@@ -1835,6 +1886,14 @@ def main():
     sent_articles = []
     delivery_failed = False
     if classified:
+        before_agenda = classified
+        classified, agenda_errors = review_final_agenda(classified, agenda_coverage)
+        survivor_ids = {id(article) for article in classified}
+        for article in before_agenda:
+            if id(article) not in survivor_ids:
+                article.setdefault("filter_reason", "final_duplicate_or_unsendable")
+                rejected.append(article)
+        all_errors.extend(agenda_errors)
         success, sent_articles = send_aggregated_slack_news(classified)
         delivery_failed = not success
         if success and not is_dry_run():

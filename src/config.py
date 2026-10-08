@@ -132,17 +132,25 @@ CATEGORY_DISPLAY_NAMES = {
     "📈 대체투자": "📈 VC·PE",
 }
 
+# 일간 전용. 6~7번째는 최종 편집에서 별도 가치가 검증된 경우만 허용한다.
+IMPACT_DAILY_CONFIG = {
+    "category": "🌱 임팩트",
+    "base_limit": 5,
+    "max_limit": 7,
+    "summary_chars": 600,
+    "max_input_chars": 100000,
+    "timeout": 45,
+    "labels": {"industry": "산업", "policy": "정책", "investment": "투자"},
+}
 MAX_PER_CATEGORY_DICT = {
-    "🌱 임팩트": 3,
+    "🌱 임팩트": IMPACT_DAILY_CONFIG["base_limit"],
     "🤖 AI": 3,
     "📈 대체투자": 3,
     "🌐 거시·정책·지정학": 3,
     "👔 MBB·Big4 인사이트": 3,
 }
 MAX_PER_CATEGORY = 3
-# 임팩트는 필수 카테고리지만 Slack의 일간 상한은 다른 카테고리와 동일하게
-# 3개다. impact_must_read는 3개 안에서 우선순위만 높이고 개수를 늘리지 않는다.
-IMPACT_MUST_READ_MAX = 3
+IMPACT_MUST_READ_MAX = IMPACT_DAILY_CONFIG["base_limit"]
 ALTERNATIVE_MAJOR_DEAL_MAX = 6
 LLM_CANDIDATES_PER_CATEGORY = 12
 IMPACT_CANDIDATES_PER_THEME = 3
@@ -157,10 +165,52 @@ LLM_SEND_MIN_SCORE = 0
 # 이 점수 차이 안에 있으면 국내 자료 1건을 포함할 수 있다.
 INSIGHTS_DOMESTIC_SCORE_TOLERANCE = 1.0
 
-# 임팩트 상위 3건이 모두 기후·ESG에 몰렸을 때, 돌봄·헬스케어·교육·포용·
+# 임팩트 기본 선정분이 모두 기후·ESG에 몰렸을 때, 돌봄·헬스케어·교육·포용·
 # 순환경제 후보가 마지막 선정 기사와 이 점수 차이 안이면 한 자리를 교체한다.
 # 절대 컷이나 강제 할당이 아니라 동급 후보 사이의 다양성 보정이다.
 IMPACT_THEME_DIVERSITY_SCORE_TOLERANCE = 1.0
+
+# 여러 매체가 동시에 다루는 시장 의제를 기사 단위 점수와 별도로 읽는다.
+# MBB·Big4는 보도 집중도보다 공식 보고서 자체의 품질이 중요하므로 제외한다.
+# 기사 전문을 다시 보내지 않고 분야별 상위 주제 카드만 한 번 검토해 비용과
+# 실행 시간을 제한한다. 실패하면 기존 기사 단위 선정 결과를 그대로 사용한다.
+AGENDA_FLOW_CONFIG = {
+    "enabled": True,
+    "excluded_category_prefixes": ("👔",),
+    "max_topic_cards": 16,
+    "max_titles_per_card": 3,
+    "max_selected_topics": 5,
+    "min_independent_sources": 2,
+    "score_boost": {2: 0.5, 3: 1.0},
+    # 의제 판단 하나가 기사 중요도를 한 번에 여러 단계 뒤집지 않게 한다.
+    "max_importance_step": 1,
+}
+
+# 대량 편집에서 애매하게 제외된 시장 흐름 보도만 한 번 재검토한다.
+# 확정 노이즈는 대상이 아니며, 근거 인용이 없거나 재검토 실패 시 기존 제외 유지.
+EDITOR_BOUNDARY_REVIEW_CONFIG = {
+    "enabled": True,
+    "reasons": ("off_topic", "roundup"),
+    "excluded_category_prefixes": ("👔",),
+    "max_articles": 32,
+    "per_category": 5,
+    "impact_max_articles": 17,
+    "timeout": 45,
+}
+
+# 포털 주소는 원 발행사가 아니다. 등록된 RSS의 매체명/도메인은 자동으로
+# 연결하고, RSS 밖에서 들어오는 주요 표기 차이만 여기서 보완한다.
+PUBLISHER_ALIASES = {
+    "reuters": "reuters.com", "로이터": "reuters.com",
+    "bloomberg": "bloomberg.com", "블룸버그": "bloomberg.com",
+    "techcrunch": "techcrunch.com",
+    "임팩트온": "impacton.net", "impacton": "impacton.net",
+    "연합뉴스": "yna.co.kr", "yonhap": "yna.co.kr",
+    "한국경제": "hankyung.com", "한경": "hankyung.com",
+}
+PUBLISHER_AGGREGATOR_DOMAINS = (
+    "google.com", "naver.com", "daum.net", "yahoo.com", "feedburner.com",
+)
 
 # 기사 자격은 유지하지만 상대 순위만 낮출 항목. 값은 최종 선정 점수에 더한다.
 SELECTION_SCORE_ADJUSTMENTS = {
@@ -489,6 +539,7 @@ RSS_SOURCE_METADATA = {
     "SSIR": {"url": "https://ssir.org/site/rss_2.0/", "category": "🌱 임팩트", "tier": "primary", "priority": 5},
     "Pioneers Post": {"url": "https://www.pioneerspost.com/rss.xml", "category": "🌱 임팩트", "tier": "primary", "priority": 5},
     "Carbon Brief": {"url": "https://www.carbonbrief.org/feed/", "category": "🌱 임팩트", "tier": "primary", "priority": 5},
+    "TechCrunch Climate": {"url": "https://techcrunch.com/category/climate/feed/", "category": "🌱 임팩트", "tier": "primary", "priority": 5},
     "Responsible Investor": {"url": "https://www.responsible-investor.com/feed/", "category": "🌱 임팩트", "tier": "primary", "priority": 5},
     "ImpactOn (임팩트온)": {"url": "https://news.google.com/rss/search?q=(site:impacton.net)+when:3d&hl=ko&gl=KR&ceid=KR:ko", "category": "🌱 임팩트", "tier": "supplemental", "priority": 4},
     "Canary Media": {"url": "https://www.canarymedia.com/rss", "category": "🌱 임팩트", "tier": "supplemental", "priority": 4},
@@ -916,6 +967,7 @@ VERIFIED_RSS_SOURCE_NAMES = frozenset({
     "Carbon Brief",
     "Responsible Investor",
     "TechCrunch AI",
+    "TechCrunch Climate",
     "MIT Tech Review (AI)",
     "SemiAnalysis",
     "PE Hub",
