@@ -44,8 +44,9 @@ class ImpactFinalTests(unittest.TestCase):
             cards = json.loads(prompt.split("[후보]\n", 1)[1])
             selected = build(cards)
             selected_ids = {row["id"] for row in selected}
-            omitted = [{"ids": [c["id"] for c in cards if c["id"] not in selected_ids],
-                        "reason": "선정된 구조적 정책 변화보다 시장 영향이 작음"}]
+            omitted = [{"ids": [c["id"]],
+                        "reason": f"{c['title']}: 선정된 구조적 정책 변화보다 시장 영향이 작음"}
+                       for c in cards if c["id"] not in selected_ids]
             return json.dumps({"selected": selected, "omitted": omitted}, ensure_ascii=False), "fixture"
         with patch.object(impact, "generate_editor_json", side_effect=respond):
             return impact.review(articles)
@@ -179,6 +180,30 @@ class ImpactFinalTests(unittest.TestCase):
             decision(cards[0], event_key="new_key_a"),
             decision(cards[1], event_key="new_key_b"),
         ]))
+
+    def test_different_transactions_with_same_investor_can_both_be_selected(self):
+        articles = [article(1, title="North Fund receives a pension fund commitment",
+                            editor_event_key="north_fund_lp_commitment"),
+                    article(2, title="North Fund finances a thermal storage project",
+                            editor_event_key="north_project_financing")]
+        self.assertEqual(self.review(articles, lambda cards: [decision(c) for c in cards]), [])
+        self.assertEqual(len(impact.selected(articles)), 2)
+
+    def test_bulk_omission_reason_is_rejected(self):
+        articles = [article(1), article(2)]
+        response = {"selected": [], "omitted": [
+            {"ids": ["I1", "I2"], "reason": "유사한 대규모 투자 소식"}]}
+        with patch.object(impact, "generate_editor_json", return_value=(json.dumps(response), "fixture")):
+            self.assertTrue(impact.review(articles))
+        self.assertIsNone(impact.selected(articles))
+
+    def test_prompt_distinguishes_research_and_evidence_stages(self):
+        # Prompt contract only: live model quality still needs an offline delivery run.
+        prompt = impact._prompt([])
+        self.assertIn("실증 분석", prompt)
+        self.assertIn("칼럼·사설은 기존 원칙대로 제외", prompt)
+        self.assertIn("투자 약속을 집행 완료나 사회적 성과로 표현하지 않는다", prompt)
+        self.assertIn("표본·방법·기간", prompt)
 
 
 if __name__ == "__main__":

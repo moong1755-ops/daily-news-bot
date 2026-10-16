@@ -82,6 +82,21 @@ def _prompt(cards):
 동일 사건은 대표 하나. 같은 회사의 다른 사건은 허용. 같은 흐름의 서로 다른
 정책과 투자 사건은 각각 중요한 경우 허용한다. event_key는 주제가 아닌 구체 사건이다.
 
+[혼동 방지 — 반드시 적용]
+- 같은 투자자·업종·큰 금액은 동일 사건의 근거가 아니다. 펀드 출자와 개별 프로젝트
+  금융은 자금의 수취인·용도·거래 단계가 다른 별도 사건이다. 각 사건의 추가 가치를
+  비교한다. 단순히 '유사한 투자 소식'이라는 이유로 제외하거나 강제로 통합하지 않는다.
+- 기본 한도까지 골랐더라도, 남은 후보에 별도 상용화·구매계약·제도 변화가 있으면
+  추가 선정 또는 기존 기사 교체를 검토한다. 같은 분야라는 이유로 추가 가치를 무시하지 않는다.
+- 연구 결과를 취재한 보도, 실증 분석, 기술 상용화 분석은 오피니언과 다르다.
+  '단일 투자/정책 사건이 아니다' 또는 '분석 기사다'만으로 제외하지 않는다.
+  새로운 근거·발표 시점·투자 판단의 의미를 평가한다. 칼럼·사설은 기존 원칙대로 제외한다.
+- 발표·약속, 계약·출자 약정, 실제 집행·운영, 측정된 성과를 구분한다.
+  투자 약속을 집행 완료나 사회적 성과로 표현하지 않는다. 연구의 표본·방법·기간이
+  주어지지 않으면 제목의 개선 수치만으로 효과가 입증됐다고 단정하지 않는다.
+  근거가 부족하면 부족하다고 적는다. 기업의 '사회적 책임 실천' 자체는 선정 이유가 아니다.
+  구체적인 비용·수요·규제·사업성 변화가 있을 때 그 의미와 아직 확인되지 않은 점을 적는다.
+
 각 선정 기사 type: industry(산업/기술/수요), policy(규제/제도/공공조달),
 investment(투자유치/M&A/펀드/자본 이동) 중 중심 내용 하나.
 evidence는 해당 후보 title 또는 summary에서 연속된 8자 이상의 원문 그대로 인용.
@@ -92,7 +107,8 @@ JSON만 반환. selected 배열 순서가 최종 발송 순서다:
 "extension_reason":"기본 한도 이내는 빈 문자열"}}],
 "omitted":[{{"ids":["I2"],"reason":"우선순위 비교, 중복, 근거 부족 등 구체적인 미선정 이유"}}]}}
 모든 후보 ID는 selected 또는 omitted 중 정확히 한 번 들어가야 한다.
-같은 제외 이유를 공유하는 기사들은 omitted의 ids에 묶어 응답을 줄인다.
+omitted는 기사별로 하나씩 작성한다(ids 길이는 반드시 1).
+각 기사의 사건명과 고유한 제외 근거를 적는다. 단순히 '다른 기사가 더 중요함'으로 끝내지 않는다.
 
 [후보]
 {json.dumps(cards, ensure_ascii=False, separators=(',', ':'))}
@@ -141,6 +157,8 @@ def _validate(raw, cards):
     for group in omitted:
         if not isinstance(group, dict) or not isinstance(group.get("ids"), list):
             raise ValueError("invalid omission group")
+        if len(group["ids"]) != 1:
+            raise ValueError("each omission requires an article-specific review")
         reason = group.get("reason")
         if not isinstance(reason, str) or not reason.strip():
             raise ValueError("missing omission reason")
