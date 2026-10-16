@@ -8,9 +8,9 @@ import io
 import math
 import os
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
-from html.parser import HTMLParser
+from datetime import date, timedelta
 from typing import Iterable
+from urllib.parse import quote
 
 import requests
 
@@ -18,8 +18,10 @@ from ..config import WEEKLY_MARKET_INDICATORS, WEEKLY_MARKET_SPARKLINE_POINTS
 
 
 FRED_CSV_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv"
+ECOS_SEARCH_URL = "https://ecos.bok.or.kr/api/StatisticSearch"
+ECOS_ROW_LIMIT = 100
 NAVER_INDEX_URL = "https://api.finance.naver.com/siseJson.naver"
-NAVER_FX_URL = "https://finance.naver.com/marketindex/exchangeDailyQuote.naver"
+NAVER_FX_URL = "https://api.stock.naver.com/marketindex/exchange/{code}/prices"
 KRX_API_URLS = {
     "kospi": "https://data-dbg.krx.co.kr/svc/apis/idx/kospi_dd_trd",
     "kosdaq": "https://data-dbg.krx.co.kr/svc/apis/idx/kosdaq_dd_trd",
@@ -89,36 +91,86 @@ def _float(value: object) -> float:
     return result
 
 
-class _ExchangeTable(HTMLParser):
-    """Read only the dated rows of Naver's exchange quote table."""
+def _ecos_url(indicator, auth_key, start_date, end_date, limit=ECOS_ROW_LIMIT):
+    """Keep authenticated request URLs separate from public observation links."""
+    return (
+        f"{ECOS_SEARCH_URL}/{quote(auth_key, safe='')}/json/kr/1/{limit}/"
+        f"{quote(indicator['stat_code'], safe='')}/D/"
+        f"{start_date:%Y%m%d}/{end_date:%Y%m%d}/"
+        f"{quote(indicator['item_code'], safe='')}"
+    )
 
-    def __init__(self):
-        super().__init__()
-        self.rows: list[list[str]] = []
-        self._in_table = False
-        self._row: list[str] = []
-        self._cell: list[str] | None = None
 
-    def handle_starttag(self, tag, attrs):
-        if tag == "table":
-            self._in_table = "tbl_exchange" in dict(attrs).get("class", "").split()
-        elif self._in_table and tag == "tr":
-            self._row = []
-        elif self._in_table and tag == "td":
-            self._cell = []
+def _ecos_rows(payload):
+    if not isinstance(payload, dict) or "RESULT" in payload:
+        raise RuntimeError("ECOS 조회 실패: 인증·요청 항목·자료 제공 상태 확인 필요")
+    result = payload.get("StatisticSearch")
+    if not isinstance(result, dict) or not isinstance(result.get("row"), list):
+        raise RuntimeError("ECOS 통계 응답 형식 오류")
+    rows, count = result["row"], str(result.get("list_total_count", ""))
+    if not count.isascii() or not count.isdecimal() or int(count) != len(rows):
+        raise RuntimeError("ECOS 통계 응답 누락 또는 건수 오류")
+    if len(rows) > ECOS_ROW_LIMIT:
+        raise RuntimeError("ECOS 통계 응답이 주간 조회 한도 초과")
+    return rows
 
-    def handle_data(self, data):
-        if self._cell is not None:
-            self._cell.append(data)
 
-    def handle_endtag(self, tag):
-        if tag == "td" and self._cell is not None:
-            self._row.append("".join(self._cell).strip())
-            self._cell = None
-        elif tag == "tr" and self._in_table and self._row:
-            self.rows.append(self._row)
-        elif tag == "table":
-            self._in_table = False
+def _parse_ecos_points(payload, indicator, collection_start, end_date):
+    points: dict[date, MarketPoint] = {}
+    for row in _ecos_rows(payload):
+        if not isinstance(row, dict) or any(
+            str(row.get(field, "")).strip() != indicator[setting]
+            for field, setting in (
+                ("STAT_CODE", "stat_code"), ("ITEM_CODE1", "item_code"),
+                ("UNIT_NAME", "unit_name"),
+            )
+        ):
+            raise RuntimeError("ECOS 지표 코드 또는 단위 불일치")
+        raw_date = str(row.get("TIME", ""))
+        try:
+            if len(raw_date) != 8 or not raw_date.isascii() or not raw_date.isdecimal():
+                raise ValueError
+            observed_on = date.fromisoformat(raw_date)
+            raw_value = row.get("DATA_VALUE")
+            if raw_value is None or str(raw_value).strip() in ("", "-", "."):
+                continue
+            value = _float(raw_value)
+            if value <= 0:
+                raise ValueError
+        except (TypeError, ValueError):
+            # Do not echo provider text or URLs, which may contain the API key.
+            raise RuntimeError("ECOS 일별 날짜 또는 수치 형식 오류") from None
+        if not collection_start <= observed_on <= end_date:
+            continue
+        if observed_on in points and points[observed_on].value != value:
+            raise RuntimeError("ECOS 같은 날짜의 관측값 충돌")
+        points[observed_on] = MarketPoint(observed_on, value)
+    return tuple(points[day] for day in sorted(points))
+
+
+def _ecos_points(indicator, start_date, end_date, session):
+    auth_key = os.getenv("ECOS_API_KEY", "").strip()
+    if not auth_key or auth_key.casefold() == "sample":
+        raise RuntimeError("ECOS_API_KEY 설정 필요 (공개 sample 키는 운영 수집에 사용하지 않음)")
+    if start_date > end_date:
+        raise RuntimeError("ECOS 조회 날짜 범위 오류")
+    collection_start = start_date - timedelta(days=10)
+    try:
+        response = session.get(
+            _ecos_url(indicator, auth_key, collection_start, end_date),
+            headers={"User-Agent": "daily-news-bot/weekly-briefing"},
+            timeout=20,
+            allow_redirects=False,
+        )
+        if response.status_code != 200:
+            raise RuntimeError("ECOS 서버 응답 오류")
+        payload = response.json()
+    except requests.RequestException:
+        # requests exceptions include the authenticated URL; never expose it.
+        raise RuntimeError("ECOS 연결 실패 또는 응답 지연") from None
+    except ValueError:
+        raise RuntimeError("ECOS JSON 응답 형식 오류") from None
+    return _parse_ecos_points(payload, indicator, collection_start, end_date)
 
 
 def _naver_fx_points(indicator, start_date, end_date, session) -> tuple[MarketPoint, ...]:
@@ -127,26 +179,30 @@ def _naver_fx_points(indicator, start_date, end_date, session) -> tuple[MarketPo
     collection_start = start_date - timedelta(days=10)
     for page in range(1, int(indicator.get("history_max_pages", 12)) + 1):
         response = session.get(
-            NAVER_FX_URL,
-            params={"marketindexCd": indicator["marketindex_code"], "page": page},
+            NAVER_FX_URL.format(code=indicator["marketindex_code"]),
+            params={"page": page, "pageSize": int(indicator.get("history_page_size", 20))},
             headers={"User-Agent": "Mozilla/5.0 daily-news-bot/weekly-briefing"},
             timeout=20,
         )
         response.raise_for_status()
-        parser = _ExchangeTable()
-        parser.feed(response.text)
+        rows = response.json()
+        if not isinstance(rows, list):
+            raise RuntimeError("네이버 환율 일별시세 응답이 목록이 아님")
+        if not rows:
+            break
         page_dates = []
-        for row in parser.rows:
-            if len(row) < 2:
+        for row in rows:
+            if not isinstance(row, dict):
                 continue
             try:
-                observed_on = datetime.strptime(row[0], "%Y.%m.%d").date()
-                value = _float(row[1])
-            except (TypeError, ValueError):
+                observed_on = date.fromisoformat(row["localTradedAt"])
+                value = _float(row["closePrice"])
+            except (KeyError, TypeError, ValueError):
                 continue
             page_dates.append(observed_on)
             if collection_start <= observed_on <= end_date and value > 0:
-                points[observed_on] = MarketPoint(observed_on, value)
+                # Page boundaries can repeat a date; keep its first daily quote.
+                points.setdefault(observed_on, MarketPoint(observed_on, value))
         if not page_dates:
             raise RuntimeError("네이버 환율 일별시세 응답에 유효한 날짜 없음")
         if min(page_dates) <= collection_start:
@@ -323,6 +379,8 @@ def _collect_one(
         source_url = str(indicator.get("source_url") or "")
         if indicator["provider"] == "fred":
             points = _fred_points(indicator, start_date, end_date, session)
+        elif indicator["provider"] == "ecos":
+            points = _ecos_points(indicator, start_date, end_date, session)
         elif indicator["provider"] == "naver_fx":
             points = _naver_fx_points(indicator, start_date, end_date, session)
         elif indicator["provider"] == "krx":
@@ -347,6 +405,11 @@ def _collect_one(
         if not points:
             raise RuntimeError("최근 관측값 없음")
         comparison, latest = _weekly_comparison_points(points, start_date, end_date)
+        if provider == "ecos":
+            # Public single-day raw data: no personal key, no sample fallback fetch.
+            source_url = _ecos_url(
+                indicator, "sample", latest.observed_on, latest.observed_on, limit=10
+            )
         display_points = tuple(
             point for point in points if point.observed_on <= latest.observed_on
         )[-point_count:]

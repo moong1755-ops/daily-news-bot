@@ -59,7 +59,7 @@ jobs:
           WEEKLY_SLACK_WEBHOOK_URL: ${{ secrets.WEEKLY_SLACK_WEBHOOK_URL }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          KRX_AUTH_KEY: ${{ secrets.KRX_AUTH_KEY }}
+          ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
           DELIVERY_TARGET: ${{ github.event_name == 'workflow_dispatch' && inputs.delivery_target || 'production' }}
         run: |
           if [[ "$DELIVERY_TARGET" == "test" && -z "$SLACK_WEBHOOK_URL" ]]; then
@@ -73,8 +73,8 @@ jobs:
           if [[ -z "$GEMINI_API_KEY" ]]; then
             echo "::warning::GEMINI_API_KEY가 없어 3줄 요약과 영문 제목은 안전한 원문 대체 경로를 사용합니다."
           fi
-          if [[ -z "$KRX_AUTH_KEY" ]]; then
-            echo "::notice::KRX_AUTH_KEY가 없어 KOSPI·KOSDAQ은 네이버 금융 보조 데이터를 사용합니다."
+          if [[ -z "$ECOS_API_KEY" || "$ECOS_API_KEY" == "sample" ]]; then
+            echo "::warning::ECOS_API_KEY 설정이 필요합니다. KOSPI·KOSDAQ·USD/KRW는 수집 지연으로 표시되며 다른 제공처로 대체하지 않습니다."
           fi
 
       - name: Test editorial policy
@@ -88,7 +88,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
           EDITORIAL_REVIEW_SHEET_URL: ${{ vars.EDITORIAL_REVIEW_SHEET_URL }}
-          KRX_AUTH_KEY: ${{ secrets.KRX_AUTH_KEY }}
+          ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.delivery_target == 'preview' && '1' || '' }}
           WEEKLY_END_DATE: ${{ inputs.end_date || '' }}
           WEEKLY_FORCE_SEND: ${{ github.event_name == 'workflow_dispatch' && inputs.force_send && '1' || '' }}

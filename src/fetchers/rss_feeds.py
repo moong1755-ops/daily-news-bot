@@ -235,42 +235,6 @@ def _get_feed(url: str):
     return feed
 
 
-def _discover_feed_url(original_url: str) -> str:
-    """Try heuristics to find a working feed URL for a site.
-    Return working URL or None."""
-    try:
-        resp = requests.get(original_url, headers=_HEADERS, timeout=10)
-    except Exception:
-        resp = None
-    # If got content and it already looks like RSS/Atom
-    if resp is not None:
-        ctype = resp.headers.get("content-type", "") if resp.headers else ""
-        text_head = resp.text[:2000] if resp is not None else ""
-        if "xml" in ctype.lower() or re.search(r"<\?xml|<rss|<feed", text_head, re.I):
-            return original_url
-        # try to find <link rel="alternate" type="application/rss+xml"
-        m = re.search(r'<link[^>]+type=["\']application/(rss|atom)\+xml["\'][^>]+href=["\']([^"\']+)["\']', resp.text, re.I)
-        if m:
-            href = m.group(2)
-            # absolute?
-            if href.startswith("http"):
-                return href
-            from urllib.parse import urljoin
-            return urljoin(original_url, href)
-
-    # try common suffixes
-    suffixes = ["/feed", "/feed/", "/rss", "/rss.xml", "/atom.xml", "/feeds/posts/default?alt=rss"]
-    for s in suffixes:
-        candidate = original_url.rstrip("/") + s if not original_url.endswith(s) else original_url
-        try:
-            r = requests.get(candidate, headers=_HEADERS, timeout=10)
-            if r.status_code == 200 and ("xml" in r.headers.get("content-type","") or re.search(r"<rss|<feed", r.text, re.I)):
-                return candidate
-        except Exception:
-            pass
-    return None
-
-
 def _gnews_site_fallback_url(original_url: str, source_name: str) -> str:
     """✅ 3단계 안전망: 원본 RSS 사망 시 해당 '도메인 한정' 구글뉴스 검색으로 우회.
     (매체명 검색은 '그 매체에 관한 기사'가 섞이므로 site: 을 사용)"""
@@ -585,32 +549,25 @@ def _fetch_feed_source(
     except Exception as first_err:
         if is_gnews:
             return [], [f"{source_name} ({url}): {first_err}"], []
-
-        discovered = _discover_feed_url(url)
-        if discovered:
-            try:
-                feed = _get_feed(discovered)
-                notices.append(
-                    f"🔍 {source_name}: 발견된 대체 피드로 수집({discovered})"
-                )
-            except Exception:
-                discovered = None
-        if not discovered:
-            try:
-                fallback_url = _gnews_site_fallback_url(url, source_name)
-                feed = _get_feed(fallback_url)
-                if not feed.entries:
-                    raise ValueError("fallback empty")
-                via_fallback = True
-                notices.append(
-                    f"🔁 {source_name}: 원본 RSS 실패 → Google News site: 폴백으로 수집"
-                )
-            except Exception as fallback_error:
-                errors.append(
-                    f"{source_name} ({url}): {first_err} | "
-                    f"폴백 실패: {fallback_error}"
-                )
-                return articles, errors, notices
+        # RSS 주소는 config.py에서 검증·관리한다. 실행할 때마다
+        # /feed, /rss 등을 연속 탐색하면 죽은 피드 하나가 전체
+        # 실행을 1분 이상 지연시킬 수 있다. 원본이 실패하면 바로
+        # 동일 도메인의 Google News 보완 피드로 넘어간다.
+        try:
+            fallback_url = _gnews_site_fallback_url(url, source_name)
+            feed = _get_feed(fallback_url)
+            if not feed.entries:
+                raise ValueError("fallback empty")
+            via_fallback = True
+            notices.append(
+                f"🔁 {source_name}: 원본 RSS 실패 → Google News site: 폴백으로 수집"
+            )
+        except Exception as fallback_error:
+            errors.append(
+                f"{source_name} ({url}): {first_err} | "
+                f"폴백 실패: {fallback_error}"
+            )
+            return articles, errors, notices
 
     parse_as_gnews = is_gnews or via_fallback
 
@@ -621,6 +578,12 @@ def _fetch_feed_source(
         if not raw_title or not link:
             continue
 
+        # Google News 원문 URL 해석은 네트워크 요청을 발생시킬 수 있다.
+        # 날짜 범위 밖 기사를 먼저 제외해 결국 버릴 링크를 풀지 않는다.
+        date_str, include_article = _article_date(entry, source_name, now_utc)
+        if not include_article:
+            continue
+
         gnews_link = ""
         if parse_as_gnews:
             title, display_source = extract_gnews(entry, raw_title, source_name)
@@ -629,10 +592,6 @@ def _fetch_feed_source(
         else:
             title = raw_title
             display_source = source_name
-
-        date_str, include_article = _article_date(entry, source_name, now_utc)
-        if not include_article:
-            continue
 
         description = clean_html(
             entry.get("summary") or entry.get("description") or ""
