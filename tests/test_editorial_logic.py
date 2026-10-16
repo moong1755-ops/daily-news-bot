@@ -23,9 +23,10 @@ def _install_optional_dependency_stubs():
         feedparser.USER_AGENT = ""
         sys.modules["feedparser"] = feedparser
 
-    try:
-        import sentence_transformers  # noqa: F401
-    except ImportError:
+    # 이 파일의 편집 정책 테스트는 실제 임베딩 모델을 쓰지
+    # 않는다. 설치 여부를 확인하려고 무거운 torch 스택을 먼저
+    # import하는 일을 피하고, 모델을 목하는 신호만 제공한다.
+    if "sentence_transformers" not in sys.modules:
         sentence_transformers = types.ModuleType("sentence_transformers")
         sentence_transformers.SentenceTransformer = object
         sys.modules["sentence_transformers"] = sentence_transformers

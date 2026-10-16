@@ -29,6 +29,7 @@ on:
 
 jobs:
   test-editorial-policy:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -57,7 +58,6 @@ jobs:
         run: python -m unittest discover -s tests -v
 
   run-bot:
-    needs: test-editorial-policy
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -82,6 +82,14 @@ jobs:
           key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
           restore-keys: |
             ${{ runner.os }}-pip-
+
+      - name: Cache semantic duplicate model
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/huggingface
+            ~/.cache/torch/sentence_transformers
+          key: semantic-model-${{ runner.os }}-all-MiniLM-L6-v2-v1
 
       - name: Restore semantic duplicate state
         uses: actions/cache@v4
@@ -124,6 +132,13 @@ jobs:
 
       - name: Install dependencies
         run: pip install -r requirements.txt
+
+      # 수동·외부 스케줄 실행은 같은 러너에서 한 번만 설치한 후
+      # 테스트와 발송을 연속 실행한다. PR은 위의 별도 테스트 job을 쓴다.
+      - name: Test editorial policy
+        env:
+          PYTHONIOENCODING: "utf-8"
+        run: python -m unittest discover -s tests -q
 
       - name: Run bot
         env:

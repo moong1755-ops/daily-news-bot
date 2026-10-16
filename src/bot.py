@@ -1814,17 +1814,6 @@ def main():
 
     all_articles = filter_to_as_of_date(all_articles)
 
-    # --- Prepare embedding model + store for cross-day semantic dedupe ---
-    try:
-        from .processor.deduplicator import _get_model as _get_emb_model
-        emb_model = _get_emb_model()
-        from .utils.embedding_store import load_store
-        EMBEDDING_AVAILABLE = True
-    except Exception:
-        emb_model = None
-        load_store = lambda: ([], [])
-        EMBEDDING_AVAILABLE = False
-
     filtered = []
     rejected = []          # 탈락 사유와 함께 판정 로그에 남긴다
     # 게이트가 뒤에서 판단하면 앞단은 값싼 차단만 하고 주제 판정은 넘긴다.
@@ -1874,14 +1863,22 @@ def main():
     )
     rejected.extend(historical_event_duplicates)
 
-    # 수백 개 수집 기사마다 모델을 부르지 않고, 최종 후보만 한 번에 과거 발송분과 비교한다.
-    if EMBEDDING_AVAILABLE:
-        classified = _batch_filter_semantic_duplicates(
-            classified,
-            emb_model,
-            load_store,
-            float(SIMILARITY_THRESHOLD),
-        )
+    # 수백 개 수집 기사마다 모델을 부르지 않고, 최종 후보만 한 번에
+    # 과거 발송분과 비교한다. 후보가 없는 날은 무거운 임베딩
+    # 모델과 저장소를 아예 불러오지 않는다.
+    if classified:
+        try:
+            from .processor.deduplicator import _get_model as _get_emb_model
+            from .utils.embedding_store import load_store
+
+            classified = _batch_filter_semantic_duplicates(
+                classified,
+                _get_emb_model(),
+                load_store,
+                float(SIMILARITY_THRESHOLD),
+            )
+        except Exception as exc:
+            print(f"⚠️ 과거 발송분 AI 중복 검사 비활성화({exc})")
 
     sent_articles = []
     delivery_failed = False

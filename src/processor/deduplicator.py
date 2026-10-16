@@ -3,9 +3,6 @@ from datetime import datetime
 from urllib.parse import urlsplit
 
 import numpy as np
-from sentence_transformers import SentenceTransformer
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
 
 from ..config import (
     DISCOVERY_TOPICS,
@@ -222,8 +219,26 @@ _EDITOR_EVENT_GENERIC_TOKENS = {
 def _get_model():
     global _model
     if _model is None:
+        # torch·transformers 스택은 import만으로도 시작을 수십 초
+        # 지연시킬 수 있다. 실제 의미 중복 검사가 필요할 때만 불러온다.
+        from sentence_transformers import SentenceTransformer
+
         _model = SentenceTransformer("all-MiniLM-L6-v2")
     return _model
+
+
+def cosine_similarity(*args, **kwargs):
+    """Load scikit-learn only for paths that actually compare vectors."""
+    from sklearn.metrics.pairwise import cosine_similarity
+
+    return cosine_similarity(*args, **kwargs)
+
+
+def _tfidf_vectorizer(*args, **kwargs):
+    """Delay the comparatively heavy sklearn import during lightweight commands."""
+    from sklearn.feature_extraction.text import TfidfVectorizer
+
+    return TfidfVectorizer(*args, **kwargs)
 
 
 def _as_list(value) -> list:
@@ -684,7 +699,7 @@ def _large_batch_candidate_pairs(articles: list) -> set:
 
     # Character n-grams handle Korean particles and slightly different headlines.
     try:
-        lexical_vectors = TfidfVectorizer(
+        lexical_vectors = _tfidf_vectorizer(
             analyzer="char_wb",
             ngram_range=(3, 5),
             min_df=2,
