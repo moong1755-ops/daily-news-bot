@@ -175,7 +175,24 @@ class WeeklyEcosTests(unittest.TestCase):
                 snapshot = market_data._collect_one(indicator(), START, END, session)
                 self.assertFalse(snapshot.available)
                 self.assertIn("ECOS", snapshot.error)
+                self.assertEqual(snapshot.error_code, "missing_credentials")
+                text = _market_block((snapshot,), END)["text"]["text"]
+                self.assertIn("인증키 미설정", text)
+                self.assertNotIn("수집 지연", text)
                 self.assertEqual(session.calls, [])
+
+    def test_ecos_error_keeps_only_safe_code_not_provider_message(self):
+        for code, expected in (("ERROR-100", "ERROR-100"), (PRIVATE_KEY, None)):
+            with self.subTest(code=code):
+                session = Session(Response({"RESULT": {"CODE": code, "MESSAGE": PRIVATE_KEY}}))
+                snapshot = market_data._collect_one(indicator(), START, END, session)
+                self.assertEqual(snapshot.error_code, "collection_failed")
+                self.assertNotIn(PRIVATE_KEY, snapshot.error)
+                if expected:
+                    self.assertIn(expected, snapshot.error)
+                text = _market_block((snapshot,), END)["text"]["text"]
+                self.assertIn("수집 실패", text)
+                self.assertNotIn(PRIVATE_KEY, text)
 
     def test_wrong_series_unit_or_date_is_not_silently_ranked_as_valid(self):
         invalid_fields = (

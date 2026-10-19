@@ -7,6 +7,7 @@ import csv
 import io
 import math
 import os
+import re
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -40,6 +41,10 @@ class MarketPoint:
     value: float
 
 
+class MissingMarketCredentials(RuntimeError):
+    """A required provider credential is missing, rather than delayed data."""
+
+
 @dataclass(frozen=True)
 class MarketSnapshot:
     key: str
@@ -53,6 +58,7 @@ class MarketSnapshot:
     source_url: str = ""
     comparison: MarketPoint | None = None
     value_basis: str = ""
+    error_code: str = ""
 
     @property
     def latest(self) -> MarketPoint | None:
@@ -108,7 +114,11 @@ def _ecos_url(indicator, auth_key, start_date, end_date, limit=ECOS_ROW_LIMIT):
 
 def _ecos_rows(payload):
     if not isinstance(payload, dict) or "RESULT" in payload:
-        raise RuntimeError("ECOS 조회 실패: 인증·요청 항목·자료 제공 상태 확인 필요")
+        result = payload.get("RESULT") if isinstance(payload, dict) else None
+        code = result.get("CODE") if isinstance(result, dict) else None
+        # Provider messages may echo credentials. Keep only the documented code shape.
+        suffix = f" ({code})" if isinstance(code, str) and re.fullmatch(r"(?:ERROR|INFO)-[0-9]{3}", code) else ""
+        raise RuntimeError(f"ECOS 조회 실패{suffix}: 인증·요청 항목·자료 제공 상태 확인 필요")
     result = payload.get("StatisticSearch")
     if not isinstance(result, dict) or not isinstance(result.get("row"), list):
         raise RuntimeError("ECOS 통계 응답 형식 오류")
@@ -156,7 +166,7 @@ def _parse_ecos_points(payload, indicator, collection_start, end_date):
 def _ecos_points(indicator, start_date, end_date, session):
     auth_key = os.getenv("ECOS_API_KEY", "").strip()
     if not auth_key or auth_key.casefold() == "sample":
-        raise RuntimeError("ECOS_API_KEY 설정 필요 (공개 sample 키는 운영 수집에 사용하지 않음)")
+        raise MissingMarketCredentials("ECOS_API_KEY 설정 필요 (공개 sample 키는 운영 수집에 사용하지 않음)")
     if start_date > end_date:
         raise RuntimeError("ECOS 조회 날짜 범위 오류")
     collection_start = start_date - timedelta(days=10)
@@ -437,6 +447,7 @@ def _collect_one(
             provider=str(indicator.get("provider") or "unknown"),
             change_unit=str(indicator.get("change_unit") or "percent"),
             error=str(exc),
+            error_code="missing_credentials" if isinstance(exc, MissingMarketCredentials) else "collection_failed",
             source_url=str(indicator.get("source_url") or ""),
         )
 

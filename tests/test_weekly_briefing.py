@@ -747,6 +747,9 @@ class WeeklyRunnerTests(unittest.TestCase):
             archived = json.loads(delivery_path.read_text(encoding="utf-8"))
 
         self.assertTrue(first.success and first.delivered)
+        self.assertEqual(len(first.market_errors), 3)
+        self.assertFalse(archived["market_health"]["complete"])
+        self.assertEqual(archived["market_health"]["errors"], list(first.market_errors))
         self.assertTrue(second.success and not second.delivered)
         self.assertEqual((len(session.get_calls), len(session.post_calls)), calls_after_first)
         self.assertEqual(calls_after_first[1], 1)

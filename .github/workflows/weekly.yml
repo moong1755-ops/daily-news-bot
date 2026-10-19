@@ -7,10 +7,11 @@ on:
   workflow_dispatch:
     inputs:
       delivery_target:
-        description: "Manual target (preview=no Slack, test=private daily channel, production=team-invest)"
+        description: "market_check=시장지표만 점검, preview=미리보기, test=일간 채널, production=주간 채널"
         type: choice
         options:
           - preview
+          - market_check
           - test
           - production
         default: preview
@@ -83,13 +84,23 @@ jobs:
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
           EDITORIAL_REVIEW_SHEET_URL: ${{ vars.EDITORIAL_REVIEW_SHEET_URL }}
           ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
-          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.delivery_target == 'preview' && '1' || '' }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && (inputs.delivery_target == 'preview' || inputs.delivery_target == 'market_check') && '1' || '' }}
+          DELIVERY_TARGET: ${{ github.event_name == 'workflow_dispatch' && inputs.delivery_target || 'production' }}
           WEEKLY_END_DATE: ${{ inputs.end_date || '' }}
           WEEKLY_FORCE_SEND: ${{ github.event_name == 'workflow_dispatch' && inputs.force_send && '1' || '' }}
           WEEKLY_ARCHIVE_PATH: ${{ github.event_name == 'workflow_dispatch' && inputs.delivery_target == 'test' && '/tmp/weekly_archive.jsonl' || '' }}
           PYTHONUNBUFFERED: "1"
           PYTHONIOENCODING: "utf-8"
-        run: python -m src.weekly.runner
+        run: |
+          if [[ "$DELIVERY_TARGET" == "market_check" ]]; then
+            args=()
+            if [[ -n "$WEEKLY_END_DATE" ]]; then
+              args+=(--end-date "$WEEKLY_END_DATE")
+            fi
+            python -m src.weekly.check_markets "${args[@]}"
+          else
+            python -m src.weekly.runner
+          fi
 
       - name: Commit weekly archive and editorial review
         if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.delivery_target == 'production') }}

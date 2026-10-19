@@ -26,11 +26,13 @@ class DeliveryFailureTests(unittest.TestCase):
                 mock.patch.object(bot, "send_aggregated_slack_news", return_value=(False, [])), \
                 mock.patch.object(bot, "_save_daily_review"), \
                 mock.patch.object(bot, "save_run_decisions") as decisions, \
-                mock.patch.object(bot, "save_lines"):
+                mock.patch.object(bot, "save_lines") as save:
             with self.assertRaisesRegex(RuntimeError, "Slack 발송에 실패"):
                 bot.main()
 
         self.assertEqual(decisions.call_args.args[2], [])
+        self.assertEqual(save.call_args_list[0].args[1], set())
+        self.assertEqual(save.call_args_list[1].args[1], [])
 
 
 if __name__ == "__main__":

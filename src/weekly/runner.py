@@ -14,6 +14,7 @@ from ..config import WEEKLY_BRIEFING_CONFIG
 from ..editorial_review import write_review_csv
 from ..processor.translator import translate_titles
 from .archive import KOREA_TIMEZONE, WeeklyArchiveWindow, load_weekly_archive
+from .check_markets import report_market_health
 from .deduplicator import deduplicate_weekly_articles
 from .editor import build_weekly_headlines
 from .evidence import (
@@ -39,6 +40,7 @@ class WeeklyRunResult:
     source_window: WeeklyArchiveWindow
     selection: WeeklySelection | None = None
     message: WeeklySlackMessage | None = None
+    market_errors: tuple[str, ...] = ()
 
 
 def _enabled(name: str) -> bool:
@@ -76,6 +78,7 @@ def _append_delivery_archive(
     window: WeeklyArchiveWindow,
     selection: WeeklySelection,
     message: WeeklySlackMessage,
+    market_errors: tuple[str, ...] = (),
 ) -> None:
     record = {
         "version": 1,
@@ -84,6 +87,7 @@ def _append_delivery_archive(
         "end_date": window.end_date.isoformat(),
         "candidate_count": selection.candidate_count,
         "article_count": len(selection.articles),
+        "market_health": {"complete": not market_errors, "errors": list(market_errors)},
         "github": {
             "repository": os.environ.get("GITHUB_REPOSITORY", ""),
             "workflow": os.environ.get("GITHUB_WORKFLOW", ""),
@@ -244,9 +248,7 @@ def run_weekly_briefing(
         window.end_date,
         session=session,
     )
-    for market in markets:
-        if market.error:
-            print(f"⚠️ 시장지표 {market.label}: {market.error}")
+    market_errors = report_market_health(markets)
     headlines = build_weekly_headlines(selection.articles)
     message = render_weekly_briefing(
         window.start_date,
@@ -264,7 +266,7 @@ def run_weekly_briefing(
         print("\n===== WEEKLY DRY RUN — 실제 발송하지 않음 =====")
         print(message.plain_text)
         print("===== WEEKLY DRY RUN 끝 =====\n")
-        return WeeklyRunResult(True, False, "dry_run", window, selection, message)
+        return WeeklyRunResult(True, False, "dry_run", window, selection, message, market_errors)
 
     try:
         response = session.post(
@@ -282,11 +284,13 @@ def run_weekly_briefing(
         return _empty_result(window, f"Slack 발송 실패: {exc}")
 
     try:
-        _append_delivery_archive(delivery_path, window, selection, message)
+        _append_delivery_archive(delivery_path, window, selection, message, market_errors)
     except OSError as exc:
         print(f"⚠️ Slack 발송은 성공했지만 주간 아카이브 저장 실패: {exc}")
     print("✅ 주간 브리핑 Slack 한 메시지 발송 성공")
-    return WeeklyRunResult(True, True, "sent", window, selection, message)
+    if market_errors:
+        print(f"⚠️ 발송 완료 · 시장지표 {len(market_errors)}개 미수집 — 실행 요약 확인 필요")
+    return WeeklyRunResult(True, True, "sent", window, selection, message, market_errors)
 
 
 def main() -> int:
