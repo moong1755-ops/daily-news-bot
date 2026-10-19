@@ -2,6 +2,7 @@ import os
 import re
 import requests
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 import json
 from pathlib import Path
@@ -129,18 +130,29 @@ def normalize_url(url: str) -> str:
     return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), ""))
 
 
-def _char_ngrams(text: str, n: int = 3) -> set:
+@lru_cache(maxsize=4096)
+def _char_ngrams(text: str, n: int = 3) -> frozenset:
     t = re.sub(r'[^\w가-힣]', '', text.lower())
     if len(t) < n:
-        return {t} if t else set()
-    return {t[i:i + n] for i in range(len(t) - n + 1)}
+        return frozenset((t,)) if t else frozenset()
+    return frozenset(t[i:i + n] for i in range(len(t) - n + 1))
 
 
+@lru_cache(maxsize=4096)
 def _hangul_ratio(s: str) -> float:
     letters = [c for c in s if c.isalpha()]
     if not letters:
         return 0.0
     return sum(1 for c in letters if '가' <= c <= '힣') / len(letters)
+
+
+@lru_cache(maxsize=4096)
+def _word_tokens(title: str) -> frozenset:
+    # 과거 제목은 오늘 후보마다 다시 비교된다. 계산만 재사용하며,
+    # 불변 집합으로 보관해 호출자가 캐시 내용을 바꿀 수 없게 한다.
+    return frozenset(
+        w for w in re.sub(r'[^\w\s]', ' ', title.lower()).split() if len(w) >= 3
+    )
 
 
 def is_same_news_issue(title_a: str, title_b: str) -> bool:
@@ -150,8 +162,7 @@ def is_same_news_issue(title_a: str, title_b: str) -> bool:
         sa, sb = _char_ngrams(title_a), _char_ngrams(title_b)
         threshold = 0.35
     else:
-        sa = {w for w in re.sub(r'[^\w\s]', ' ', title_a.lower()).split() if len(w) >= 3}
-        sb = {w for w in re.sub(r'[^\w\s]', ' ', title_b.lower()).split() if len(w) >= 3}
+        sa, sb = _word_tokens(title_a), _word_tokens(title_b)
         threshold = 0.50
     if not sa or not sb:
         return False

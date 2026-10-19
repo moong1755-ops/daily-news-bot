@@ -7,6 +7,7 @@ import csv
 import io
 import math
 import os
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Iterable
@@ -14,7 +15,11 @@ from urllib.parse import quote
 
 import requests
 
-from ..config import WEEKLY_MARKET_INDICATORS, WEEKLY_MARKET_SPARKLINE_POINTS
+from ..config import (
+    WEEKLY_MARKET_FETCH_WORKERS,
+    WEEKLY_MARKET_INDICATORS,
+    WEEKLY_MARKET_SPARKLINE_POINTS,
+)
 
 
 FRED_CSV_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv"
@@ -445,7 +450,18 @@ def collect_market_snapshots(
     if end_date is None:
         end_date = start_date
         start_date = end_date - timedelta(days=6)
-    return tuple(
-        _collect_one(indicator, start_date, end_date, session)
-        for indicator in WEEKLY_MARKET_INDICATORS
-    )
+    indicators = tuple(WEEKLY_MARKET_INDICATORS)
+    workers = max(1, min(WEEKLY_MARKET_FETCH_WORKERS, len(indicators)))
+    # 직접 주입한 HTTP 클라이언트는 스레드 안전성을 보장할 수 없으므로
+    # 기존 순차 동작을 유지한다. 기본 requests 모듈은 요청별 세션을 만든다.
+    if session is not requests or workers == 1:
+        return tuple(
+            _collect_one(indicator, start_date, end_date, session)
+            for indicator in indicators
+        )
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        # map은 요청 완료 순서와 관계없이 설정 순서로 결과를 돌려준다.
+        return tuple(pool.map(
+            lambda indicator: _collect_one(indicator, start_date, end_date, session),
+            indicators,
+        ))

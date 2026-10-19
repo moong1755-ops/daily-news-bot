@@ -288,6 +288,7 @@ WEEKLY_EVIDENCE_CONFIG = {
 # 시장 데이터의 실제 API 주소와 인증은 market_data 모듈이 담당한다. config에는
 # 어떤 지표를 어떤 방식으로 보여줄지만 둬서 제공처 교체가 선정 로직에 번지지 않는다.
 WEEKLY_MARKET_SPARKLINE_POINTS = 5
+WEEKLY_MARKET_FETCH_WORKERS = 3
 WEEKLY_MARKET_INDICATORS = (
     {
         "key": "kospi",

@@ -1,10 +1,11 @@
 import os
 import re
 import socket
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
+from threading import Lock
 from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlsplit, urlunsplit
 
 import feedparser
@@ -64,6 +65,8 @@ KOREA_TIMEZONE = timezone(timedelta(hours=9))
 LONG_FORM_SOURCES = frozenset({"SSIR", "The Batch"})
 
 _GN_URL_CACHE = {}
+_GN_URL_PENDING = {}
+_GN_URL_LOCK = Lock()
 
 
 def _bounded_worker_count() -> int:
@@ -81,8 +84,19 @@ _RSS_FETCH_WORKERS = _bounded_worker_count()
 def resolve_gnews_url(url: str) -> str:
     if not url or "news.google.com" not in url or gnewsdecoder is None:
         return url
-    if url in _GN_URL_CACHE:
-        return _GN_URL_CACHE[url]
+    # 여러 피드가 같은 URL을 동시에 요청해도 원문 해석은 한 번만 한다.
+    # 잠금은 상태 확인에만 사용하므로 서로 다른 URL은 함께 처리된다.
+    with _GN_URL_LOCK:
+        if url in _GN_URL_CACHE:
+            return _GN_URL_CACHE[url]
+        pending = _GN_URL_PENDING.get(url)
+        owns_request = pending is None
+        if owns_request:
+            pending = Future()
+            _GN_URL_PENDING[url] = pending
+    if not owns_request:
+        return pending.result()
+
     out = url
     try:
         d = gnewsdecoder(url)
@@ -90,7 +104,10 @@ def resolve_gnews_url(url: str) -> str:
             out = d["decoded_url"]
     except Exception:
         out = url
-    _GN_URL_CACHE[url] = out
+    with _GN_URL_LOCK:
+        _GN_URL_CACHE[url] = out
+        _GN_URL_PENDING.pop(url, None)
+    pending.set_result(out)
     return out
 
 
@@ -649,6 +666,17 @@ def fetch() -> tuple:
             )
             for source_name, url in feed_sources
         ]
+        # 홈페이지도 같은 작업 풀에 먼저 등록해 RSS 전체 완료를 기다리지 않는다.
+        # 아래 결과 병합 순서는 RSS → 홈페이지로 그대로 유지한다.
+        direct_futures = [
+            executor.submit(
+                _fetch_direct_web_source,
+                source_name,
+                metadata,
+                now_utc,
+            )
+            for source_name, metadata in direct_sources
+        ]
         for (source_name, url), future in zip(feed_sources, feed_futures):
             try:
                 source_articles, source_errors, notices = future.result()
@@ -659,15 +687,6 @@ def fetch() -> tuple:
             except Exception as exc:
                 errors.append(f"{source_name} ({url}): 동시 수집 오류: {exc}")
 
-        direct_futures = [
-            executor.submit(
-                _fetch_direct_web_source,
-                source_name,
-                metadata,
-                now_utc,
-            )
-            for source_name, metadata in direct_sources
-        ]
         for (source_name, metadata), future in zip(direct_sources, direct_futures):
             try:
                 direct_articles = future.result()
