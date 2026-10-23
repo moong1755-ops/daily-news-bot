@@ -11,12 +11,19 @@ import tempfile
 import unittest
 from unittest import mock
 
+import requests
+
 from src.processor import reranker
 from src.utils import llm_cache
 
 
 class LLMCacheTestCase(unittest.TestCase):
     def setUp(self):
+        reranker._discover_models.cache_clear()
+        self.addCleanup(reranker._discover_models.cache_clear)
+        unavailable = mock.patch.object(reranker, "_UNAVAILABLE_MODELS", set())
+        unavailable.start()
+        self.addCleanup(unavailable.stop)
         self.cache_dir = tempfile.mkdtemp(prefix="llm-cache-test-")
         self.addCleanup(shutil.rmtree, self.cache_dir, True)
         patcher = mock.patch.dict(
@@ -157,6 +164,37 @@ class LLMCacheTestCase(unittest.TestCase):
                         result = reranker._call_llm("prompt", "key")
 
         self.assertEqual(result, (None, None))
+        self.assertEqual(post.call_count, 2)
+
+    def test_successful_discovery_is_reused_but_credentials_are_separate(self):
+        response = mock.Mock()
+        response.json.return_value = {"models": []}
+        with mock.patch.object(llm_cache, "guard_network"), \
+                mock.patch.object(reranker.requests, "get", return_value=response) as get:
+            reranker._discover_models("key-one")
+            reranker._discover_models("key-one")
+            reranker._discover_models("key-two")
+        self.assertEqual(get.call_count, 2)
+
+    def test_confirmed_missing_model_is_not_retried_for_every_prompt(self):
+        response = mock.Mock(status_code=404)
+        with mock.patch.object(reranker, "_RESOLVED_MODEL", None), \
+                mock.patch.object(reranker, "_candidate_models", return_value=["missing-model"]), \
+                mock.patch.object(reranker, "_discover_models", return_value=[]), \
+                mock.patch.object(reranker, "_post_generate", side_effect=requests.HTTPError(response=response)) as post:
+            self.assertEqual(reranker._call_llm("first prompt", "key-one"), (None, None))
+            self.assertEqual(reranker._call_llm("second prompt", "key-one"), (None, None))
+            self.assertEqual(post.call_count, 1)
+            reranker._call_llm("third prompt", "key-two")
+            self.assertEqual(post.call_count, 2)
+
+    def test_timeout_does_not_permanently_exclude_a_model(self):
+        with mock.patch.object(reranker, "_RESOLVED_MODEL", None), \
+                mock.patch.object(reranker, "_candidate_models", return_value=["recovering-model"]), \
+                mock.patch.object(reranker, "_discover_models", return_value=[]), \
+                mock.patch.object(reranker, "_post_generate", side_effect=[requests.Timeout(), "recovered"]) as post:
+            self.assertEqual(reranker._call_llm("first", "key"), (None, None))
+            self.assertEqual(reranker._call_llm("second", "key"), ("recovered", "recovering-model"))
         self.assertEqual(post.call_count, 2)
 
 

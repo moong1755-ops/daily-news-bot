@@ -120,7 +120,9 @@ def _headline_block(headlines: WeeklyHeadlines) -> dict:
 def _format_number(snapshot: MarketSnapshot) -> str:
     latest = snapshot.latest
     if latest is None:
-        return "수집 지연"
+        if snapshot.error_code == "missing_credentials":
+            return "인증키 미설정"
+        return "수집 실패" if snapshot.error else "수집 지연"
     if snapshot.key == "us_10y":
         return f"{latest.value:.2f}%"
     if snapshot.key in {"kospi", "kosdaq", "sp500", "nasdaq", "usd_krw"}:

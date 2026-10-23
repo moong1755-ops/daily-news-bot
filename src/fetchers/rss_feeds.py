@@ -1,10 +1,11 @@
 import os
 import re
 import socket
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
+from threading import Lock
 from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlsplit, urlunsplit
 
 import feedparser
@@ -64,6 +65,8 @@ KOREA_TIMEZONE = timezone(timedelta(hours=9))
 LONG_FORM_SOURCES = frozenset({"SSIR", "The Batch"})
 
 _GN_URL_CACHE = {}
+_GN_URL_PENDING = {}
+_GN_URL_LOCK = Lock()
 
 
 def _bounded_worker_count() -> int:
@@ -81,8 +84,19 @@ _RSS_FETCH_WORKERS = _bounded_worker_count()
 def resolve_gnews_url(url: str) -> str:
     if not url or "news.google.com" not in url or gnewsdecoder is None:
         return url
-    if url in _GN_URL_CACHE:
-        return _GN_URL_CACHE[url]
+    # 여러 피드가 같은 URL을 동시에 요청해도 원문 해석은 한 번만 한다.
+    # 잠금은 상태 확인에만 사용하므로 서로 다른 URL은 함께 처리된다.
+    with _GN_URL_LOCK:
+        if url in _GN_URL_CACHE:
+            return _GN_URL_CACHE[url]
+        pending = _GN_URL_PENDING.get(url)
+        owns_request = pending is None
+        if owns_request:
+            pending = Future()
+            _GN_URL_PENDING[url] = pending
+    if not owns_request:
+        return pending.result()
+
     out = url
     try:
         d = gnewsdecoder(url)
@@ -90,7 +104,10 @@ def resolve_gnews_url(url: str) -> str:
             out = d["decoded_url"]
     except Exception:
         out = url
-    _GN_URL_CACHE[url] = out
+    with _GN_URL_LOCK:
+        _GN_URL_CACHE[url] = out
+        _GN_URL_PENDING.pop(url, None)
+    pending.set_result(out)
     return out
 
 
@@ -233,42 +250,6 @@ def _get_feed(url: str):
     if feed.bozo:
         print(f"⚠️ RSS 파싱 경고(일부 수집): {feed.bozo_exception}")
     return feed
-
-
-def _discover_feed_url(original_url: str) -> str:
-    """Try heuristics to find a working feed URL for a site.
-    Return working URL or None."""
-    try:
-        resp = requests.get(original_url, headers=_HEADERS, timeout=10)
-    except Exception:
-        resp = None
-    # If got content and it already looks like RSS/Atom
-    if resp is not None:
-        ctype = resp.headers.get("content-type", "") if resp.headers else ""
-        text_head = resp.text[:2000] if resp is not None else ""
-        if "xml" in ctype.lower() or re.search(r"<\?xml|<rss|<feed", text_head, re.I):
-            return original_url
-        # try to find <link rel="alternate" type="application/rss+xml"
-        m = re.search(r'<link[^>]+type=["\']application/(rss|atom)\+xml["\'][^>]+href=["\']([^"\']+)["\']', resp.text, re.I)
-        if m:
-            href = m.group(2)
-            # absolute?
-            if href.startswith("http"):
-                return href
-            from urllib.parse import urljoin
-            return urljoin(original_url, href)
-
-    # try common suffixes
-    suffixes = ["/feed", "/feed/", "/rss", "/rss.xml", "/atom.xml", "/feeds/posts/default?alt=rss"]
-    for s in suffixes:
-        candidate = original_url.rstrip("/") + s if not original_url.endswith(s) else original_url
-        try:
-            r = requests.get(candidate, headers=_HEADERS, timeout=10)
-            if r.status_code == 200 and ("xml" in r.headers.get("content-type","") or re.search(r"<rss|<feed", r.text, re.I)):
-                return candidate
-        except Exception:
-            pass
-    return None
 
 
 def _gnews_site_fallback_url(original_url: str, source_name: str) -> str:
@@ -585,32 +566,25 @@ def _fetch_feed_source(
     except Exception as first_err:
         if is_gnews:
             return [], [f"{source_name} ({url}): {first_err}"], []
-
-        discovered = _discover_feed_url(url)
-        if discovered:
-            try:
-                feed = _get_feed(discovered)
-                notices.append(
-                    f"🔍 {source_name}: 발견된 대체 피드로 수집({discovered})"
-                )
-            except Exception:
-                discovered = None
-        if not discovered:
-            try:
-                fallback_url = _gnews_site_fallback_url(url, source_name)
-                feed = _get_feed(fallback_url)
-                if not feed.entries:
-                    raise ValueError("fallback empty")
-                via_fallback = True
-                notices.append(
-                    f"🔁 {source_name}: 원본 RSS 실패 → Google News site: 폴백으로 수집"
-                )
-            except Exception as fallback_error:
-                errors.append(
-                    f"{source_name} ({url}): {first_err} | "
-                    f"폴백 실패: {fallback_error}"
-                )
-                return articles, errors, notices
+        # RSS 주소는 config.py에서 검증·관리한다. 실행할 때마다
+        # /feed, /rss 등을 연속 탐색하면 죽은 피드 하나가 전체
+        # 실행을 1분 이상 지연시킬 수 있다. 원본이 실패하면 바로
+        # 동일 도메인의 Google News 보완 피드로 넘어간다.
+        try:
+            fallback_url = _gnews_site_fallback_url(url, source_name)
+            feed = _get_feed(fallback_url)
+            if not feed.entries:
+                raise ValueError("fallback empty")
+            via_fallback = True
+            notices.append(
+                f"🔁 {source_name}: 원본 RSS 실패 → Google News site: 폴백으로 수집"
+            )
+        except Exception as fallback_error:
+            errors.append(
+                f"{source_name} ({url}): {first_err} | "
+                f"폴백 실패: {fallback_error}"
+            )
+            return articles, errors, notices
 
     parse_as_gnews = is_gnews or via_fallback
 
@@ -621,6 +595,12 @@ def _fetch_feed_source(
         if not raw_title or not link:
             continue
 
+        # Google News 원문 URL 해석은 네트워크 요청을 발생시킬 수 있다.
+        # 날짜 범위 밖 기사를 먼저 제외해 결국 버릴 링크를 풀지 않는다.
+        date_str, include_article = _article_date(entry, source_name, now_utc)
+        if not include_article:
+            continue
+
         gnews_link = ""
         if parse_as_gnews:
             title, display_source = extract_gnews(entry, raw_title, source_name)
@@ -629,10 +609,6 @@ def _fetch_feed_source(
         else:
             title = raw_title
             display_source = source_name
-
-        date_str, include_article = _article_date(entry, source_name, now_utc)
-        if not include_article:
-            continue
 
         description = clean_html(
             entry.get("summary") or entry.get("description") or ""
@@ -690,6 +666,17 @@ def fetch() -> tuple:
             )
             for source_name, url in feed_sources
         ]
+        # 홈페이지도 같은 작업 풀에 먼저 등록해 RSS 전체 완료를 기다리지 않는다.
+        # 아래 결과 병합 순서는 RSS → 홈페이지로 그대로 유지한다.
+        direct_futures = [
+            executor.submit(
+                _fetch_direct_web_source,
+                source_name,
+                metadata,
+                now_utc,
+            )
+            for source_name, metadata in direct_sources
+        ]
         for (source_name, url), future in zip(feed_sources, feed_futures):
             try:
                 source_articles, source_errors, notices = future.result()
@@ -700,15 +687,6 @@ def fetch() -> tuple:
             except Exception as exc:
                 errors.append(f"{source_name} ({url}): 동시 수집 오류: {exc}")
 
-        direct_futures = [
-            executor.submit(
-                _fetch_direct_web_source,
-                source_name,
-                metadata,
-                now_utc,
-            )
-            for source_name, metadata in direct_sources
-        ]
         for (source_name, metadata), future in zip(direct_sources, direct_futures):
             try:
                 direct_articles = future.result()
