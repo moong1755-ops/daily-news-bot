@@ -838,13 +838,21 @@ def summarize(article: dict):
             editorial_score -= EDITORIAL_PRIORITY_WEIGHT
         deal_score -= EDITORIAL_PRIORITY_WEIGHT
 
-    excluded = _has_any(DEAL_EXCLUSION_KEYWORDS + EDITORIAL_EXCLUSION_KEYWORDS, text)
+    # Newsletter descriptions are adjacent article context, not proof that the
+    # headline itself is a job/ad/event. Leave contextual ambiguity to the editor.
+    newsletter_article = article.get("feed") == "Gmail Newsletters"
+    exclusion_text = title.lower() if newsletter_article else text
+    excluded = _has_any(DEAL_EXCLUSION_KEYWORDS + EDITORIAL_EXCLUSION_KEYWORDS, exclusion_text)
     if article.get("rescue_signal"):
         excluded = False
     # 최종 안전검사는 rescue 신호보다 우선한다. 행사·인터뷰·MOU·일반 목록
     # 페이지·복수 사건 종합기사는 Gemini가 실패해도 발송하지 않는다.
     title_exclusion_reason = _title_exclusion_reason(title, official_insights, link)
-    final_exclusion_reason = title_exclusion_reason or category_fit_exclusion_reason
+    final_exclusion_reason = (
+        title_exclusion_reason
+        or ("newsletter_title_noise" if newsletter_article and excluded else "")
+        or category_fit_exclusion_reason
+    )
     if final_exclusion_reason:
         excluded = True
     base_score += editorial_score + deal_score + _EVENT_STATUS_WEIGHTS[event_status]

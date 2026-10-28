@@ -11,6 +11,14 @@ from html import unescape
 from typing import List, Tuple
 from urllib.parse import urlsplit
 
+from ..config import NEWSLETTER_COLLECTION, NEWSLETTER_SOURCES
+from ..utils.newsletters import identify_newsletter
+from .newsletter_html import article_contexts
+from .newsletter_body import (
+    primary_article_context, primary_public_story_url, public_story_url,
+    unlinked_body_notes,
+)
+
 
 def _positive_env_int(name: str, default: int) -> int:
     try:
@@ -26,8 +34,8 @@ GMAIL_NEWSLETTER_QUERY = os.environ.get(
 ).strip()
 GMAIL_IMAP_FOLDER = os.environ.get("GMAIL_IMAP_FOLDER", "INBOX").strip() or "INBOX"
 GMAIL_LOOKBACK_DAYS = _positive_env_int("GMAIL_LOOKBACK_DAYS", 3)
-GMAIL_MAX_EMAILS = _positive_env_int("GMAIL_MAX_EMAILS", 20)
-GMAIL_LINKS_PER_EMAIL = _positive_env_int("GMAIL_LINKS_PER_EMAIL", 8)
+GMAIL_MAX_EMAILS = _positive_env_int("GMAIL_MAX_EMAILS", NEWSLETTER_COLLECTION["recent_emails"])
+GMAIL_LINKS_PER_EMAIL = _positive_env_int("GMAIL_LINKS_PER_EMAIL", NEWSLETTER_COLLECTION["max_links_per_email"])
 
 _SKIP_URL_MARKERS = (
     "unsubscribe", "subscription-preferences", "manage-preferences",
@@ -38,6 +46,8 @@ _SKIP_LINK_TEXTS = {
     "read more", "learn more", "click here", "view online", "view in browser",
     "subscribe", "unsubscribe", "manage preferences", "privacy policy",
     "terms of use", "facebook", "instagram", "linkedin", "x", "twitter",
+    "explore all bloomberg newsletters", "catch up on the conversation",
+    "this week's must-reads on impactalpha",
 }
 
 # 정확히 일치하는 문구만 걸러내면 매체마다 표현이 달라 계속 새는데, 실제로
@@ -45,8 +55,8 @@ _SKIP_LINK_TEXTS = {
 # 뉴스레터 상용구에 공통으로 나타나는 조각으로 판단한다.
 _SKIP_LINK_FRAGMENTS = (
     "in browser", "view online", "web version", "read online",
-    "unsubscribe", "manage preference", "email preference", "privacy",
-    "advertise", "sponsor", "download the app", "follow us", "contact us",
+    "unsubscribe", "manage preference", "email preference", "privacy policy",
+    "advertise with us", "become a sponsor", "download the app", "follow us", "contact us",
     "브라우저에서", "구독 취소", "수신 거부",
 )
 
@@ -57,6 +67,10 @@ def _is_boilerplate_anchor(anchor_text: str) -> bool:
     if not normalized or len(normalized) < 8:
         return True
     if normalized in _SKIP_LINK_TEXTS:
+        return True
+    if normalized.startswith(("subscribe to ", "get the ")) and (
+        normalized.startswith("subscribe to ") or normalized.endswith(" app")
+    ):
         return True
     return any(fragment in normalized for fragment in _SKIP_LINK_FRAGMENTS)
 
@@ -97,8 +111,7 @@ def _anchor_headline_html(anchor_html: str) -> str:
     처럼 제목과 본문이 문장부호 없이 붙어, 글자 수로는 자를 지점을 알 수 없다.
     블록 경계를 먼저 살려서 첫 덩어리만 취한다.
 
-    블록 구분이 없으면 원래대로 전체 텍스트를 돌려주고, 길이 정리는
-    _headline_from_anchor 가 맡는다.
+    블록 구분이 없으면 전체 텍스트를 보존하며 글자 수로 자르지 않는다.
     """
     chunks = re.split(
         r"(?is)</(?:div|p|h[1-6]|td|tr|li|table|section)\s*>|<br\s*/?>",
@@ -111,27 +124,13 @@ def _anchor_headline_html(anchor_html: str) -> str:
     return _clean_text(anchor_html)
 
 
-_MAX_HEADLINE_CHARS = 120
-
-
 def _headline_from_anchor(anchor_text: str) -> str:
-    """앵커 텍스트에서 제목 부분만 남긴다.
+    """Normalize whitespace without truncating a real headline.
 
-    뉴스레터는 제목과 본문 첫 문단을 한 링크로 묶는 일이 많아, 그대로 쓰면
-    한 줄이 200자를 넘는다("Gates-Backed TerraPower to Announce Second Nuke
-    Plant This Year TerraPower LLC, the only company ..."). 본문은 대개
-    문장으로 이어지므로 첫 문장 경계에서 끊고, 그래도 길면 단어 단위로 자른다.
+    Separate title/body HTML blocks are handled by _anchor_headline_html.
+    Without a structural boundary we must not invent a title cut-off.
     """
-    text = re.sub(r"\s+", " ", anchor_text or "").strip()
-    if len(text) <= _MAX_HEADLINE_CHARS:
-        return text
-
-    sentence_end = re.search(r"(?<=[.!?])\s+[A-Z가-힣]", text)
-    if sentence_end and sentence_end.start() + 1 <= _MAX_HEADLINE_CHARS:
-        return text[: sentence_end.start() + 1].strip()
-
-    clipped = text[:_MAX_HEADLINE_CHARS].rsplit(" ", 1)[0].strip()
-    return (clipped or text[:_MAX_HEADLINE_CHARS].strip()) + "…"
+    return re.sub(r"\s+", " ", anchor_text or "").strip()
 
 
 _IMAGE_SUFFIXES = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg")
@@ -189,15 +188,30 @@ def _extract_link_candidates(html_text: str, plain_text: str) -> List[Tuple[str,
         candidates.append((url, anchor_text))
         seen_urls.add(url)
 
+    # HTML/plain alternatives describe the same mail. Re-reading bare URLs
+    # would resurrect rejected chrome links under the email subject.
+    if html_text.strip():
+        return candidates
+
     bare_url_pattern = re.compile(r"https?://[^\s<>\"'{}|\\^`\[\]]+")
-    for raw_url in bare_url_pattern.findall(plain_text or ""):
+    lines = (plain_text or "").splitlines()
+    for index, line in enumerate(lines):
+        match = bare_url_pattern.search(line)
+        if not match:
+            continue
+        raw_url = match.group()
         url = unescape(raw_url).rstrip(".,);]")
         if url in seen_urls or not _is_usable_article_url(url):
             continue
-        candidates.append((url, ""))
+        title = line[:match.start()].strip(" <>[]():-")
+        if not title and index:
+            title = lines[index - 1].strip()
+        if _is_boilerplate_anchor(title) or not _looks_like_headline(title):
+            continue
+        candidates.append((url, title))
         seen_urls.add(url)
 
-    return candidates[:GMAIL_LINKS_PER_EMAIL]
+    return candidates
 
 
 def _extract_message_bodies(message) -> Tuple[str, str]:
@@ -236,40 +250,78 @@ def _message_date(message) -> str:
     return datetime.now(timezone.utc).date().isoformat()
 
 
-def _parse_email(raw_message: bytes) -> List[dict]:
+def _parse_email(raw_message: bytes, stats: dict | None = None) -> List[dict]:
     message = BytesParser(policy=policy.default).parsebytes(raw_message)
     subject = _clean_subject(str(message.get("Subject", "Newsletter")))
     sender_name, sender_address = parseaddr(str(message.get("From", "")))
     sender = _clean_text(sender_name) or sender_address.split("@")[0] or "Newsletter"
+    source_key = identify_newsletter(sender, sender_address, subject)
+    source_policy = NEWSLETTER_SOURCES.get(source_key, {})
+    sender = source_policy.get("name", sender)
     html_text, plain_text = _extract_message_bodies(message)
     candidates = _extract_link_candidates(html_text, plain_text)
-    if not candidates:
+    context_limit = NEWSLETTER_COLLECTION["context_chars"]
+    notes = unlinked_body_notes(html_text, subject, source_policy, context_limit)
+    if stats is not None:
+        counts = stats.setdefault(source_key or "other", {"emails": 0, "links": 0, "overflow": 0})
+        counts["emails"] += 1
+        counts["links"] += min(len(candidates), GMAIL_LINKS_PER_EMAIL)
+        counts["overflow"] += max(0, len(candidates) - GMAIL_LINKS_PER_EMAIL)
+        if notes:
+            counts["body_notes"] = counts.get("body_notes", 0) + len(notes)
+    if len(candidates) > GMAIL_LINKS_PER_EMAIL:
+        print(f"⚠️ 뉴스레터 {source_policy.get('name', '기타')}: 기사 링크 {len(candidates)}건 중 "
+              f"안전 상한 {GMAIL_LINKS_PER_EMAIL}건만 수집 (config/환경변수 조정 필요)")
+    candidates = candidates[:GMAIL_LINKS_PER_EMAIL]
+    if not candidates and not notes:
         return []
 
-    plain_summary = _clean_text(plain_text)[:350]
-    description = f"Newsletter: {subject}"
-    if plain_summary:
-        description = f"{description}. {plain_summary}"
+    contexts = article_contexts(html_text, dict(candidates), context_limit)
+    primary_context = primary_article_context(html_text, source_policy, context_limit)
 
     published_date = _message_date(message)
     articles = []
     for url, anchor_text in candidates:
+        title = _headline_from_anchor(anchor_text) or subject
+        public_url = public_story_url(url, source_policy)
+        if not public_url and title.casefold() == subject.casefold() and primary_context:
+            public_url = primary_public_story_url(html_text, title, source_policy)
+        primary_story = bool(public_url and primary_context and title.casefold() == subject.casefold())
         articles.append({
-            "title": _headline_from_anchor(anchor_text) or subject,
-            "link": url,
+            "title": title,
+            "link": public_url or url,
             "source": sender,
             "feed": "Gmail Newsletters",
             "date": published_date,
-            "description": description,
-            "region": "global",
+            "description": primary_context if primary_story else contexts.get(url, ""),
+            "region": source_policy.get("region", "global"),
+            "newsletter_source": source_key,
+            "newsletter_sources": [source_key] if source_key else [],
+            "newsletter_context": "article",
+            "date_basis": "newsletter_date",  # 메일 Date 헤더이며 원문 발행일은 아님
+            "newsletter_primary_story": primary_story,
+        })
+    for title, body in notes:
+        # No public article URL: this record is only evidence for matching a
+        # separately linked article. bot.main never sends linkless records.
+        articles.append({
+            "title": title, "link": "", "source": sender,
+            "feed": "Gmail Newsletters", "date": published_date,
+            "description": body, "region": source_policy.get("region", "global"),
+            "newsletter_source": source_key, "newsletter_sources": [source_key],
+            "newsletter_body_only": True, "date_basis": "newsletter_date",
         })
     return articles
 
 
-def _gmail_raw_query() -> str:
+def _gmail_raw_query(source_query: str = "") -> str:
+    # Required sources are explicitly configured by the user; their messages
+    # may not carry the generic newsletter label. Keep the date window and
+    # folder boundary, and never broaden the ordinary label-based search.
+    scope = source_query or GMAIL_NEWSLETTER_QUERY
     parts = [
         part
-        for part in (GMAIL_NEWSLETTER_QUERY, f"newer_than:{GMAIL_LOOKBACK_DAYS}d")
+        for part in (scope, f"newer_than:{GMAIL_LOOKBACK_DAYS}d")
         if part
     ]
     query = " ".join(parts)
@@ -285,6 +337,7 @@ def fetch() -> Tuple[List[dict], List[str]]:
     client = None
     articles = []
     errors = []
+    stats = {}
     try:
         client = imaplib.IMAP4_SSL("imap.gmail.com", 993, timeout=20)
         client.login(GMAIL_USER, GMAIL_APP_PASSWORD)
@@ -300,6 +353,24 @@ def fetch() -> Tuple[List[dict], List[str]]:
         raw_uids = data[0] if data else b""
         message_uids = (raw_uids or b"").split()
         message_uids = list(reversed(message_uids))[:GMAIL_MAX_EMAILS]
+        # Recent busy sources must not crowd out the six required-review sources.
+        # A required sender search is independent of the generic newsletter
+        # label, while retaining the date window, folder, and read-only mode.
+        for source_policy in NEWSLETTER_SOURCES.values():
+            source_query = source_policy.get("gmail_query")
+            if not source_query:
+                continue
+            try:
+                status, data = client.uid("search", None, "X-GM-RAW", _gmail_raw_query(source_query))
+            except (imaplib.IMAP4.error, OSError):
+                errors.append(f"뉴스레터 출처 검색 실패: {source_policy['name']}")
+                continue
+            if status != "OK":
+                errors.append(f"뉴스레터 출처 검색 실패: {source_policy['name']}")
+                continue
+            uids = ((data[0] if data else b"") or b"").split()
+            message_uids.extend(list(reversed(uids))[:NEWSLETTER_COLLECTION["emails_per_required_source"]])
+        message_uids = list(dict.fromkeys(message_uids))
         for uid in message_uids:
             try:
                 status, payload = client.uid("fetch", uid, "(BODY.PEEK[])")
@@ -317,14 +388,19 @@ def fetch() -> Tuple[List[dict], List[str]]:
                     None,
                 )
                 if raw_message:
-                    articles.extend(_parse_email(raw_message))
+                    articles.extend(_parse_email(raw_message, stats))
             except Exception as exc:
                 errors.append(f"뉴스레터 메일 해석 실패: {type(exc).__name__}")
 
         print(
             f"✅ Gmail 뉴스레터: 최근 메일 {len(message_uids)}건에서 "
-            f"기사 링크 {len(articles)}건 수집"
+            f"기사 링크·본문 근거 {len(articles)}건 수집"
         )
+        for key, source_policy in NEWSLETTER_SOURCES.items():
+            counts = stats.get(key, {})
+            print(f"📬 {source_policy['name']}: 조회 범위 내 읽은 메일 {counts.get('emails', 0)}건 / "
+                  f"기사 링크 {counts.get('links', 0)}건 / 본문 참고 {counts.get('body_notes', 0)}건 / "
+                  f"상한 초과 {counts.get('overflow', 0)}건")
         return articles, errors
     except imaplib.IMAP4.error:
         return [], ["Gmail 로그인 실패: 이메일 주소 또는 앱 비밀번호를 확인하세요."]

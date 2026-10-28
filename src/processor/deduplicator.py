@@ -12,6 +12,7 @@ from ..config import (
 )
 from ..editorial_review import VALID_ALT_SUBTYPES, importance as _editorial_importance
 from ..utils.publishers import merge_coverage
+from ..utils.newsletters import newsletter_sources
 
 _model = None
 
@@ -805,6 +806,18 @@ def _merge_group(group: list) -> dict:
     merged["source"] = _unique_values(ordered, "source")
     merged["link"] = _unique_values(ordered, "link")
     merged["coverage_sources"] = merge_coverage(ordered)
+    required_sources = list(dict.fromkeys(
+        key for article in ordered for key in newsletter_sources(article)
+    ))
+    if required_sources:
+        merged["newsletter_sources"] = required_sources
+    body_notes = []
+    for article in ordered:
+        for note in article.get("newsletter_body_notes") or []:
+            if note not in body_notes and len(body_notes) < 2:
+                body_notes.append(note)
+    if body_notes:
+        merged["newsletter_body_notes"] = body_notes
     # Keep the description attached to the chosen representative.  Picking the
     # longest description from the whole group can silently pair one article's
     # headline and link with another article's body when deduplication makes a

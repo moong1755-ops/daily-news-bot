@@ -96,8 +96,8 @@ class HeadlineShapeTestCase(unittest.TestCase):
         self.assertFalse(_looks_like_headline("계속 읽기"))
 
 
-class HeadlineTruncationTestCase(unittest.TestCase):
-    """제목과 본문 첫 문단이 한 링크로 묶여 오는 경우를 정리한다."""
+class HeadlinePreservationTestCase(unittest.TestCase):
+    """제목/본문은 HTML 구조로 구분하고 글자 수로 제목을 자르지 않는다."""
 
     RUN_ON = (
         "Gates-Backed TerraPower to Announce Second Nuke Plant This Year "
@@ -106,19 +106,17 @@ class HeadlineTruncationTestCase(unittest.TestCase):
         "year — one intended for a data center."
     )
 
-    def test_run_on_anchor_is_shortened(self):
+    def test_unstructured_anchor_is_not_arbitrarily_cut(self):
         result = _headline_from_anchor(self.RUN_ON)
-        self.assertLess(len(result), len(self.RUN_ON))
-        self.assertLessEqual(len(result), 121)
-        self.assertTrue(result.startswith("Gates-Backed TerraPower"))
+        self.assertEqual(result, self.RUN_ON)
 
     def test_normal_headline_is_untouched(self):
         text = "Climate Fund Managers lands $182 million for green hydrogen fund"
         self.assertEqual(_headline_from_anchor(text), text)
 
-    def test_sentence_boundary_is_preferred_over_word_cut(self):
+    def test_multiple_sentences_are_not_silently_dropped(self):
         text = "Fed holds rates steady. " + "Officials signalled patience " * 6
-        self.assertEqual(_headline_from_anchor(text), "Fed holds rates steady.")
+        self.assertEqual(_headline_from_anchor(text), text.strip())
 
     def test_whitespace_is_normalized(self):
         self.assertEqual(_headline_from_anchor("  Fed   holds\nrates  "), "Fed holds rates")

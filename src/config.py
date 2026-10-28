@@ -212,6 +212,72 @@ PUBLISHER_AGGREGATOR_DOMAINS = (
     "google.com", "naver.com", "daum.net", "yahoo.com", "feedburner.com",
 )
 
+# 반드시 '검토'할 뉴스레터. 출처명만으로 인증하거나 발송을 보장하지 않는다.
+# 도메인/주소 확인 후 별칭을 적용하며, topics는 분류 참고용(강제 배정 아님).
+# 새로운 출처는 이 목록만 추가하면 수집·식별·검토 기록에 함께 반영된다.
+NEWSLETTER_SOURCES = {
+    "bloomberg_green": {
+        "name": "Bloomberg Green", "domains": ("bloomberg.com",),
+        "aliases": ("Bloomberg Green",), "subject_terms": ("Green",),
+        "gmail_query": "from:bloomberg.com Green",
+        "topics": ("🌱 임팩트",), "region": "global",
+    },
+    "sorkin_dealbook": {
+        "name": "DealBook / Andrew Ross Sorkin", "domains": ("nytimes.com",),
+        "addresses": ("sorkin@substack.com",),
+        "aliases": ("DealBook", "Andrew Ross Sorkin", "Sorkin"),
+        "subject_terms": ("DealBook", "Sorkin"),
+        "gmail_query": "(from:sorkin@substack.com OR (from:nytimes.com (DealBook OR Sorkin)))",
+        "topics": ("📈 대체투자", "🌐 거시·정책·지정학"), "region": "global",
+        # NYT emails have an issue essay but no verified public permalink.
+        # Retain it only as evidence for an independently linked article.
+        "body_mode": "issue_lead", "lead_marker": "Good morning. Andrew here.",
+        "lead_subject_prefix": "DealBook:", "body_max_notes": 1,
+    },
+    "impactalpha": {
+        "name": "Impact Alpha", "domains": ("impactalpha.com",),
+        "aliases": ("ImpactAlpha", "ImpactAlpha Open", "Impact Alpha"),
+        "gmail_query": "from:impactalpha.com",
+        "topics": ("🌱 임팩트",), "region": "global",
+        "body_mode": "item_leads", "body_max_notes": 3,
+        "body_skip_titles": ("Background reading", "In this week's Open"),
+    },
+    "nyt": {
+        "name": "The New York Times", "domains": ("nytimes.com",),
+        "aliases": ("NYT", "New York Times", "The New York Times"),
+        "gmail_query": "from:nytimes.com",
+        "topics": (), "region": "global",
+    },
+    "a16z": {
+        "name": "a16z", "domains": ("a16z.com",),
+        "addresses": ("a16z@substack.com",),
+        "aliases": ("a16z", "Andreessen Horowitz"),
+        "gmail_query": "(from:a16z.com OR from:a16z@substack.com)",
+        "topics": ("🤖 AI", "📈 대체투자"), "region": "global",
+        "body_mode": "single_article", "body_container_class": "body markup",
+        "public_substack_publication": "a16z",
+        "public_substack_base": "https://www.a16z.news",
+        "publisher_domain": "a16z.news",  # a16z.com과 공개 Substack 포스트는 같은 발행사
+    },
+    "kdi": {
+        "name": "KDI", "domains": ("kdi.re.kr",),
+        "aliases": ("KDI", "한국개발연구원", "KDI 경제정보센터"),
+        "gmail_query": "from:kdi.re.kr",
+        "topics": ("🌐 거시·정책·지정학", "🌱 임팩트"), "region": "korea",
+    },
+}
+NEWSLETTER_COLLECTION = {
+    "recent_emails": 20,
+    "emails_per_required_source": 2,  # 최근 메일 20건 밖의 중요 출처도 별도 확인
+    "max_links_per_email": 80,       # 앞 8개 제한 대신 넉넉한 안전 상한 + 초과 경고
+    "context_chars": 600,            # 기사 설명만 제한. 제목은 자르지 않는다.
+}
+NEWSLETTER_DEFERRED_EXCLUSION_REASONS = {
+    "general_business_without_category_fit",
+    "contract_without_category_fit",
+    "enterprise_risk_without_investment_context",
+}
+
 # 기사 자격은 유지하지만 상대 순위만 낮출 항목. 값은 최종 선정 점수에 더한다.
 SELECTION_SCORE_ADJUSTMENTS = {
     "branded_roundup": -1.0,

@@ -24,6 +24,7 @@ from ..editorial_review import (
     VALID_IMPORTANCE_REASONS as IMPORTANCE_REASONS,
 )
 from .reranker import _call_llm
+from ..utils.newsletters import newsletter_topics
 
 BATCH_SIZE = 80
 
@@ -295,13 +296,25 @@ def _candidate_block(articles: list, start_id: int) -> str:
                 + _metadata_values(article.get("impact_themes"))
             )
         )
+        topics = newsletter_topics(article)
+        newsletter_hint = (
+            f"뉴스레터 관심분야(참고만, 강제 분류/선정 금지): {', '.join(topics)}\n"
+            if topics else ""
+        )
+        notes = article.get("newsletter_body_notes") or []
+        body_note_hint = "".join(
+            f"뉴스레터 본문 참고(원문 링크가 아닌 보조 근거): "
+            f"{note.get('source', '')} / {note.get('title', '')} / "
+            f"{note.get('excerpt', '')[:200]}\n"
+            for note in notes[:2]
+        )
         lines.append(
             f"ID [{start_id + offset}] | 현재분야: {article.get('category', '미분류')} | "
             f"지역: {region} | 출처: {source} | 피드: {article.get('feed', '')} | "
             f"원문도메인: {domain} | 날짜: {article.get('date', '')}\n"
             f"사건상태: {event_status} | 보도근거: {reporting_basis} | "
             f"임팩트근거: {impact_evidence} | 신호: {signals}\n"
-            f"제목: {article.get('title', '')}\n"
+            f"{newsletter_hint}{body_note_hint}제목: {article.get('title', '')}\n"
             f"요약: {description}\n---"
         )
     return "\n".join(lines)
@@ -393,7 +406,11 @@ def _quoted_input_evidence(article: dict, value: object) -> str:
     normalize = lambda text: " ".join(str(text).casefold().split())
     # Do not join fields: a quote must occur within one actual input field.
     if not any(normalize(evidence) in normalize(text)
-               for text in (article.get("title", ""), description)):
+               for text in (
+                   article.get("title", ""), description,
+                   *(str(note.get("excerpt") or "")[:200]
+                     for note in (article.get("newsletter_body_notes") or [])[:2]),
+               )):
         return ""
     return evidence
 

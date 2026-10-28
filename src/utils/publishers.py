@@ -5,7 +5,7 @@ import re
 from urllib.parse import unquote, urlsplit
 
 from ..config import (
-    PUBLISHER_AGGREGATOR_DOMAINS, PUBLISHER_ALIASES, RSS_SOURCE_METADATA,
+    PUBLISHER_AGGREGATOR_DOMAINS, PUBLISHER_ALIASES, RSS_SOURCE_METADATA, NEWSLETTER_SOURCES,
 )
 
 
@@ -40,6 +40,13 @@ def _registry() -> dict[str, str]:
             domain = match.group(1) if match else ""
         registry[_name(name)] = domain or "source:" + _name(name)
     registry.update({_name(name): domain for name, domain in PUBLISHER_ALIASES.items()})
+    for policy in NEWSLETTER_SOURCES.values():
+        domains = policy.get("domains", ())
+        if domains:
+            # DealBook and NYT are one publisher, not two independent reports.
+            publisher = policy.get("publisher_domain") or domains[0]
+            for name in (policy["name"], *policy.get("aliases", ()), *domains):
+                registry[_name(name)] = publisher
     for domain in list(registry.values()):
         if not domain.startswith("source:"):
             registry[_name(domain)] = domain

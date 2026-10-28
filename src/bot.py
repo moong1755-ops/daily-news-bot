@@ -59,6 +59,8 @@ from .config import (
     RSS_SOURCE_METADATA,
     FEED_CATEGORY_OVERRIDE,
     SIMILARITY_THRESHOLD,
+    NEWSLETTER_DEFERRED_EXCLUSION_REASONS,
+    NEWSLETTER_SOURCES,
 )
 try:
     from .config import LLM_SEND_MIN_SCORE
@@ -70,6 +72,7 @@ except ImportError:
     SLACK_HEADER = ""
 
 from .utils.file_handler import load_lines, save_lines, SEEN_FILE, SEEN_TITLES_FILE
+from .utils.newsletters import attach_body_notes, newsletter_sources
 from .editorial_review import (
     EDITORIAL_REVIEW_SHEET_URL,
     importance as _editorial_importance,
@@ -237,7 +240,10 @@ def is_relevant(article: dict, require_topic_match: bool = True) -> bool:
         article["filter_reason"] = f"opinion:{opinion_hit}"
         return False
 
-    hard_exclusion_hit = _first_keyword_hit(HARD_EXCLUSION_KEYWORDS, text)
+    # Email-local RSVP/job links must not disqualify another linked article.
+    # Explicit promo/job headlines still fail before any paid editor call.
+    hard_text = title.lower() if article.get("feed") == "Gmail Newsletters" else text
+    hard_exclusion_hit = _first_keyword_hit(HARD_EXCLUSION_KEYWORDS, hard_text)
     if hard_exclusion_hit:
         article["filter_reason"] = f"hard_exclusion:{hard_exclusion_hit}"
         return False
@@ -1316,9 +1322,8 @@ def filter_to_as_of_date(articles: list) -> list:
 def select_for_briefing(classified: list) -> tuple:
     """편집 판정을 적용한 최종 후보와 (탈락 기사, 오류) 를 돌려준다.
 
-    편집 게이트는 키워드 판정 위에 덧씌운다. summarize 가 매긴 impact_must_read·
-    major_deal 플래그를 선정 단계가 쓰기 때문이다. 따라서 걸러내기만 할 뿐,
-    키워드가 죽인 기사를 되살리지는 못한다.
+    확정 노이즈는 제외한다. 중요 뉴스레터의 '분류 근거 부족'만 편집자에게
+    재검토를 맡기며, API 실패·응답 누락은 자동 통과시키지 않는다.
 
     게이트가 돌았으면 리랭커는 건너뛴다. 둘 다 '읽을 가치가 있는가' 를 판정하는
     편집자인데 기준이 서로 달라, 겹쳐 돌리면 뒤의 것이 앞의 판단을 뒤집는다.
@@ -1328,6 +1333,16 @@ def select_for_briefing(classified: list) -> tuple:
     """
     rejected, errors = [], []
     gate_applied = False
+    can_defer = editor_gate_enabled() and editor.is_enabled()
+    deferred = [article for article in classified
+                if article.get("editorial_excluded")
+                and newsletter_sources(article)
+                and article.get("editorial_exclusion_reason") in NEWSLETTER_DEFERRED_EXCLUSION_REASONS
+                and can_defer]
+    deferred_ids = {id(article) for article in deferred}
+    for article in deferred:
+        article["pre_editor_exclusion_reason"] = article.get("editorial_exclusion_reason")
+        article["newsletter_review_deferred"] = True
 
     # summarize 단계의 확정 제외는 LLM이 되살릴 수 없다. 정례 공지·단독
     # 그래픽처럼 규칙으로 이미 판별된 노이즈를 모델에 보내지 않으면 비용과
@@ -1335,14 +1350,14 @@ def select_for_briefing(classified: list) -> tuple:
     deterministic_rejected = [
         article
         for article in classified
-        if article.get("editorial_excluded", False)
+        if article.get("editorial_excluded", False) and id(article) not in deferred_ids
     ]
     if deterministic_rejected:
         rejected.extend(deterministic_rejected)
         classified = [
             article
             for article in classified
-            if not article.get("editorial_excluded", False)
+            if not article.get("editorial_excluded", False) or id(article) in deferred_ids
         ]
         print(
             f"🧹 확정 제외 규칙으로 {len(deterministic_rejected)}건을 "
@@ -1360,6 +1375,19 @@ def select_for_briefing(classified: list) -> tuple:
             rejected.extend(a for a in classified if a.get("editor_verdict") == "reject")
             classified = reviewed
             gate_applied = True
+
+    # Only an explicit editor keep can rescue an ambiguous required source.
+    # Preserve the original reason separately for before/after diagnostics.
+    for article in deferred:
+        if gate_applied and article.get("editor_verdict") == "keep" and not article.get("editorial_excluded"):
+            article["editorial_exclusion_reason"] = ""
+            continue
+        article["editorial_excluded"] = True
+        if article.get("editor_verdict") != "reject":
+            article["filter_reason"] = "newsletter_review_unavailable"
+        if not any(item is article for item in rejected):
+            rejected.append(article)
+        classified = [item for item in classified if item is not article]
 
     # 카테고리 이름만 맞는 운영·법률·보안 기사가 실제 투자 사건을 밀어내지
     # 않도록, LLM 판정 뒤에도 VC·PE 자격을 구조화 신호로 한 번 확인한다.
@@ -1414,7 +1442,14 @@ def _decision_record(article: dict, verdict: str) -> dict:
         "region_reason": article.get("region_reason"),
         "relevance": article.get("relevance"),
         "filter_reason": article.get("filter_reason"),
+        "editorial_exclusion_reason": article.get("editorial_exclusion_reason"),
+        "pre_editor_exclusion_reason": article.get("pre_editor_exclusion_reason"),
+        "newsletter_sources": newsletter_sources(article),
+        "newsletter_review_deferred": article.get("newsletter_review_deferred", False),
+        "newsletter_body_note_count": len(article.get("newsletter_body_notes") or []),
+        "date_basis": article.get("date_basis"),
         "editor_reason": article.get("editor_reason"),
+        "editor_verdict": article.get("editor_verdict"),
         "editor_score": article.get("editor_score"),
         "importance": article.get("importance"),
         "importance_reason": article.get("importance_reason"),
@@ -1466,12 +1501,25 @@ def save_run_decisions(rejected: list, considered: list, sent: list) -> None:
         _decision_record(a, "sent" if id(a) in sent_ids else "not_selected")
         for a in considered
     ]
+    newsletter_summary = {}
+    for key, policy in NEWSLETTER_SOURCES.items():
+        rows = [row for row in records if key in row["newsletter_sources"]]
+        counts = {
+            "decisions": len(rows),
+            "reviewed": sum(row["editor_verdict"] in {"keep", "reject"} for row in rows),
+            "sent": sum(row["verdict"] == "sent" for row in rows),
+            "deferred": sum(row["newsletter_review_deferred"] for row in rows),
+        }
+        newsletter_summary[key] = counts
+        print(f"🧾 {policy['name']}: 판정 기록 {counts['decisions']} / "
+              f"AI 검토 {counts['reviewed']} / 발송 {counts['sent']}")
     path = Path(__file__).parent.parent / "data" / "last_run_decisions.json"
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
             json.dump(
-                {"ts": datetime.utcnow().isoformat(), "decisions": records},
+                {"ts": datetime.utcnow().isoformat(), "decisions": records,
+                 "newsletter_summary": newsletter_summary},
                 f, ensure_ascii=False, indent=2,
             )
         print(f"🧾 판정 로그 {len(records)}건 기록 → {path.name}")
@@ -1824,14 +1872,17 @@ def main():
     all_articles.extend(rss_articles)
 
     all_articles = filter_to_as_of_date(all_articles)
-
+    body_notes = [article for article in all_articles if article.get("newsletter_body_only")]
     filtered = []
     rejected = []          # 탈락 사유와 함께 판정 로그에 남긴다
+    rejected.extend(body_notes)
     # 게이트가 뒤에서 판단하면 앞단은 값싼 차단만 하고 주제 판정은 넘긴다.
     gate_will_judge = editor_gate_enabled() and editor.is_enabled()
     if gate_will_judge:
         print("🧑‍⚖️ 주제 적합성 판정을 편집 게이트로 넘깁니다(키워드 사전 차단 최소화).")
     for art in all_articles:
+        if art.get("newsletter_body_only"):
+            continue  # 증거일 뿐 발송 가능한 기사가 아니다.
         link = get_primary_link(art)
         normalized_link = normalize_url(link)
         title = art.get("title", "")
@@ -1839,15 +1890,28 @@ def main():
             continue
         gnews_raw = normalize_url(art.get("gnews_link") or "")
         if normalized_link in seen_links or (gnews_raw and gnews_raw in seen_links):
+            if newsletter_sources(art):
+                art["filter_reason"] = "previously_sent_url"
+                rejected.append(art)
             continue
         # 날짜 넘는 중복(어제까지 발송)
         if any(is_same_news_issue(title, old) for old in seen_titles[-800:]):
+            if newsletter_sources(art):
+                art["filter_reason"] = "previously_sent_issue"
+                rejected.append(art)
             continue
         if not is_relevant(art, require_topic_match=not gate_will_judge):
             rejected.append(art)      # is_relevant 가 filter_reason 을 붙여 둔다
             continue
 
         filtered.append(art)
+
+    # Only survivors can receive an unlinked email note. A previously sent or
+    # otherwise rejected article must not make a body note look "attached".
+    body_note_count, attached_note_count = attach_body_notes(filtered + body_notes)
+    if body_note_count:
+        print(f"📬 본문형 뉴스레터 근거 {body_note_count}건 중 "
+              f"공개 링크가 있는 같은 사건에 {attached_note_count}건 연결")
 
     # 오늘 수집한 중복은 모두 전달해야 검증 출처와 원문을 대표 기사로 고를 수 있다.
     merged, dedup_errors = deduplicate_and_merge(filtered)
