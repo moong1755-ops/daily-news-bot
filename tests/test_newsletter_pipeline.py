@@ -279,6 +279,36 @@ class NewsletterCollectionTests(unittest.TestCase):
 
 
 class NewsletterReviewTests(unittest.TestCase):
+    def test_bloomberg_green_stays_impact_after_editor_reclassification(self):
+        article = gmail._parse_email(mail(
+            card(1, "Batteries Are Helping Electrify Trains Faster"),
+            sender="Bloomberg Green <noreply@news.bloomberg.com>",
+            subject="Green: This week's developments",
+        ))[0]
+        article, _ = summarize(article)
+        self.assertEqual(article["category"], "🌱 임팩트")
+        self.assertEqual(article["category_reason"], "configured_newsletter_category")
+        editor._apply(article, {"keep": True, "category": "📈 대체투자", "score": 8,
+                               "reason": "funding_round"}, set(editor.CATEGORIES))
+        self.assertEqual(article["category"], "🌱 임팩트")
+
+    def test_bloomberg_green_lock_does_not_force_promotions_to_be_sent(self):
+        article = {"title": "RSVP for the climate investor webinar",
+                   "feed": "Gmail Newsletters", "newsletter_source": "bloomberg_green"}
+        article, _ = summarize(article)
+        self.assertEqual(article["category"], "🌱 임팩트")
+        self.assertTrue(article["editorial_excluded"])
+        editor._apply(article, {"keep": False, "reason": "event_promotion"}, set(editor.CATEGORIES))
+        self.assertTrue(article["editorial_excluded"])
+
+    def test_bloomberg_display_name_alone_does_not_lock_category(self):
+        article = gmail._parse_email(mail(
+            card(1, "Software company raises Series B funding round"),
+            sender="Bloomberg Green <news@untrusted.example>",
+        ))[0]
+        article, _ = summarize(article)
+        self.assertNotEqual(article["category_reason"], "configured_newsletter_category")
+
     def test_unlinked_note_only_attaches_to_same_event_with_real_article_link(self):
         note = {"title": "Anthropic’s winners and losers",
                 "description": "Anthropic’s I.P.O. filing shows which investors may gain.",
@@ -324,8 +354,10 @@ class NewsletterReviewTests(unittest.TestCase):
         self.assertEqual(editor._quoted_input_evidence(article, "imaginary additional benefit"), "")
 
     def ambiguous(self):
+        # Generic required-review streams remain content-classified. Green now
+        # has a deliberate category lock, covered by dedicated tests above.
         item = gmail._parse_email(mail(card(1, "EPA Readies Bid to Ease Methane Controls for Oil, Gas"),
-                                      sender="Bloomberg Green <news@bloomberg.com>"))[0]
+                                      sender="The Morning <news@nytimes.com>"))[0]
         item, _ = summarize(item)
         return item
 
@@ -439,7 +471,7 @@ class NewsletterReviewTests(unittest.TestCase):
                 mock.patch("builtins.print"):
             bot.save_run_decisions([article], [], [])
         saved = json.loads("".join(call.args[0] for call in output().write.call_args_list))
-        counts = saved["newsletter_summary"]["bloomberg_green"]
+        counts = saved["newsletter_summary"]["nyt"]
         self.assertEqual(counts, {"decisions": 1, "reviewed": 0, "sent": 0, "deferred": 1})
         self.assertEqual(saved["decisions"][0]["editorial_exclusion_reason"],
                          "general_business_without_category_fit")

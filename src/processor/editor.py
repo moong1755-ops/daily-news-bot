@@ -476,6 +476,7 @@ def _apply(article: dict, verdict: dict, valid_categories: set) -> None:
         article.get("category_reason") in {
             "official_insights_source",
             "ai_public_procurement",
+            "configured_newsletter_category",
         }
         and article.get("category") in valid_categories
     )

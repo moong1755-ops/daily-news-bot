@@ -213,7 +213,7 @@ PUBLISHER_AGGREGATOR_DOMAINS = (
 )
 
 # 반드시 '검토'할 뉴스레터. 출처명만으로 인증하거나 발송을 보장하지 않는다.
-# 도메인/주소 확인 후 별칭을 적용하며, topics는 분류 참고용(강제 배정 아님).
+# 도메인/주소 확인 후 별칭을 적용한다. topics는 참고용이며 fixed_category만 고정한다.
 # 새로운 출처는 이 목록만 추가하면 수집·식별·검토 기록에 함께 반영된다.
 NEWSLETTER_SOURCES = {
     "bloomberg_green": {
@@ -221,6 +221,7 @@ NEWSLETTER_SOURCES = {
         "aliases": ("Bloomberg Green",), "subject_terms": ("Green",),
         "gmail_query": "from:bloomberg.com Green",
         "topics": ("🌱 임팩트",), "region": "global",
+        "fixed_category": "🌱 임팩트",
     },
     "sorkin_dealbook": {
         "name": "DealBook / Andrew Ross Sorkin", "domains": ("nytimes.com",),

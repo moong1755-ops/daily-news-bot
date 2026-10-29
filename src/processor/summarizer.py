@@ -18,7 +18,9 @@ from ..config import (
     OFFICIAL_INSIGHTS_DOMAINS,
     OFFICIAL_INSIGHTS_SOURCE_ALIASES,
     SELECTION_SCORE_ADJUSTMENTS,
+    NEWSLETTER_SOURCES,
 )
+from ..utils.newsletters import newsletter_sources
 
 
 # 단독으로는 임팩트 투자 기사라는 근거가 부족한 넓은 산업 용어.
@@ -658,6 +660,14 @@ def summarize(article: dict):
     macro_category = _category_by_prefix("🌐")
     insights_category = _category_by_prefix("👔")
 
+    # Only sender-identified streams carry this provenance; display names alone
+    # must not lock a category. Keep provenance after RSS duplicate merging too.
+    fixed_newsletter_category = next((
+        NEWSLETTER_SOURCES[key].get("fixed_category")
+        for key in newsletter_sources(article)
+        if NEWSLETTER_SOURCES[key].get("fixed_category") in CATEGORIES
+    ), None)
+
     impact_themes = _matched_impact_themes(text)
     editorial_groups = _matched_groups(EDITORIAL_PRIORITY_SIGNALS, text)
     if _matches_any_pattern(_ENTERPRISE_RISK_TITLE_PATTERNS, title.lower()):
@@ -715,6 +725,9 @@ def summarize(article: dict):
     if official_insights:
         assigned_category = insights_category
         category_reason = "official_insights_source"
+    elif fixed_newsletter_category:
+        assigned_category = fixed_newsletter_category
+        category_reason = "configured_newsletter_category"
     elif verified_impact_source:
         assigned_category = impact_category
         category_reason = "verified_impact_source"
@@ -877,7 +890,7 @@ def summarize(article: dict):
     # LLM 편집 단계가 '헬스케어/교육/ESG' 같은 넓은 산업명만 보고 일반
     # PE·VC 딜을 임팩트로 재분류하지 않도록 결정적 근거를 전달한다.
     article["impact_content_verified"] = bool(
-        impact_content or verified_impact_source
+        impact_content or verified_impact_source or fixed_newsletter_category == impact_category
     )
     article["editorial_signals"] = sorted(editorial_groups)
     article["deal_signals"] = sorted(deal_groups)
