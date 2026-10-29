@@ -18,7 +18,9 @@ from ..config import (
     OFFICIAL_INSIGHTS_DOMAINS,
     OFFICIAL_INSIGHTS_SOURCE_ALIASES,
     SELECTION_SCORE_ADJUSTMENTS,
+    NEWSLETTER_SOURCES,
 )
+from ..utils.newsletters import newsletter_sources
 
 
 # 단독으로는 임팩트 투자 기사라는 근거가 부족한 넓은 산업 용어.
@@ -474,6 +476,21 @@ def _content_region(article: dict, category: str, text: str) -> tuple[str, str]:
     if not str(category).startswith(_REGION_SPLIT_CATEGORY_PREFIXES):
         return configured_region, "configured_source_region"
 
+    if "kdi" in newsletter_sources(article):
+        title = str(article.get("title_orig") or article.get("title") or "")
+        # The report's subject outranks KDI's location and newsletter chrome.
+        if _has_any(_KOREA_EVENT_SIGNALS, title.lower()):
+            return "korea", "korea_report_subject"
+        report_publishers = NEWSLETTER_SOURCES["kdi"].get("global_report_publishers", ())
+        overseas_report = any(re.search(
+            r"\(\s*" + re.escape(publisher) + r"\s*\)\s*$", title, re.I
+        ) for publisher in report_publishers)
+        if overseas_report:
+            # A Korea-focused description can override an overseas publisher.
+            context = re.sub(r"한국개발연구원|한국어|\bKDI\b", "", text, flags=re.I)
+            if not _has_any(_KOREA_EVENT_SIGNALS, context):
+                return "global", "overseas_report_distributed_by_kdi"
+
     has_korea_signal = _has_any(_KOREA_EVENT_SIGNALS, text)
     has_foreign_signal = _has_any(_FOREIGN_EVENT_SIGNALS, text)
     if has_korea_signal and not has_foreign_signal:
@@ -658,6 +675,14 @@ def summarize(article: dict):
     macro_category = _category_by_prefix("🌐")
     insights_category = _category_by_prefix("👔")
 
+    # Only sender-identified streams carry this provenance; display names alone
+    # must not lock a category. Keep provenance after RSS duplicate merging too.
+    fixed_newsletter_category = next((
+        NEWSLETTER_SOURCES[key].get("fixed_category")
+        for key in newsletter_sources(article)
+        if NEWSLETTER_SOURCES[key].get("fixed_category") in CATEGORIES
+    ), None)
+
     impact_themes = _matched_impact_themes(text)
     editorial_groups = _matched_groups(EDITORIAL_PRIORITY_SIGNALS, text)
     if _matches_any_pattern(_ENTERPRISE_RISK_TITLE_PATTERNS, title.lower()):
@@ -715,6 +740,9 @@ def summarize(article: dict):
     if official_insights:
         assigned_category = insights_category
         category_reason = "official_insights_source"
+    elif fixed_newsletter_category:
+        assigned_category = fixed_newsletter_category
+        category_reason = "configured_newsletter_category"
     elif verified_impact_source:
         assigned_category = impact_category
         category_reason = "verified_impact_source"
@@ -838,13 +866,21 @@ def summarize(article: dict):
             editorial_score -= EDITORIAL_PRIORITY_WEIGHT
         deal_score -= EDITORIAL_PRIORITY_WEIGHT
 
-    excluded = _has_any(DEAL_EXCLUSION_KEYWORDS + EDITORIAL_EXCLUSION_KEYWORDS, text)
+    # Newsletter descriptions are adjacent article context, not proof that the
+    # headline itself is a job/ad/event. Leave contextual ambiguity to the editor.
+    newsletter_article = article.get("feed") == "Gmail Newsletters"
+    exclusion_text = title.lower() if newsletter_article else text
+    excluded = _has_any(DEAL_EXCLUSION_KEYWORDS + EDITORIAL_EXCLUSION_KEYWORDS, exclusion_text)
     if article.get("rescue_signal"):
         excluded = False
     # 최종 안전검사는 rescue 신호보다 우선한다. 행사·인터뷰·MOU·일반 목록
     # 페이지·복수 사건 종합기사는 Gemini가 실패해도 발송하지 않는다.
     title_exclusion_reason = _title_exclusion_reason(title, official_insights, link)
-    final_exclusion_reason = title_exclusion_reason or category_fit_exclusion_reason
+    final_exclusion_reason = (
+        title_exclusion_reason
+        or ("newsletter_title_noise" if newsletter_article and excluded else "")
+        or category_fit_exclusion_reason
+    )
     if final_exclusion_reason:
         excluded = True
     base_score += editorial_score + deal_score + _EVENT_STATUS_WEIGHTS[event_status]
@@ -869,7 +905,7 @@ def summarize(article: dict):
     # LLM 편집 단계가 '헬스케어/교육/ESG' 같은 넓은 산업명만 보고 일반
     # PE·VC 딜을 임팩트로 재분류하지 않도록 결정적 근거를 전달한다.
     article["impact_content_verified"] = bool(
-        impact_content or verified_impact_source
+        impact_content or verified_impact_source or fixed_newsletter_category == impact_category
     )
     article["editorial_signals"] = sorted(editorial_groups)
     article["deal_signals"] = sorted(deal_groups)

@@ -8,11 +8,11 @@ from unittest.mock import patch
 
 import requests
 
-from src.config import CATEGORIES
+from src.config import CATEGORIES, WEEKLY_MARKET_INDICATORS
 from src.weekly.archive import KOREA_TIMEZONE, load_weekly_archive, weekly_date_window
 from src.weekly.deduplicator import deduplicate_weekly_articles
 from src.weekly.editor import WeeklyHeadlines, _parse_lines, _prompt
-from src.weekly.market_data import MarketPoint, MarketSnapshot, collect_market_snapshots
+from src.weekly.market_data import MarketPoint, MarketSnapshot, _collect_one, collect_market_snapshots
 from src.weekly.renderer import render_weekly_briefing
 from src.weekly.runner import run_weekly_briefing
 from src.weekly.selector import WeeklySelection, revalidate_weekly_articles, select_weekly_articles, weekly_score
@@ -24,6 +24,26 @@ ALTERNATIVE = next(category for category in CATEGORIES if category.startswith("�
 MACRO = next(category for category in CATEGORIES if category.startswith("🌐"))
 INSIGHTS = next(category for category in CATEGORIES if category.startswith("👔"))
 MONDAY_RUN = datetime(2026, 8, 31, 8, 30, tzinfo=KOREA_TIMEZONE)
+
+# Explicit legacy configurations keep provider regression tests independent of
+# the production default (ECOS). These are never automatic ECOS fallbacks.
+NAVER_FX_INDICATOR = {
+    "key": "usd_krw", "label": "USD/KRW", "provider": "naver_fx",
+    "marketindex_code": "FX_USDKRW", "history_max_pages": 12, "history_page_size": 20,
+    "value_basis": "하나은행 매매기준율", "change_unit": "percent",
+    "source_url": "https://stock.naver.com/marketindex/exchange/FX_USDKRW/price",
+}
+LEGACY_MARKET_INDICATORS = tuple(
+    NAVER_FX_INDICATOR if item["key"] == "usd_krw" else {
+        "key": item["key"], "label": item["label"], "provider": "krx",
+        "index_name": "코스피" if item["key"] == "kospi" else "코스닥",
+        "change_unit": "percent", "fallback_provider": "naver",
+        "fallback_symbol": item["label"],
+        "source_url": "https://data.krx.co.kr/contents/MDC/MAIN/main/index.cmd",
+        "fallback_source_url": f"https://finance.naver.com/sise/sise_index.naver?code={item['label']}",
+    } if item["key"] in ("kospi", "kosdaq") else item
+    for item in WEEKLY_MARKET_INDICATORS
+)
 
 
 def article(category, slug, title, *, region="global", score=1, source="Reuters"):
@@ -61,12 +81,28 @@ class FakeSession:
     def get(self, url, **kwargs):
         self.get_calls.append((url, kwargs))
         params = kwargs.get("params") or {}
-        if "exchangeDailyQuote.naver" in url:
-            rows = ["<table class='tbl_exchange today'><tbody>"]
-            dates = ("2026.08.21", "2026.08.24", "2026.08.25", "2026.08.26", "2026.08.27", "2026.08.28")
-            for offset, observed_on in enumerate(dates):
-                rows.append(f"<tr><td class='date'>{observed_on}</td><td>{1380 + offset}</td></tr>")
-            return FakeResponse(text="".join(rows) + "</tbody></table>")
+        if "ecos.bok.or.kr/api/StatisticSearch/" in url:
+            stat_code, _, _, _, item_code = url.split("/")[-5:]
+            base, unit = {
+                "0001000": (3200, "1980.01.04=100 "),
+                "0089000": (900, "1996.07.01=1000"),
+                "0000003": (1380, "원"),
+            }[item_code]
+            rows = [
+                {"STAT_CODE": stat_code, "ITEM_CODE1": item_code, "UNIT_NAME": unit,
+                 "TIME": day, "DATA_VALUE": str(base + offset)}
+                for offset, day in enumerate(
+                    ("20260821", "20260824", "20260825", "20260826", "20260827", "20260828")
+                )
+            ]
+            return FakeResponse(payload={"StatisticSearch": {"list_total_count": len(rows), "row": rows}})
+        if "api.stock.naver.com/marketindex/exchange/" in url:
+            dates = ("2026-08-21", "2026-08-24", "2026-08-25", "2026-08-26", "2026-08-27", "2026-08-28")
+            rows = [
+                {"localTradedAt": day, "closePrice": f"{1380 + offset:,.2f}"}
+                for offset, day in enumerate(dates)
+            ]
+            return FakeResponse(payload=list(reversed(rows)) if params["page"] == 1 else [])
         if "fredgraph.csv" in url:
             series = params["id"]
             values = {
@@ -111,7 +147,7 @@ class FakeSession:
 
 class BadKrxSession(FakeSession):
     def get(self, url, **kwargs):
-        if any(host in url for host in ("fredgraph.csv", "api.finance.naver.com", "exchangeDailyQuote.naver")):
+        if any(host in url for host in ("fredgraph.csv", "api.finance.naver.com", "api.stock.naver.com")):
             return super().get(url, **kwargs)
         self.get_calls.append((url, kwargs))
         return FakeResponse(payload=[])
@@ -345,20 +381,21 @@ class WeeklyMarketTests(unittest.TestCase):
     def test_fx_uses_two_dated_bank_quotes_and_ignores_live_monday(self):
         class FxSession(FakeSession):
             def get(self, url, **kwargs):
-                if "exchangeDailyQuote.naver" not in url:
+                if "api.stock.naver.com/marketindex/exchange/" not in url:
                     return super().get(url, **kwargs)
                 self.get_calls.append((url, kwargs))
                 rows = (
-                    (("2026.09.07", "1,300.00"), ("2026.09.04", "1,349.50"))
+                    (("2026-09-07", "1,300.00"), ("2026-09-04", "1,349.50"))
                     if kwargs["params"]["page"] == 1 else
-                    (("2026.08.28", "1,381.00"), ("2026.08.20", "1,390.00"))
+                    (("2026-08-28", "1,381.00"), ("2026-08-20", "1,390.00"))
                 )
-                return FakeResponse(text="<table class='tbl_exchange'><tbody>" + "".join(
-                    f"<tr><td>{day}</td><td><span>{value}</span></td><td>999</td></tr>"
+                return FakeResponse(payload=[
+                    {"localTradedAt": day, "closePrice": value, "cashBuyPrice": "999"}
                     for day, value in rows
-                ) + "</tbody></table>")
+                ])
         session = FxSession()
-        snapshots = collect_market_snapshots(date(2026, 8, 31), date(2026, 9, 6), session=session)
+        with patch("src.weekly.market_data.WEEKLY_MARKET_INDICATORS", LEGACY_MARKET_INDICATORS):
+            snapshots = collect_market_snapshots(date(2026, 8, 31), date(2026, 9, 6), session=session)
         fx = next(item for item in snapshots if item.key == "usd_krw")
         self.assertTrue(fx.available)
         self.assertEqual(fx.provider, "naver_fx")
@@ -368,22 +405,120 @@ class WeeklyMarketTests(unittest.TestCase):
         self.assertAlmostEqual(fx.change, (1349.5 / 1381 - 1) * 100)
         self.assertEqual(fx.value_basis, "하나은행 매매기준율")
         self.assertFalse(any((kw.get("params") or {}).get("id") == "DEXKOUS" for _, kw in session.get_calls))
+        calls = [(url, kw) for url, kw in session.get_calls if "api.stock.naver.com" in url]
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(all(url == "https://api.stock.naver.com/marketindex/exchange/FX_USDKRW/prices" for url, _ in calls))
+        self.assertEqual([kw["params"] for _, kw in calls], [
+            {"page": 1, "pageSize": 20}, {"page": 2, "pageSize": 20},
+        ])
+        self.assertEqual(fx.source_url, "https://stock.naver.com/marketindex/exchange/FX_USDKRW/price")
 
     def test_fx_failure_is_visible_and_other_indicators_still_render(self):
         class BrokenFxSession(FakeSession):
             def get(self, url, **kwargs):
-                if "exchangeDailyQuote.naver" in url:
-                    return FakeResponse(text="<html>Temporarily unavailable</html>")
+                if "api.stock.naver.com/marketindex/exchange/" in url:
+                    return FakeResponse(payload={"error": "Temporarily unavailable"})
                 return super().get(url, **kwargs)
-        snapshots = collect_market_snapshots(date(2026, 8, 24), date(2026, 8, 30), session=BrokenFxSession())
+        with patch("src.weekly.market_data.WEEKLY_MARKET_INDICATORS", LEGACY_MARKET_INDICATORS):
+            snapshots = collect_market_snapshots(date(2026, 8, 24), date(2026, 8, 30), session=BrokenFxSession())
         fx = next(item for item in snapshots if item.key == "usd_krw")
         self.assertFalse(fx.available)
-        self.assertIn("유효한 날짜 없음", fx.error)
+        self.assertIn("목록이 아님", fx.error)
         self.assertTrue(next(item for item in snapshots if item.key == "kospi").available)
+
+    def test_fx_holiday_uses_last_dated_quote_and_renders_matching_source(self):
+        payload = [
+            {"localTradedAt": "2026-10-12", "closePrice": "1,300.00"},
+            {"localTradedAt": "2026-10-08", "closePrice": "1,344.00"},
+            {"localTradedAt": "2026-10-07", "closePrice": "1,341.00"},
+            {"localTradedAt": "2026-10-02", "closePrice": "1,342.50"},
+            {"localTradedAt": "2026-09-25", "closePrice": "1,330.00"},
+        ]
+        indicator = NAVER_FX_INDICATOR
+        with patch.object(FakeSession, "get", return_value=FakeResponse(payload=payload)) as get:
+            snapshot = _collect_one(indicator, date(2026, 10, 5), date(2026, 10, 11), FakeSession())
+        self.assertTrue(snapshot.available)
+        self.assertEqual(snapshot.latest, MarketPoint(date(2026, 10, 8), 1344))
+        self.assertEqual(snapshot.comparison, MarketPoint(date(2026, 10, 2), 1342.5))
+        self.assertAlmostEqual(snapshot.change, (1344 / 1342.5 - 1) * 100)
+        get.assert_called_once()
+        message = render_weekly_briefing(
+            date(2026, 10, 5), date(2026, 10, 11), WeeklyHeadlines((), None, True),
+            WeeklySelection({category: () for category in CATEGORIES}, (), 0), (snapshot,),
+        )
+        encoded = json.dumps(message.blocks, ensure_ascii=False)
+        self.assertIn(f"<{indicator['source_url']}|USD/KRW 1,344.0 ▲0.1%>", encoded)
+        self.assertIn("10.02→10.08 · 하나은행 매매기준율", encoded)
+
+    def test_fx_malformed_response_and_http_failure_are_unavailable(self):
+        indicator = NAVER_FX_INDICATOR
+        responses = [
+            FakeResponse(payload={"error": "unavailable"}),
+            FakeResponse(payload="not a list"),
+            FakeResponse(payload=[]),
+            FakeResponse(status_code=410),
+            FakeResponse(status_code=503),
+            FakeResponse(payload=[None, [], {}, {"localTradedAt": "not-a-date", "closePrice": "1,300"}]),
+        ]
+        for response in responses:
+            with self.subTest(response=response):
+                with patch.object(FakeSession, "get", return_value=response) as get:
+                    snapshot = _collect_one(indicator, date(2026, 10, 5), date(2026, 10, 11), FakeSession())
+                self.assertFalse(snapshot.available)
+                self.assertTrue(snapshot.error)
+                get.assert_called_once()
+        for error in (ValueError("not JSON"), requests.Timeout("timed out")):
+            with self.subTest(error=error):
+                with patch.object(FakeSession, "get", side_effect=error):
+                    snapshot = _collect_one(indicator, date(2026, 10, 5), date(2026, 10, 11), FakeSession())
+                self.assertFalse(snapshot.available)
+                self.assertTrue(snapshot.error)
+
+    def test_fx_rejects_invalid_rates_and_does_not_invent_missing_week(self):
+        indicator = NAVER_FX_INDICATOR
+        for value in (None, True, "NaN", "Infinity", "0", "-1", "-", {}):
+            with self.subTest(value=value):
+                payload = [
+                    {"localTradedAt": "2026-10-08", "closePrice": value},
+                    {"localTradedAt": "2026-10-02", "closePrice": "1,342.50"},
+                    {"localTradedAt": "2026-09-25", "closePrice": "1,330.00"},
+                ]
+                with patch.object(FakeSession, "get", return_value=FakeResponse(payload=payload)):
+                    snapshot = _collect_one(indicator, date(2026, 10, 5), date(2026, 10, 11), FakeSession())
+                self.assertFalse(snapshot.available)
+                self.assertIn("이번 주", snapshot.error)
+
+    def test_fx_requires_previous_week_and_limits_historical_requests(self):
+        indicator = NAVER_FX_INDICATOR
+        payload = [{"localTradedAt": "2026-10-08", "closePrice": "1,344.00"}]
+        indicator = dict(indicator, history_max_pages=2, history_page_size=5)
+        with patch.object(FakeSession, "get", return_value=FakeResponse(payload=payload)) as get:
+            snapshot = _collect_one(indicator, date(2026, 10, 5), date(2026, 10, 11), FakeSession())
+        self.assertFalse(snapshot.available)
+        self.assertIn("전주", snapshot.error)
+        self.assertEqual(get.call_count, 2)
+        self.assertEqual(get.call_args.kwargs["params"], {"page": 2, "pageSize": 5})
+
+    def test_fx_page_overlap_does_not_overwrite_an_already_collected_date(self):
+        indicator = NAVER_FX_INDICATOR
+        pages = [
+            FakeResponse(payload=[
+                {"localTradedAt": "2026-10-08", "closePrice": "1,344.00"},
+                {"localTradedAt": "2026-10-02", "closePrice": "1,342.50"},
+            ]),
+            FakeResponse(payload=[
+                {"localTradedAt": "2026-10-02", "closePrice": "1,300.00"},
+                {"localTradedAt": "2026-09-25", "closePrice": "1,330.00"},
+            ]),
+        ]
+        with patch.object(FakeSession, "get", side_effect=pages):
+            snapshot = _collect_one(indicator, date(2026, 10, 5), date(2026, 10, 11), FakeSession())
+        self.assertTrue(snapshot.available)
+        self.assertEqual(snapshot.comparison.value, 1342.5)
 
     def test_collects_all_configured_indicators_with_mocked_official_sources(self):
         session = FakeSession()
-        with patch.dict(os.environ, {"KRX_AUTH_KEY": "test-key"}, clear=False):
+        with patch.dict(os.environ, {"ECOS_API_KEY": "test-key"}, clear=False):
             snapshots = collect_market_snapshots(date(2026, 8, 28), session=session)
 
         self.assertEqual(len(snapshots), 7)
@@ -394,7 +529,9 @@ class WeeklyMarketTests(unittest.TestCase):
 
     def test_missing_krx_key_uses_naver_finance_fallback(self):
         session = FakeSession()
-        with patch.dict(os.environ, {}, clear=False):
+        with patch.dict(os.environ, {}, clear=False), patch(
+            "src.weekly.market_data.WEEKLY_MARKET_INDICATORS", LEGACY_MARKET_INDICATORS
+        ):
             os.environ.pop("KRX_AUTH_KEY", None)
             snapshots = collect_market_snapshots(
                 date(2026, 8, 24), date(2026, 8, 30), session=session
@@ -408,7 +545,9 @@ class WeeklyMarketTests(unittest.TestCase):
 
     def test_malformed_krx_response_uses_naver_fallback(self):
         session = BadKrxSession()
-        with patch.dict(os.environ, {"KRX_AUTH_KEY": "test-key"}, clear=False):
+        with patch.dict(os.environ, {"KRX_AUTH_KEY": "test-key"}, clear=False), patch(
+            "src.weekly.market_data.WEEKLY_MARKET_INDICATORS", LEGACY_MARKET_INDICATORS
+        ):
             snapshots = collect_market_snapshots(
                 date(2026, 8, 24), date(2026, 8, 30), session=session
             )
@@ -420,8 +559,7 @@ class WeeklyMarketTests(unittest.TestCase):
 
     def test_compares_previous_and_current_week_last_trading_days(self):
         session = FakeSession()
-        with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("KRX_AUTH_KEY", None)
+        with patch.dict(os.environ, {"ECOS_API_KEY": "test-key"}, clear=False):
             snapshots = collect_market_snapshots(
                 date(2026, 8, 24), date(2026, 8, 30), session=session
             )
@@ -609,6 +747,9 @@ class WeeklyRunnerTests(unittest.TestCase):
             archived = json.loads(delivery_path.read_text(encoding="utf-8"))
 
         self.assertTrue(first.success and first.delivered)
+        self.assertEqual(len(first.market_errors), 3)
+        self.assertFalse(archived["market_health"]["complete"])
+        self.assertEqual(archived["market_health"]["errors"], list(first.market_errors))
         self.assertTrue(second.success and not second.delivered)
         self.assertEqual((len(session.get_calls), len(session.post_calls)), calls_after_first)
         self.assertEqual(calls_after_first[1], 1)

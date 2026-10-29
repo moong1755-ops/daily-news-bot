@@ -2,6 +2,7 @@ import os
 import re
 import time
 import json
+from functools import lru_cache
 import requests
 from ..utils import llm_cache
 from ..config import (
@@ -61,6 +62,7 @@ _MODEL_CANDIDATES = [
     "gemini-2.5-flash-lite",
 ]
 _RESOLVED_MODEL = None   # 한 번 성공한 모델은 프로세스 내 캐시
+_UNAVAILABLE_MODELS = set()  # 이 실행에서 404가 확인된 (인증키, 모델)만 제외
 
 
 def _env_int(name: str, default: int, minimum: int, maximum: int) -> int:
@@ -177,6 +179,7 @@ def _post_generate(
     raise RuntimeError("Gemini returned no response")
 
 
+@lru_cache(maxsize=8)
 def _discover_models(api_key: str, timeout: int = 8) -> list:
     """ListModels 에서 뉴스 편집에 쓸 수 있는 텍스트 flash 모델만 찾는다.
 
@@ -223,7 +226,7 @@ def _call_llm(instruction: str, api_key: str, timeout: int = 12):
     tried = []
     order = ([_RESOLVED_MODEL] if _RESOLVED_MODEL else []) + _candidate_models()
     for model in order:
-        if not model or model in tried:
+        if not model or model in tried or (api_key, model) in _UNAVAILABLE_MODELS:
             continue
         tried.append(model)
         try:
@@ -233,6 +236,7 @@ def _call_llm(instruction: str, api_key: str, timeout: int = 12):
         except requests.HTTPError as e:
             code = getattr(e.response, "status_code", None)
             if code == 404:
+                _UNAVAILABLE_MODELS.add((api_key, model))
                 # 이 키/프로젝트에 없는 모델. 조용히 넘기면 후보가 왜 소진됐는지
                 # 알 수 없어 장애 원인 추적이 막힌다.
                 print(f"ℹ️ Gemini {model}: 이 키에서 사용 불가(404) — 다음 후보로.")
@@ -246,7 +250,7 @@ def _call_llm(instruction: str, api_key: str, timeout: int = 12):
     # 후보 전부 실패 → ListModels 자동탐색
     try:
         discovered = _discover_models(api_key)
-        remaining = [m for m in discovered if m not in tried]
+        remaining = [m for m in discovered if m not in tried and (api_key, m) not in _UNAVAILABLE_MODELS]
         limited = remaining[:_GEMINI_DISCOVERY_MAX_MODELS]
         if not discovered:
             print("⚠️ ListModels 에서 사용 가능한 flash 계열 모델을 찾지 못함.")
@@ -265,6 +269,8 @@ def _call_llm(instruction: str, api_key: str, timeout: int = 12):
                 _RESOLVED_MODEL = disc
                 return text, disc
             except Exception as e:
+                if isinstance(e, requests.HTTPError) and getattr(e.response, "status_code", None) == 404:
+                    _UNAVAILABLE_MODELS.add((api_key, disc))
                 print(f"⚠️ {disc} 도 실패({e}) — 다음 탐색 후보로.")
                 continue
     except Exception as e:
