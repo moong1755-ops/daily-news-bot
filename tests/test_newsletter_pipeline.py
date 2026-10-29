@@ -279,6 +279,24 @@ class NewsletterCollectionTests(unittest.TestCase):
 
 
 class NewsletterReviewTests(unittest.TestCase):
+    def test_kdi_overseas_reports_are_not_domestic_because_of_distributor(self):
+        for title in ("The Incidence of Tariffs: Rates and Reality (CATO)",
+                      "Baby Busts and Growth Booms: Demographic Change and the Macroeconomy (CEPR)",
+                      "The short- and medium-term effects of structural reforms (OECD)"):
+            with self.subTest(title=title):
+                article, _ = summarize({"title": title, "description": "KDI 한국개발연구원 한국어",
+                                        "newsletter_source": "kdi", "region": "korea"})
+                self.assertEqual(article["region"], "global")
+
+    def test_kdi_korea_subject_overrides_overseas_report_publisher(self):
+        for title, context in (("Korea economic outlook (OECD)", ""),
+                               ("Economic outlook (OECD)", "한국 경제 성장률 전망 분석"),
+                               ("한국의 대CPTPP 교역 구조", "")):
+            with self.subTest(title=title):
+                article, _ = summarize({"title": title, "description": context,
+                                        "newsletter_source": "kdi", "region": "korea"})
+                self.assertEqual(article["region"], "korea")
+
     def test_bloomberg_green_stays_impact_after_editor_reclassification(self):
         article = gmail._parse_email(mail(
             card(1, "Batteries Are Helping Electrify Trains Faster"),

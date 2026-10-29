@@ -265,6 +265,9 @@ NEWSLETTER_SOURCES = {
         "aliases": ("KDI", "한국개발연구원", "KDI 경제정보센터"),
         "gmail_query": "from:kdi.re.kr",
         "topics": ("🌐 거시·정책·지정학", "🌱 임팩트"), "region": "korea",
+        # KDI distributes overseas research too; publisher tags are fallback
+        # evidence only, never stronger than an explicitly Korean subject.
+        "global_report_publishers": ("CATO", "CEPR", "NBER", "OECD", "IMF", "World Bank", "HOOVER"),
     },
 }
 NEWSLETTER_COLLECTION = {

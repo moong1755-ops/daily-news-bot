@@ -476,6 +476,21 @@ def _content_region(article: dict, category: str, text: str) -> tuple[str, str]:
     if not str(category).startswith(_REGION_SPLIT_CATEGORY_PREFIXES):
         return configured_region, "configured_source_region"
 
+    if "kdi" in newsletter_sources(article):
+        title = str(article.get("title_orig") or article.get("title") or "")
+        # The report's subject outranks KDI's location and newsletter chrome.
+        if _has_any(_KOREA_EVENT_SIGNALS, title.lower()):
+            return "korea", "korea_report_subject"
+        report_publishers = NEWSLETTER_SOURCES["kdi"].get("global_report_publishers", ())
+        overseas_report = any(re.search(
+            r"\(\s*" + re.escape(publisher) + r"\s*\)\s*$", title, re.I
+        ) for publisher in report_publishers)
+        if overseas_report:
+            # A Korea-focused description can override an overseas publisher.
+            context = re.sub(r"한국개발연구원|한국어|\bKDI\b", "", text, flags=re.I)
+            if not _has_any(_KOREA_EVENT_SIGNALS, context):
+                return "global", "overseas_report_distributed_by_kdi"
+
     has_korea_signal = _has_any(_KOREA_EVENT_SIGNALS, text)
     has_foreign_signal = _has_any(_FOREIGN_EVENT_SIGNALS, text)
     if has_korea_signal and not has_foreign_signal:
