@@ -486,39 +486,6 @@ def _collapse_daily_ipo_clusters(ranked: list[dict]) -> list[dict]:
     return kept
 
 
-def _collapse_cross_category_ipo_clusters(articles: list[dict]) -> list[dict]:
-    """Treat one company's IPO as one capital-market story across AI and VC·PE."""
-    groups: dict[str, list[dict]] = {}
-    for article in articles:
-        if article.get("category") not in {AI_CATEGORY, ALTERNATIVE_CATEGORY}:
-            continue
-        title = " ".join(
-            str(article.get(field) or "") for field in ("title_orig", "title")
-        )
-        if not _IPO_CLUSTER_PATTERN.search(title):
-            continue
-        for entity in _ipo_cluster_entities(article):
-            groups.setdefault(entity, []).append(article)
-
-    dropped_ids: set[int] = set()
-    for group in groups.values():
-        representative = max(
-            group,
-            key=lambda article: _selection_priority(
-                article, article.get("category", ALTERNATIVE_CATEGORY)
-            ),
-        )
-        representative["category"] = ALTERNATIVE_CATEGORY
-        representative["category_reason"] = "ipo_capital_market_event"
-        representative["alt_subtype"] = "exit_liquidity"
-        for article in group:
-            if article is representative:
-                continue
-            article["selection_dedup_reason"] = "same_company_ipo_cluster"
-            dropped_ids.add(id(article))
-    return [article for article in articles if id(article) not in dropped_ids]
-
-
 def _selection_score(article: dict, category: str) -> float:
     llm = article.get("llm_score")
     if llm is not None:
@@ -1773,7 +1740,6 @@ def send_aggregated_slack_news(articles) -> tuple:
         sendable_articles,
         EDITOR_EVENT_CATEGORY_PRIORITY,
     )
-    sendable_articles = _collapse_cross_category_ipo_clusters(sendable_articles)
     buckets = bucket_by_category(sendable_articles)
 
     sent_articles = []          # ✅ 실제 슬랙에 나간 기사만 수집(seen 처리용)

@@ -110,7 +110,7 @@ _KOREA_EVENT_SIGNALS = [
 _FOREIGN_EVENT_SIGNALS = [
     "united states", "u.s.", "federal reserve", "european union", "eurozone",
     "european central bank", "bank of england", "people's bank of china",
-    "united kingdom", "canada", "china", "japan", "india", "russia", "oecd",
+    "united kingdom", "canada", "china", "japan", "india", "russia",
     "ukraine", "middle east", "g7", "g20",
     "미국", "미 연준", "연준", "유럽연합", "유로존", "유럽중앙은행", "ecb",
     "영국", "캐나다", "중국", "일본", "인도", "러시아", "우크라이나", "중동",
@@ -466,23 +466,13 @@ def _has_any(keywords: list, text: str) -> bool:
     return any(keyword_hit(keyword, text) for keyword in keywords)
 
 
-def _content_region(article: dict, category: str, text: str, title: str = "") -> tuple[str, str]:
+def _content_region(article: dict, category: str, text: str) -> tuple[str, str]:
     """Classify split sections by the event market, not the publisher country."""
     configured_region = (
         "korea" if article.get("region") == "korea" else "global"
     )
     if not str(category).startswith(_REGION_SPLIT_CATEGORY_PREFIXES):
         return configured_region, "configured_source_region"
-
-    # The title names the actual event. Newsletter descriptions can include
-    # publisher chrome (e.g. "KDI 한국어 뉴스레터") unrelated to an OECD report.
-    title_korea = _has_any(_KOREA_EVENT_SIGNALS, title.lower())
-    title_foreign = _has_any(_FOREIGN_EVENT_SIGNALS, title.lower())
-    if title_korea != title_foreign:
-        return (
-            ("korea", "korea_event_content") if title_korea
-            else ("global", "foreign_event_in_korean_source")
-        )
 
     has_korea_signal = _has_any(_KOREA_EVENT_SIGNALS, text)
     has_foreign_signal = _has_any(_FOREIGN_EVENT_SIGNALS, text)
@@ -871,7 +861,6 @@ def summarize(article: dict):
         article,
         assigned_category,
         text,
-        title,
     )
     article["category"] = assigned_category
     article["category_reason"] = category_reason

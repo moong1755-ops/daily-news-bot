@@ -618,20 +618,6 @@ class CategoryRoutingTests(unittest.TestCase):
         self.assertEqual(result["region"], "global")
         self.assertEqual(result["region_reason"], "foreign_event_in_korean_source")
 
-    def test_kdi_oecd_report_is_global_despite_korean_newsletter_context(self):
-        result, errors = summarize({
-            "title": "Assessing risks to fiscal policy: Calibrating stochastic debt sustainability analysis models (OECD)",
-            "description": "KDI 경제정보센터 한국어 뉴스레터에서 소개한 OECD 보고서.",
-            "source": "KDI",
-            "feed": "Gmail Newsletters",
-            "newsletter_source": "kdi",
-            "region": "korea",
-        })
-
-        self.assertEqual(errors, [])
-        self.assertEqual(result["region"], "global")
-        self.assertEqual(result["region_reason"], "foreign_event_in_korean_source")
-
     def test_foreign_outlet_korean_macro_event_is_domestic(self):
         result, errors = summarize({
             "title": "South Korea central bank delivers back-to-back rate hike",
@@ -850,56 +836,6 @@ class CategoryRoutingTests(unittest.TestCase):
         self.assertTrue(success)
         self.assertEqual(sent, [overseas_original])
         self.assertEqual(sent[0]["category"], IMPACT)
-
-    def test_same_company_ipo_is_sent_once_in_vc_pe_across_categories(self):
-        articles = [
-            {
-                "category": AI, "title": "Anthropic's soaring sales, steep losses put AI frenzy to IPO test",
-                "title_orig": "Anthropic's soaring sales, steep losses put AI frenzy to IPO test",
-                "editor_event_key": "anthropic_filing_ipo", "source": "Reuters",
-                "link": "https://example.com/reuters-anthropic", "date": "2026-10-26",
-                "region": "global", "relevance": 10, "importance": 3,
-            },
-            {
-                "category": ALTERNATIVE,
-                "title": "Anthropic's IPO filing answers whether AI labs can make money",
-                "title_orig": "Anthropic's IPO filing answers whether AI labs can make money",
-                "editor_event_key": "anthropic_ipo_filing_economics_analysis",
-                "source": "Business Insider", "link": "https://example.com/bi-anthropic",
-                "date": "2026-10-27", "region": "global", "relevance": 9,
-                "importance": 3,
-            },
-            {
-                "category": AI,
-                "title": "Anthropic IPO filing reveals its enterprise customer strategy",
-                "title_orig": "Anthropic IPO filing reveals its enterprise customer strategy",
-                "editor_event_key": "anthropic_ipo_filing_analysis",
-                "source": "TechCrunch AI", "link": "https://example.com/tc-anthropic",
-                "date": "2026-10-27", "region": "global", "relevance": 9,
-                "importance": 2,
-            },
-            {
-                "category": AI, "title": "Anthropic launches a new AI model",
-                "title_orig": "Anthropic launches a new AI model",
-                "editor_event_key": "anthropic_model_launch",
-                "source": "TechCrunch AI", "link": "https://example.com/tc-model",
-                "date": "2026-10-27", "region": "global", "relevance": 8,
-                "importance": 2,
-            },
-        ]
-
-        with patch("src.bot.is_dry_run", return_value=True):
-            with patch("src.bot.translate_titles", side_effect=lambda selected: selected):
-                with patch("src.bot.filter_near_duplicates", side_effect=lambda items, _: items):
-                    with patch("builtins.print"):
-                        success, sent = send_aggregated_slack_news(articles)
-
-        self.assertTrue(success)
-        self.assertEqual(len(sent), 2)
-        self.assertEqual(
-            [(article["source"], article["category"]) for article in sent],
-            [("TechCrunch AI", AI), ("Reuters", ALTERNATIVE)],
-        )
 
     def test_graphic_and_routine_central_bank_notice_are_excluded(self):
         titles = (
