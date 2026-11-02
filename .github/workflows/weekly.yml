@@ -1,9 +1,9 @@
 name: Weekly VC Briefing 📊
 
 on:
-  # GitHub cron은 UTC 기준: 일요일 23:30 = 한국 월요일 08:30.
-  schedule:
-    - cron: "30 23 * * 0"
+  # cron-job.org가 Asia/Seoul 기준 월요일 08:30에 workflow_dispatch로 호출한다.
+  # 외부 호출은 delivery_target=production, force_send=false를 명시한다.
+  # end_date는 생략해 직전 일요일까지를 집계하고, 수동 실행 기본값은 preview로 둔다.
   workflow_dispatch:
     inputs:
       delivery_target:
