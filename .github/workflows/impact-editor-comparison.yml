@@ -13,6 +13,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+          fetch-depth: 0
       - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
@@ -38,6 +39,8 @@ jobs:
           import hashlib
           import json
           import os
+          import subprocess
+          import types
           from pathlib import Path
           from unittest.mock import patch
           from src import bot
@@ -49,19 +52,12 @@ jobs:
               'SLACK_WEBHOOK_URL', 'WEEKLY_SLACK_WEBHOOK_URL', 'TELEGRAM_BOT_TOKEN'))
           output = Path('comparison-output')
           output.mkdir()
-          changes = '''- 시장 규모·운용자산·자금조달·금융 수익구조의 최신 통계와 비교 분석도 주요 뉴스다.
-            신규 딜·정책 발표만을 '사건'으로 보지 않는다. 최신 조사나 수치가 투자시장의
-            성장·위축, 자본배분, 사업성 또는 위험을 설명하면 개별 거래와 동등하게 비교한다.
-            '단순 통계', '구체적 사건 없음', '수년간 이어진 추세'만으로 제외하지 않는다.
-            '5년 연속' 같은 표현은 최신 관측의 연속성일 수 있으며 오래된 기사라는 근거가 아니다.
-            기사 발행일, 통계의 관측 기간, 비교 기준을 구분한다. 새 정보 없는 재탕은 제외하되,
-            입력에 없는 발표일·수치·증감 원인을 추측하지 않는다. 정보가 부족하면 무엇이 부족한지 적는다.
-            운용자산 증가를 순유입액 증가로, 금융 수수료를 투자 총액이나 환경성과로 바꾸지 않는다.
-            자연자본·생물다양성 금융도 임팩트 자본 흐름이다. 유명 기관의 이름이 아니라
-            구체적인 투자 대상·전략·출자·결성의 변화를 평가하고, 출시를 집행 완료로 해석하지 않는다.
-            공익법인·미션 보호 지배구조는 신규 공시에서 달라진 권한·의무·보호장치를 평가한다.
-            기존 구조의 반복 설명이나 개인 기고는 자동 우대하지 않으며, IPO라는 이유만으로도 선정하지 않는다.
-          '''
+          baseline_module = types.ModuleType('src.processor.impact_baseline')
+          baseline_module.__package__ = 'src.processor'
+          baseline_code = subprocess.check_output([
+              'git', 'show', '49497e9290395443e7fc61b2624c92b29d6553c8:src/processor/impact.py'
+          ], text=True, encoding='utf-8')
+          exec(compile(baseline_code, '<pinned-baseline>', 'exec'), baseline_module.__dict__)
           class Captured(BaseException):
               pass
 
@@ -85,21 +81,15 @@ jobs:
                   pass
           assert captured, 'No eligible impact candidates captured'
           captured.sort(key=lambda a: str(a.get('title_orig') or a.get('title') or '').casefold())
-          cards = impact._cards(captured)
-          serialized = json.dumps(cards, ensure_ascii=False, sort_keys=True)
-          digest = hashlib.sha256(serialized.encode()).hexdigest()
-          (output / 'cards.json').write_text(serialized, encoding='utf-8')
-          baseline = impact._prompt(cards)
-          assert baseline.count('[후보]\n') == 1
-          marker = '- 발표·약속, 계약·출자 약정, 실제 집행·운영, 측정된 성과를 구분한다.'
-          assert baseline.count(marker) == 1
-          revised = baseline.replace(marker, changes + marker, 1)
-          marker = "각 기사의 사건명과 고유한 제외 근거를 적는다. 단순히 '다른 기사가 더 중요함'으로 끝내지 않는다.\n"
-          assert revised.count(marker) == 1
-          revised = revised.replace(marker, marker +
-              '통계·추세 기사를 제외할 때는 신규성·근거·투자 의미 중 무엇이 부족한지, 또는 어떤\n'
-              '선정 기사가 같은 정보를 이미 대표하는지 구체적으로 적는다. 기사 형식 자체는 제외 근거가 아니다.\n', 1)
-          prompts = {'before': baseline, 'after': revised}
+          modules = {'before': baseline_module, 'after': impact}
+          cards_by_variant = {name: module._cards(captured) for name, module in modules.items()}
+          assert [c['title'] for c in cards_by_variant['before']] == [c['title'] for c in cards_by_variant['after']]
+          digests = {}
+          for name, cards in cards_by_variant.items():
+              serialized = json.dumps(cards, ensure_ascii=False, sort_keys=True)
+              digests[name] = hashlib.sha256(serialized.encode()).hexdigest()
+              (output / (name + '-cards.json')).write_text(serialized, encoding='utf-8')
+          prompts = {name: module._prompt(cards_by_variant[name]) for name, module in modules.items()}
           assert all(len(p) <= impact.IMPACT_DAILY_CONFIG['max_input_chars'] for p in prompts.values())
           for name, prompt in prompts.items():
               (output / (name + '-prompt.txt')).write_text(prompt, encoding='utf-8')
@@ -108,20 +98,23 @@ jobs:
           assert model, 'No resolved gate model; comparison aborted'
           results = []
           for sequence, variant in enumerate(('before', 'after', 'after', 'before'), 1):
+              result = {'variant': variant, 'model': model, 'input_sha256': digests[variant]}
               try:
                   raw = reranker._post_generate(model, os.environ['GEMINI_API_KEY'], prompts[variant],
                                                timeout=impact.IMPACT_DAILY_CONFIG['timeout'])
+                  (output / f'{sequence}-{variant}.json').write_text(raw, encoding='utf-8')
+                  selected, omitted = modules[variant]._validate(raw, cards_by_variant[variant])
+                  result.update(valid=True, selected=selected, omitted=omitted)
               except Exception as exc:
-                  raise RuntimeError('Model comparison failed: ' + type(exc).__name__) from None
-              (output / f'{sequence}-{variant}.json').write_text(raw, encoding='utf-8')
-              selected, omitted = impact._validate(raw, cards)
-              results.append({'variant': variant, 'model': model, 'input_sha256': digest,
-                              'selected': selected, 'omitted': omitted})
-              print(f'Comparison {sequence}: {variant}, selected={len(selected)}')
+                  result.update(valid=False, error_type=type(exc).__name__)
+              results.append(result)
+              print(f'Comparison {sequence}: {variant}, valid={result["valid"]}')
+              (output / 'partial-results.json').write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding='utf-8')
           report = {'note': 'Fresh capture, NOT an exact replay of the morning run.',
-                    'candidate_count': len(cards), 'results': results}
+                    'candidate_count': len(captured), 'results': results}
           (output / 'comparison.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
           print('Comparison complete; no delivery or persistent state update.')
+          assert all(r['valid'] for r in results), 'One or more model responses invalid; inspect artifacts'
           PY
       - uses: actions/upload-artifact@v4
         if: always()
