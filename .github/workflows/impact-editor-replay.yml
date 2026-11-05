@@ -1,0 +1,77 @@
+name: Frozen impact replay (NO DELIVERY)
+on:
+  push:
+    branches: [codex/impact-editor-ab-20261104]
+    paths: [.github/workflows/impact-editor-replay.yml]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  replay:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Offline tests
+        env:
+          LLM_MODE: off
+        run: python -m unittest discover -s tests -q
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: 41790157188
+          name: impact-comparison-41790157188
+          path: frozen-input
+      - name: Replay saved candidates twice without collecting or sending
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: gemini-3.1-flash-lite
+          LLM_MODE: live
+        run: |
+          python - <<'PY'
+          import copy, hashlib, json, os
+          from pathlib import Path
+          from unittest.mock import patch
+          from src.processor import impact, reranker
+          assert os.environ.get('GEMINI_API_KEY')
+          assert not any(os.environ.get(k) for k in ('SLACK_WEBHOOK_URL', 'GMAIL_APP_PASSWORD', 'TELEGRAM_BOT_TOKEN'))
+          source = Path('frozen-input/after-cards.json').read_text(encoding='utf-8')
+          cards = json.loads(source)
+          digest = hashlib.sha256(source.encode()).hexdigest()
+          articles = [{'title': c['title'], 'category': impact.IMPACT_DAILY_CONFIG['category'],
+                       'editor_verdict': 'keep'} for c in cards]
+          output = Path('replay-output'); output.mkdir()
+          results = []
+          for iteration in range(2):
+              attempts = []
+              def generate(prompt, **kwargs):
+                  try:
+                      raw = reranker._post_generate(os.environ['GEMINI_MODEL'], os.environ['GEMINI_API_KEY'], prompt, **kwargs)
+                  except Exception as exc:
+                      attempts.append({'error_type': type(exc).__name__})
+                      return None, None
+                  attempts.append({'response': raw})
+                  return raw, os.environ['GEMINI_MODEL']
+              items = copy.deepcopy(articles)
+              with patch.object(impact, '_cards', return_value=copy.deepcopy(cards)), patch.object(impact, 'generate_editor_json', side_effect=generate):
+                  errors = impact.review(items)
+              result = {'iteration': iteration, 'input_sha256': digest, 'errors': errors,
+                        'attempts': attempts, 'decisions': items}
+              results.append(result)
+              (output / 'results.json').write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding='utf-8')
+              print('iteration', iteration, 'valid', not errors, 'requests', len(attempts))
+          assert all(not r['errors'] for r in results), 'Replay did not pass; do not deploy'
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: frozen-impact-replay-${{ github.run_id }}
+          path: replay-output/
+          retention-days: 3
