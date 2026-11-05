@@ -25,6 +25,8 @@ IMPACT_THEME_KEYWORDS = {
         "climate resilience", "just transition", "임팩트투자", "기후테크",
         "carbon market", "carbon markets", "voluntary carbon market",
         "emissions trading",
+        "green debt", "green bond", "green bonds", "green loans",
+        "climate finance", "transition finance", "녹색채권", "녹색금융", "전환금융",
         "탄소중립", "넷제로", "에너지전환", "재생에너지", "녹색기금",
         "기후펀드", "그린뉴딜", "클린테크", "기후적응", "기후회복력", "공정전환",
         "탄소시장", "자발적 탄소시장", "배출권시장", "탄소크레딧", "탄소배출권",
@@ -33,6 +35,7 @@ IMPACT_THEME_KEYWORDS = {
     ],
     "circular_nature_food": [
         "circular economy", "biodiversity", "natural capital", "nature-based solutions",
+        "nature fund", "nature finance", "biodiversity fund", "자연자본 펀드",
         "water access", "clean water", "food security", "sustainable agriculture",
         "waste reduction", "순환경제", "생물다양성", "자연자본", "수자원",
         "식량안보", "지속가능농업", "폐기물 감축", "이차전지",
@@ -91,6 +94,9 @@ ALT_KW = [
 MACRO_KW = [
     "fomc", "federal reserve", "interest rate", "inflation", "cpi",
     "gdp", "recession", "soft landing", "geopolitics", "tariff",
+    "consumer price index", "personal consumption expenditures", "nonfarm payrolls",
+    "retail sales", "industrial production", "employment situation",
+    "소비자물가", "근원물가", "고용동향", "산업활동동향", "소매판매", "경상수지",
     "trade war", "supply chain", "sanctions", "oil price", "opec",
     "treasury yield", "10-year treasury", "yield curve", "dot plot",
     "기준금리", "인플레이션", "물가상승", "경기침체", "연준", "한국은행",
@@ -880,7 +886,38 @@ SUPPLEMENTAL_NEWS_QUERIES = {
         "\"가계부채\" OR \"국내 소비자물가\" OR \"정부 경제정책\" OR \"내년도 예산\" OR "
         "\"한국 수출\" OR \"국내 고용\") when:3d"
     ),
-    "Bloomberg Green": "site:bloomberg.com/green (climate OR energy OR carbon) when:3d",
+    # 월/연도는 고정하지 않는다. 검색 기간은 통계 대상 월이 아닌 게시 시점 기준이다.
+    # 공식 발표의 검색 색인 누락에 대비해 기존 신뢰 매체 검색도 함께 유지한다.
+    "국내 경제지표 공식 발표": (
+        "(site:kostat.go.kr OR site:bok.or.kr) "
+        '("소비자물가동향" OR "고용동향" OR "산업활동동향" OR '
+        '"국내총생산" OR "국제수지" OR "통화정책방향") when:3d'
+    ),
+    "국내 경제지표 보도": (
+        "(site:yna.co.kr OR site:hankyung.com) "
+        '("소비자물가동향" OR "고용동향" OR "산업활동동향" OR '
+        '"한국 GDP" OR "국내총생산" OR "한국 수출입" OR "한국 경상수지" OR '
+        '"한국은행 기준금리") when:3d'
+    ),
+    "미국 경제지표 공식 발표": (
+        "(site:bls.gov OR site:bea.gov OR site:federalreserve.gov OR site:census.gov) "
+        '("consumer price index" OR "employment situation" OR "gross domestic product" OR '
+        '"personal income and outlays" OR "retail sales" OR "industrial production" OR '
+        '"FOMC statement") when:3d'
+    ),
+    "미국 경제지표 보도": (
+        "(site:reuters.com OR site:bloomberg.com) "
+        '("US" OR "U.S." OR "United States" OR "Federal Reserve") '
+        '(CPI OR PCE OR payrolls OR GDP OR "retail sales" OR "industrial production" OR '
+        '"interest rate decision") when:3d'
+    ),
+    # Green 뉴스레터의 실제 기사 URL은 /green이 아닌 /news/articles/에도 있다.
+    "Bloomberg Green": (
+        "site:bloomberg.com "
+        '(climate OR "clean energy" OR "carbon emissions" OR "green debt" OR '
+        '"green bonds" OR "green loans" OR "transition finance" OR "natural capital" OR '
+        '"nature fund" OR "biodiversity fund") when:3d'
+    ),
     "ESG Today": "site:esgtoday.com (investment OR regulation OR policy OR financing) when:3d",
     "VentureBeat AI": "site:venturebeat.com/category/ai when:3d",
     "Business Insider VC": (
@@ -1019,6 +1056,11 @@ FEED_CATEGORY_OVERRIDE = {
     "글로벌 VC/PE": "📈 대체투자",
     "McKinsey Korea Insights": OFFICIAL_INSIGHTS_CATEGORY,
     "국내 거시/정책 (연합·한경)": "🌐 거시·정책·지정학",
+    "국내 경제지표 공식 발표": "🌐 거시·정책·지정학",
+    "국내 경제지표 보도": "🌐 거시·정책·지정학",
+    "미국 경제지표 공식 발표": "🌐 거시·정책·지정학",
+    "미국 경제지표 보도": "🌐 거시·정책·지정학",
+    "Bloomberg Green": "🌱 임팩트",
     "Reuters 거시/정책": "🌐 거시·정책·지정학",
     "Bloomberg 거시/정책": "🌐 거시·정책·지정학",
 }

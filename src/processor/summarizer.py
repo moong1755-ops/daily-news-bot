@@ -69,6 +69,12 @@ _STRICT_MACRO_PATTERNS = [
     r"gross domestic product|gdp|recession|economic growth|exchange rates?|"
     r"treasury yields?|government bond yields?|unemployment|employment|payrolls?)\b",
     r"\b(?:fiscal policy|budget deficit|national debt|trade balance)\b",
+    # Full release names, not generic company sales/production keywords.
+    r"\b(?:personal income and outlays|personal consumption expenditures|"
+    r"advance monthly sales for retail and food services|"
+    r"industrial production and capacity utilization)\b",
+    r"\b(?:us|u\.s\.|united states)\s+(?:retail sales|industrial production|pce)\b",
+    r"산업활동동향|국제수지|경상수지|개인소비지출",
     r"연방준비제도|연준|중앙은행|한국은행|유럽중앙은행|일본은행|중국인민은행|한은",
     r"통화정책|기준금리|정책금리|인플레이션|소비자물가|국내총생산|경제성장률|"
     r"경기침체|환율|국채금리|실업률|고용률|고용동향|재정정책|국가채무|국가부채|정부부채|무역수지",
