@@ -165,6 +165,30 @@ omitted는 기사별로 하나씩 작성한다(ids 길이는 반드시 1).
 """
 
 
+class _EditorialPolicyError(ValueError):
+    """A narrow, reproducible omission-policy conflict, not a ranking verdict."""
+
+
+def _format_only_omissions(reasons):
+    """Flag observed Korean rationales; do not infer an article must be selected.
+
+    This is intentionally not a general semantic judge. Evidence shortages,
+    old/repeated data, and explicit comparisons can still justify omission.
+    """
+    patterns = (
+        r"(?:최신|신규)\s*(?:딜|거래).{0,35}우선",
+        r"(?:구체적인?\s*개별|단일)\s*사건.{0,30}(?:어려|낮|아님)",
+        r"(?:특정|구체적인?|새로운)\s*사건.{0,35}(?:아님|없음)",
+    )
+    conflicts = []
+    for identity, reason in reasons.items():
+        normalized = " ".join(reason.split())
+        if (re.search(r"통계|추세", normalized)
+                and any(re.search(pattern, normalized) for pattern in patterns)):
+            conflicts.append(identity)
+    return conflicts
+
+
 def _validate(raw, cards):
     text = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw.strip())
     payload = json.loads(text)
@@ -221,11 +245,16 @@ def _validate(raw, cards):
             reasons[identity] = reason
     if seen_ids | set(reasons) != set(lookup):
         raise ValueError("incomplete candidate review")
+    conflicts = _format_only_omissions(reasons)
+    if conflicts:
+        raise _EditorialPolicyError(
+            "format_only_omission: " + ", ".join(conflicts)
+        )
     return rows, reasons
 
 
 def review(articles):
-    """One compact call over ALL eligible impact candidates, never an old top-N."""
+    """Review all candidates; schema and policy repair share ONE extra request."""
     candidates = sorted([
         article for article in articles
         if is_impact(article) and article.get("editor_verdict") == "keep"
@@ -240,17 +269,53 @@ def review(articles):
         article["impact_final_status"] = "fallback"
     cards = _cards(candidates)
     prompt = _prompt(cards)
+    attempts = 0
+    repair_trigger = ""
     try:
         # Do not silently truncate candidates by their old scores when over budget.
         if len(prompt) > IMPACT_DAILY_CONFIG["max_input_chars"]:
             raise ValueError("input budget exceeded; no candidates silently omitted")
+        attempts = 1
         raw, model = generate_editor_json(prompt, timeout=IMPACT_DAILY_CONFIG["timeout"])
         if raw is None:
             raise ValueError("editor unavailable")
-        rows, reasons = _validate(raw, cards)
+        try:
+            rows, reasons = _validate(raw, cards)
+        except (ValueError, TypeError, AttributeError) as validation_error:
+            policy_conflict = isinstance(validation_error, _EditorialPolicyError)
+            repair_trigger = "format_only_omission" if policy_conflict else "invalid_output"
+            policy_feedback = (
+                "탈락 사유가 편집 원칙과 충돌한 후보: " + str(validation_error)
+                + ". 통계·추세라는 형식이나 신규 딜이 아니라는 사실만으로 제외하지 마세요. "
+                "최신 근거·투자 의미를 선정 기사와 다시 비교하세요. 무조건 포함하지 말고, "
+                "재제외가 타당하면 근거 부족·재탕·중복·상대적 중요도 등 구체적인 이유를 쓰세요.\n"
+                if policy_conflict else ""
+            )
+            # Rebuild from the SAME evidence, not a guessed fix of malformed IDs
+            # or invented missing fields. Do not append a large invalid response.
+            repair_prompt = (
+                "직전 응답이 출력 검증에 실패했습니다. 아래 동일 후보와 근거만으로 "
+                "완전한 JSON을 다시 작성하세요. 후보 ID를 정확히 복사하고 모든 후보를 "
+                "selected 또는 omitted에 정확히 한 번 포함하세요. selected의 "
+                "type, event_key, topic, reason, evidence 및 추가 선정 근거를 확인하세요. "
+                "evidence는 해당 후보의 제공된 원문에서만 인용하세요. "
+                "오류를 피하려고 후보를 임의로 제외하거나 사실을 만들어내지 마세요.\n\n"
+                + policy_feedback + prompt
+            )
+            if len(repair_prompt) > IMPACT_DAILY_CONFIG["max_input_chars"]:
+                raise ValueError("repair input budget exceeded")
+            attempts = 2
+            raw, model = generate_editor_json(
+                repair_prompt, timeout=IMPACT_DAILY_CONFIG["timeout"]
+            )
+            if raw is None:
+                raise ValueError("repair unavailable")
+            rows, reasons = _validate(raw, cards)
     except Exception as exc:
         for article in candidates:
             article["impact_final_reason"] = f"review_failed:{type(exc).__name__}"
+            article["impact_final_attempts"] = attempts
+            article["impact_final_repair_trigger"] = repair_trigger
         return [f"임팩트 최종 편집 실패({type(exc).__name__}): 기존 순위, "
                 f"최대 {IMPACT_DAILY_CONFIG['base_limit']}개 유지"]
 
@@ -260,6 +325,8 @@ def review(articles):
         article["impact_final_rank"] = None
         article["impact_final_reason"] = reasons.get(identity, "selected")
         article["impact_final_model"] = model or ""
+        article["impact_final_attempts"] = attempts
+        article["impact_final_repair_trigger"] = repair_trigger
     for rank, row in enumerate(rows, 1):
         article = lookup[row["id"]]
         article["impact_type"] = row["type"]
