@@ -153,9 +153,11 @@ JSON만 반환. selected 배열 순서가 최종 발송 순서다:
 {{"selected":[{{"id":"I1","type":"industry","event_key":"specific_event",
 "topic":"주요 흐름","reason":"선정 이유","evidence":"원문 근거",
 "extension_reason":"기본 한도 이내는 빈 문자열"}}],
-"omitted":[{{"ids":["I2"],"reason":"우선순위 비교, 중복, 근거 부족 등 구체적인 미선정 이유"}}]}}
+"omitted":[{{"ids":["I2"],"duplicate_of":null,"reason":"우선순위 비교, 중복, 근거 부족 등 구체적인 미선정 이유"}}]}}
 모든 후보 ID는 selected 또는 omitted 중 정확히 한 번 들어가야 한다.
 omitted는 기사별로 하나씩 작성한다(ids 길이는 반드시 1).
+중복으로 제외하면 duplicate_of에 실제 selected에 포함된 대표 기사 ID를 넣는다.
+중복이 아니면 duplicate_of는 null. 탈락한 기사를 대표로 삼거나 서로를 대표로 삼지 않는다.
 각 기사의 사건명과 고유한 제외 근거를 적는다. 단순히 '다른 기사가 더 중요함'으로 끝내지 않는다.
 통계·추세 기사를 제외할 때는 신규성·근거·투자 의미 중 무엇이 부족한지, 또는 어떤
 선정 기사가 같은 정보를 이미 대표하는지 구체적으로 적는다. 기사 형식 자체는 제외 근거가 아니다.
@@ -167,6 +169,37 @@ omitted는 기사별로 하나씩 작성한다(ids 길이는 반드시 1).
 
 class _EditorialPolicyError(ValueError):
     """A narrow, reproducible omission-policy conflict, not a ranking verdict."""
+
+
+class _ClaimEvidenceError(ValueError):
+    """A narrow cross-metric or proposal-to-enactment claim needs review."""
+
+
+def _check_claim_basis(row, card):
+    source = " ".join([card["title"], card["summary"]] + [
+        note["excerpt"] for note in card.get("newsletter_evidence", [])
+    ]).casefold()
+    claims = "\n".join(str(row.get(field) or "") for field in
+                      ("reason", "topic", "extension_reason"))
+    # Only flag explicit unsupported conversions; never infer the actual value
+    # or force an article out of the selection. This is not a semantic verifier.
+    rules = (
+        (r"\bfees?\b|수수료", r"\b(?:net inflows?|capital flows?|investment volume)\b|순유입|투자\s*총액|자금\s*유입",
+         r"(?:투자\s*총액|자금\s*유입|순유입).{0,12}(?:증가|확대|급증)|(?:자본배분|자본시장).{0,25}(?:전환|이동).{0,12}(?:입증|확인)", "fees_not_capital"),
+        (r"\baum\b|assets under management|운용자산", r"\bnet inflows?\b|순유입",
+         r"(?:신규\s*자금\s*유입|순유입).{0,12}(?:증가|확대|급증)", "aum_not_inflows"),
+        (r"\b(?:proposed|proposal|consultation)\b|입법\s*예고|의견\s*수렴|법안\s*발의",
+         r"\b(?:enacted|signed into law|entered into force)\b|시행\s*확정|법안\s*통과",
+         r"(?:정책|법안|규제).{0,12}(?:시행\s*확정|도입\s*확정|통과\s*완료)", "proposal_not_enactment"),
+    )
+    for trigger, support, assertion, code in rules:
+        if not re.search(trigger, source) or re.search(support, source):
+            continue
+        for sentence in re.split(r"[.!?\n]", claims):
+            if re.search(r"아님|아니|않|미확정|단정.{0,15}(?:불가|없)|의미하지", sentence):
+                continue
+            if re.search(assertion, sentence):
+                raise _ClaimEvidenceError(f"{card['id']}: {code}")
 
 
 def _format_only_omissions(reasons):
@@ -214,6 +247,7 @@ def _validate(raw, cards):
         evidence_texts.extend(note["excerpt"] for note in card.get("newsletter_evidence", []))
         if len(quote) < 8 or not any(quote in text for text in evidence_texts):
             raise ValueError("ungrounded evidence")
+        _check_claim_basis(row, card)
         event = " ".join(row["event_key"].casefold().split())
         original = str(card["event_key"]).strip().casefold()
         if event in seen_events or (original and original in original_events):
@@ -238,6 +272,21 @@ def _validate(raw, cards):
         reason = group.get("reason")
         if not isinstance(reason, str) or not reason.strip():
             raise ValueError("missing omission reason")
+        representative = group.get("duplicate_of")
+        if representative is not None:
+            if not isinstance(representative, str) or representative not in seen_ids:
+                raise ValueError("duplicate representative is not selected")
+        # Old non-duplicate output remains valid. Free-text duplicate claims
+        # must not point to an omitted or unknown representative.
+        references = set(re.findall(r"(?<![A-Za-z0-9_])I[0-9]+(?![A-Za-z0-9_])", reason))
+        positive_reason = re.sub(
+            r"중복(?:이\s*아니|\s*아님)|동일\s*사건(?:이\s*아니|\s*아님)|not a duplicate",
+            "", reason, flags=re.I,
+        )
+        duplicate_reason = re.search(r"중복|동일\s*(?:사건|기사)|대표로?\s*선정|duplicate|same event", positive_reason, re.I)
+        if duplicate_reason:
+            if representative is None or any(ref not in seen_ids for ref in references):
+                raise ValueError("duplicate omission requires a selected representative")
         for identity in group["ids"]:
             if (not isinstance(identity, str) or identity not in lookup
                     or identity in seen_ids or identity in reasons):
@@ -283,7 +332,9 @@ def review(articles):
             rows, reasons = _validate(raw, cards)
         except (ValueError, TypeError, AttributeError) as validation_error:
             policy_conflict = isinstance(validation_error, _EditorialPolicyError)
-            repair_trigger = "format_only_omission" if policy_conflict else "invalid_output"
+            claim_conflict = isinstance(validation_error, _ClaimEvidenceError)
+            repair_trigger = ("claim_basis_conflict" if claim_conflict else
+                              "format_only_omission" if policy_conflict else "invalid_output")
             policy_feedback = (
                 "탈락 사유가 편집 원칙과 충돌한 후보: " + str(validation_error)
                 + ". 통계·추세라는 형식이나 신규 딜이 아니라는 사실만으로 제외하지 마세요. "
@@ -291,6 +342,12 @@ def review(articles):
                 "재제외가 타당하면 근거 부족·재탕·중복·상대적 중요도 등 구체적인 이유를 쓰세요.\n"
                 if policy_conflict else ""
             )
+            if claim_conflict:
+                policy_feedback = (
+                    "근거와 주장 유형이 충돌한 후보: " + str(validation_error)
+                    + ". 수수료/투자총액, 운용자산/순유입, 제안/확정을 구분하세요. "
+                    "제공된 근거 범위로 선정 이유를 고치세요. 해당 기사 자체를 자동 탈락시키지 마세요.\n"
+                )
             # Rebuild from the SAME evidence, not a guessed fix of malformed IDs
             # or invented missing fields. Do not append a large invalid response.
             repair_prompt = (
@@ -299,6 +356,7 @@ def review(articles):
                 "selected 또는 omitted에 정확히 한 번 포함하세요. selected의 "
                 "type, event_key, topic, reason, evidence 및 추가 선정 근거를 확인하세요. "
                 "evidence는 해당 후보의 제공된 원문에서만 인용하세요. "
+                "중복 제외의 duplicate_of는 실제 selected 기사 ID여야 하며, 탈락 기사를 대표로 삼지 마세요. "
                 "오류를 피하려고 후보를 임의로 제외하거나 사실을 만들어내지 마세요.\n\n"
                 + policy_feedback + prompt
             )

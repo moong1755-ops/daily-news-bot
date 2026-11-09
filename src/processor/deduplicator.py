@@ -13,6 +13,7 @@ from ..config import (
 from ..editorial_review import VALID_ALT_SUBTYPES, importance as _editorial_importance
 from ..utils.publishers import merge_coverage
 from ..utils.newsletters import newsletter_sources
+from .ipo import ipo_events_conflict
 
 _model = None
 
@@ -403,6 +404,8 @@ def _funding_stage(article: dict) -> str:
 
 
 def _events_compatible(left: dict, right: dict) -> bool:
+    if ipo_events_conflict(left, right):
+        return False
     left_types = _event_types(left)
     right_types = _event_types(right)
     if left_types and right_types and left_types.isdisjoint(right_types):
@@ -473,6 +476,8 @@ def _normalized_title(article: dict) -> str:
 
 def _same_editor_event(left: dict, right: dict) -> bool:
     """Match editor keys without merging different counterparties by accident."""
+    if ipo_events_conflict(left, right):
+        return False
     left_key = _canonical_editor_event_key(left)
     right_key = _canonical_editor_event_key(right)
     if not left_key or not right_key:
@@ -963,15 +968,18 @@ def filter_near_duplicates(articles: list, threshold: float) -> list:
         if event_key and event_key in event_key_positions:
             kept_position = event_key_positions[event_key]
             representative_index = kept_indexes[kept_position]
-            if _representative_key(articles[index]) > _representative_key(
-                articles[representative_index]
-            ):
-                kept_indexes[kept_position] = index
-            continue
+            if not ipo_events_conflict(articles[index], articles[representative_index]):
+                if _representative_key(articles[index]) > _representative_key(
+                    articles[representative_index]
+                ):
+                    kept_indexes[kept_position] = index
+                continue
 
         def is_duplicate(kept):
             current = articles[index]
             previous = articles[kept]
+            if ipo_events_conflict(current, previous):
+                return False
             current_key = str(current.get("editor_event_key") or "").strip()
             previous_key = str(previous.get("editor_event_key") or "").strip()
             if current_key and previous_key:

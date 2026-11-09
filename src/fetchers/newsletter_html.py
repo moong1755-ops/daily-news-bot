@@ -59,6 +59,22 @@ class _MailHTML(HTMLParser):
         self.stack[-1].children.append(data)
 
 
+def _has_other_heading(block: _Node, anchor: _Node) -> bool:
+    """A linkless headline still marks a different story in a shared card."""
+    ancestors = set()
+    node = anchor
+    while node is not None:
+        ancestors.add(node)
+        node = node.parent
+    pending = [block]
+    while pending:
+        node = pending.pop()
+        if re.fullmatch(r"h[1-6]", node.tag) and node not in ancestors:
+            return True
+        pending.extend(child for child in node.children if isinstance(child, _Node))
+    return False
+
+
 def article_contexts(html: str, headlines: dict[str, str], limit: int) -> dict[str, str]:
     """Use the linked card/paragraph, never a shared email introduction.
 
@@ -79,13 +95,17 @@ def article_contexts(html: str, headlines: dict[str, str], limit: int) -> dict[s
         while block and block.tag not in blocks | {"body", "html", "root"}:
             block = block.parent
         text = anchor.text()
-        if block and block.tag in blocks and block.links() <= {url}:
+        if (block and block.tag in blocks and block.links() <= {url}
+                and not _has_other_heading(block, anchor)):
             candidate = block.text()
             # A one-link table cell can also contain the email introduction.
             # Never copy material preceding this headline into its description.
             title_start = candidate.find(title)
-            if title_start >= 0:
-                candidate = candidate[title_start:]
+            if title_start < 0:
+                # A repeated URL with a generic anchor (e.g. Read more) does
+                # not establish that this paragraph belongs to the headline.
+                continue
+            candidate = candidate[title_start:]
             if len(candidate) <= len(title) + limit:
                 text = candidate
             if block.tag.startswith("h") and block.parent:

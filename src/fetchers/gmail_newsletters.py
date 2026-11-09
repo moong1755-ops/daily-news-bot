@@ -14,9 +14,11 @@ from urllib.parse import urlsplit
 from ..config import NEWSLETTER_COLLECTION, NEWSLETTER_SOURCES
 from ..utils.newsletters import identify_newsletter
 from .newsletter_html import article_contexts
+from .newsletter_redirects import resolve_attributed_url
 from .newsletter_body import (
     primary_article_context, primary_public_story_url, public_story_url,
     unlinked_body_notes,
+    section_stories,
 )
 
 
@@ -262,6 +264,14 @@ def _parse_email(raw_message: bytes, stats: dict | None = None) -> List[dict]:
     candidates = _extract_link_candidates(html_text, plain_text)
     context_limit = NEWSLETTER_COLLECTION["context_chars"]
     notes = unlinked_body_notes(html_text, subject, source_policy, context_limit)
+    sections = [story for story in section_stories(
+        html_text, source_policy, source_policy.get("section_context_chars", context_limit)
+    ) if not _is_boilerplate_anchor(story["title"])]
+    section_links = {story["link"]: story for story in sections if story["link"]}
+    candidates = [(url, story["title"]) for url, story in section_links.items()] + [
+        (url, title) for url, title in candidates if url not in section_links
+    ]
+    notes.extend((story["title"], story["description"]) for story in sections if not story["link"])
     if stats is not None:
         counts = stats.setdefault(source_key or "other", {"emails": 0, "links": 0, "overflow": 0})
         counts["emails"] += 1
@@ -293,13 +303,15 @@ def _parse_email(raw_message: bytes, stats: dict | None = None) -> List[dict]:
             "source": sender,
             "feed": "Gmail Newsletters",
             "date": published_date,
-            "description": primary_context if primary_story else contexts.get(url, ""),
+            "description": (section_links[url]["description"] if url in section_links
+                            else primary_context if primary_story else contexts.get(url, "")),
             "region": source_policy.get("region", "global"),
             "newsletter_source": source_key,
             "newsletter_sources": [source_key] if source_key else [],
             "newsletter_context": "article",
             "date_basis": "newsletter_date",  # 메일 Date 헤더이며 원문 발행일은 아님
             "newsletter_primary_story": primary_story,
+            "newsletter_section_attribution": section_links.get(url, {}).get("attribution", ""),
         })
     for title, body in notes:
         # No public article URL: this record is only evidence for matching a
@@ -311,6 +323,21 @@ def _parse_email(raw_message: bytes, stats: dict | None = None) -> List[dict]:
             "newsletter_source": source_key, "newsletter_sources": [source_key],
             "newsletter_body_only": True, "date_basis": "newsletter_date",
         })
+    return articles
+
+
+def _resolve_section_links(articles: List[dict]) -> List[dict]:
+    for article in articles:
+        attribution = article.get("newsletter_section_attribution")
+        if not attribution:
+            continue
+        source_policy = NEWSLETTER_SOURCES.get(article.get("newsletter_source"), {})
+        domains = source_policy.get("section_attribution_links", {}).get(attribution, ())
+        public_url = resolve_attributed_url(article["link"], domains)
+        article["link"] = public_url
+        article["newsletter_section_link_status"] = "resolved" if public_url else "unresolved"
+        if not public_url:
+            article["newsletter_body_only"] = True
     return articles
 
 
@@ -388,7 +415,7 @@ def fetch() -> Tuple[List[dict], List[str]]:
                     None,
                 )
                 if raw_message:
-                    articles.extend(_parse_email(raw_message, stats))
+                    articles.extend(_resolve_section_links(_parse_email(raw_message, stats)))
             except Exception as exc:
                 errors.append(f"뉴스레터 메일 해석 실패: {type(exc).__name__}")
 

@@ -78,6 +78,7 @@ jobs:
         run: python -m unittest discover -s tests -q
 
       - name: Run weekly briefing
+        id: briefing
         env:
           WEEKLY_SLACK_WEBHOOK_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.delivery_target == 'test' && secrets.SLACK_WEBHOOK_URL || secrets.WEEKLY_SLACK_WEBHOOK_URL }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -103,12 +104,13 @@ jobs:
           fi
 
       - name: Commit weekly archive and editorial review
-        if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.delivery_target == 'production') }}
+        if: ${{ always() && (steps.briefing.outcome == 'success' || steps.briefing.outcome == 'failure') && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.delivery_target == 'production')) }}
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           state_files=(
             data/weekly_archive.jsonl
+            data/weekly_archive_recovery.jsonl
             data/weekly_review.csv
           )
           for state_file in "${state_files[@]}"; do
@@ -123,3 +125,12 @@ jobs:
             git pull --rebase origin "$GITHUB_REF_NAME"
             git push
           fi
+
+      - name: Preserve weekly delivery recovery snapshot
+        if: ${{ always() && (steps.briefing.outcome == 'success' || steps.briefing.outcome == 'failure') && inputs.delivery_target == 'production' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-delivery-state-${{ github.run_id }}-${{ github.run_attempt }}
+          path: data/weekly_archive*.jsonl
+          retention-days: 7
+          if-no-files-found: warn

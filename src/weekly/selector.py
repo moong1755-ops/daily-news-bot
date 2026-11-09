@@ -125,6 +125,12 @@ def revalidate_weekly_articles(articles: list[dict]) -> list[dict]:
         )
         article["impact_content_verified"] = classified["impact_content_verified"]
         old_category = article.get("category")
+        if str(old_category).startswith(("📈", "🌐")):
+            # Geography corrections do not require a category change.
+            if article.get("region") != classified["region"]:
+                article["weekly_previous_region"] = article.get("region")
+            article["region"] = classified["region"]
+            article["region_reason"] = classified["region_reason"]
         has_context = bool(article.get("description") or article.get("summary"))
         # Older archives contain titles only. Missing context is not evidence
         # that a wind farm / smallholder fund has no impact; keep its category.
