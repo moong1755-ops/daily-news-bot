@@ -240,6 +240,14 @@ NEWSLETTER_SOURCES = {
         # Retain it only as evidence for an independently linked article.
         "body_mode": "issue_lead", "lead_marker": "Good morning. Andrew here.",
         "lead_subject_prefix": "DealBook:", "body_max_notes": 1,
+        "section_heading_tags": ("h2",), "section_max_articles": 4,
+        "section_context_chars": 1200,
+        "section_attribution_links": {
+            "the wall street journal reports": ("wsj.com",),
+            "the journal reports": ("wsj.com",),
+            "reuters reports": ("reuters.com",),
+            "bloomberg reports": ("bloomberg.com",),
+        },
     },
     "impactalpha": {
         "name": "Impact Alpha", "domains": ("impactalpha.com",),

@@ -289,6 +289,15 @@ _OFFICIAL_PRACTICAL_ALERT_PATH_PATTERNS = [
     r"/(?:newsroom/)?press-releases?(?:/|$)",
 ]
 
+_OFFICIAL_PRACTICAL_TITLE_PATTERNS = [
+    r"\b(?:group\s+)?consolidation\s+thresholds?\b",
+    r"연결재무제표.{0,20}(?:작성\s*기준|기준\s*상향|면제\s*기준)",
+]
+_OFFICIAL_PRODUCT_TITLE_PATTERNS = [
+    r"\b(?:ey|pwc|deloitte|kpmg|mckinsey|bcg|bain)\b.{0,35}\b(?:launches?|unveils?|introduces?)\b.{0,60}\b(?:agentic ai|platform|software|tool|solution)\b",
+    r"(?:EY|PwC|Deloitte|KPMG|McKinsey|BCG|Bain).{0,60}(?:에이전트\s*AI|플랫폼|소프트웨어|솔루션).{0,20}(?:출시|출범|공개)",
+]
+
 _ENTERPRISE_RISK_TITLE_PATTERNS = [
     r"\b(?:data|security|privacy)\s+breach\b",
     r"\bdata\b.{0,40}\b(?:exposed|leaked|stolen|compromised)\b",
@@ -474,13 +483,30 @@ def _has_any(keywords: list, text: str) -> bool:
     return any(keyword_hit(keyword, text) for keyword in keywords)
 
 
-def _content_region(article: dict, category: str, text: str) -> tuple[str, str]:
+def _content_region(article: dict, category: str, text: str, title: str | None = None) -> tuple[str, str]:
     """Classify split sections by the event market, not the publisher country."""
     configured_region = (
         "korea" if article.get("region") == "korea" else "global"
     )
     if not str(category).startswith(_REGION_SPLIT_CATEGORY_PREFIXES):
         return configured_region, "configured_source_region"
+
+    title = str(title if title is not None else article.get("title_orig") or article.get("title") or "")
+    subject = re.sub(r"\([^)]*(?:한국은행|한국개발연구원|KDI)[^)]*\)\s*$", "", title, flags=re.I)
+    foreign_title = _has_any(_FOREIGN_EVENT_SIGNALS, subject.lower()) or bool(re.search(r"\b(?:FOMC|ECB)\b", subject, re.I))
+    if foreign_title and not _has_any(_KOREA_EVENT_SIGNALS, subject.lower()):
+        return "global", "foreign_event_in_korean_source"
+    if re.search(r"\boecd\b|경제협력개발기구", title, re.I):
+        # OECD is a publisher, not an event country. Newsletter branding is not
+        # evidence of a Korea-focused report either.
+        context = re.sub(r"한국개발연구원|한국어|경제정보센터|\bKDI\b", "", text, flags=re.I)
+        if _has_any(_KOREA_EVENT_SIGNALS, title.lower()):
+            return "korea", "korea_report_subject"
+        if _has_any(_FOREIGN_EVENT_SIGNALS, title.lower()) or re.search(r"\bus\b", title, re.I):
+            return "global", "foreign_report_subject"
+        if _has_any(_KOREA_EVENT_SIGNALS, context) and not _has_any(_FOREIGN_EVENT_SIGNALS, context):
+            return "korea", "korea_report_subject"
+        return "global", "international_report_subject"
 
     if "kdi" in newsletter_sources(article):
         title = str(article.get("title_orig") or article.get("title") or "")
@@ -538,7 +564,17 @@ def _event_state(title: str, text: str) -> tuple:
 
 def _title_exclusion_reason(title: str, official_insights: bool, link: str = "") -> str:
     """Return a stable reason for deterministic final editorial rejection."""
+    if re.search(r"정책실장|정책관|국장|과장", title) and re.search(r"임명|전보|인사\s*발령", title):
+        return "routine_personnel_announcement"
     if official_insights:
+        if _matches_any_pattern(_OFFICIAL_PRACTICAL_TITLE_PATTERNS, title):
+            return "official_practical_alert"
+        research_release = re.search(
+            r"\b(?:launches?|releases?|publishes?)\b.{0,40}\b(?:survey|report|study|research)\b|(?:설문조사|연구보고서).{0,10}발표",
+            title, re.I,
+        )
+        if not research_release and _matches_any_pattern(_OFFICIAL_PRODUCT_TITLE_PATTERNS, title):
+            return "official_product_announcement"
         try:
             path = urlsplit(str(link or "")).path.casefold()
         except ValueError:

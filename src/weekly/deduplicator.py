@@ -7,6 +7,7 @@ from datetime import date
 from difflib import SequenceMatcher
 
 from ..editorial_review import VALID_ALT_SUBTYPES, importance as _editorial_importance
+from ..processor.ipo import ipo_events_conflict, ipo_target
 
 
 GENERIC_TOKENS = {
@@ -163,6 +164,13 @@ def _archive_date(article: dict) -> date | None:
 
 
 def _same_event(left: dict, right: dict) -> bool:
+    if ipo_events_conflict(left, right):
+        return False
+    left_ipo, right_ipo = ipo_target(left), ipo_target(right)
+    if left_ipo and left_ipo == right_ipo and not (_official_insight(left) or _official_insight(right)):
+        left_date, right_date = _archive_date(left), _archive_date(right)
+        if left_date and right_date and abs((left_date - right_date).days) <= 7:
+            return True
     left_url = str(left.get("normalized_url") or left.get("url") or "").strip()
     right_url = str(right.get("normalized_url") or right.get("url") or "").strip()
     if left_url and left_url == right_url:

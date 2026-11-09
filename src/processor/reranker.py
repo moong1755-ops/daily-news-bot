@@ -216,6 +216,15 @@ def _discover_models(api_key: str, timeout: int = 8) -> list:
     return flashes
 
 
+def _safe_error_summary(error: Exception) -> str:
+    """Log error metadata only: request URLs and response text can contain secrets."""
+    summary = type(error).__name__
+    status = getattr(getattr(error, "response", None), "status_code", None)
+    if isinstance(status, int) and 100 <= status <= 599:
+        summary += f" HTTP {status}"
+    return summary
+
+
 def _call_llm(instruction: str, api_key: str, timeout: int = 12):
     """후보 체인 → 실패 시 ListModels 자동탐색. 성공 시 (text, used_model), 실패 시 (None, None).
 
@@ -244,7 +253,7 @@ def _call_llm(instruction: str, api_key: str, timeout: int = 12):
             print(f"⚠️ Gemini HTTP {code} ({model}) — 다음 후보로.")
             continue
         except Exception as e:
-            print(f"⚠️ Gemini 호출 예외 ({model}): {e} — 다음 후보로.")
+            print(f"⚠️ Gemini 호출 예외 ({model}): {_safe_error_summary(e)} — 다음 후보로.")
             continue
 
     # 후보 전부 실패 → ListModels 자동탐색
@@ -271,10 +280,10 @@ def _call_llm(instruction: str, api_key: str, timeout: int = 12):
             except Exception as e:
                 if isinstance(e, requests.HTTPError) and getattr(e.response, "status_code", None) == 404:
                     _UNAVAILABLE_MODELS.add((api_key, disc))
-                print(f"⚠️ {disc} 도 실패({e}) — 다음 탐색 후보로.")
+                print(f"⚠️ {disc} 도 실패({_safe_error_summary(e)}) — 다음 탐색 후보로.")
                 continue
     except Exception as e:
-        print(f"⚠️ ListModels 탐색 실패: {e}")
+        print(f"⚠️ ListModels 탐색 실패: {_safe_error_summary(e)}")
     return None, None
 
 
@@ -733,7 +742,7 @@ def select_top_news_with_llm(articles: list, category_order: list) -> list:
         return final_articles
 
     except Exception as e:
-        print(f"⚠️ 제미나이 응답 파싱 실패 ({e}) -> 규칙 기반 Fallback으로 전환합니다.")
+        print(f"⚠️ 제미나이 응답 파싱 실패 ({_safe_error_summary(e)}) -> 규칙 기반 Fallback으로 전환합니다.")
         return _ensure_editorial_balance(
             _fallback_rule_based(buckets, category_order),
             buckets,

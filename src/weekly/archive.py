@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from contextlib import ExitStack
+from itertools import chain
+
 import json
 import re
 from dataclasses import dataclass
@@ -178,7 +181,9 @@ def load_weekly_archive(
     records_in_window = 0
     articles_by_identity: dict[str, dict] = {}
 
-    if not path.exists():
+    recovery_path = path.with_name(path.stem + "_recovery.jsonl")
+    available_paths = [item for item in (recovery_path, path) if item.exists()]
+    if not available_paths:
         errors.append(f"주간 아카이브 파일을 찾을 수 없습니다: {path}")
         return WeeklyArchiveWindow(
             start_date,
@@ -189,7 +194,10 @@ def load_weekly_archive(
             records_in_window,
         )
 
-    with path.open("r", encoding="utf-8") as archive_file:
+    with ExitStack() as stack:
+        archive_file = chain.from_iterable(
+            stack.enter_context(item.open("r", encoding="utf-8")) for item in available_paths
+        )
         for line_number, raw_line in enumerate(archive_file, start=1):
             if not raw_line.strip():
                 continue

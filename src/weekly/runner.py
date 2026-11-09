@@ -191,7 +191,11 @@ def run_weekly_briefing(
         )
 
     dry_run = _enabled("DRY_RUN")
-    if not dry_run and _already_delivered(delivery_path, window.end_date) and not _enabled("WEEKLY_FORCE_SEND"):
+    recovery_path = delivery_path.with_name(delivery_path.stem + "_recovery.jsonl")
+    if not dry_run and (
+        _already_delivered(delivery_path, window.end_date)
+        or _already_delivered(recovery_path, window.end_date)
+    ) and not _enabled("WEEKLY_FORCE_SEND"):
         reason = f"{window.end_date.isoformat()} 종료 주차가 이미 발송됨"
         print(f"ℹ️ {reason} — 데이터·Gemini를 다시 호출하지 않습니다.")
         return WeeklyRunResult(True, False, reason, window)
@@ -281,12 +285,17 @@ def run_weekly_briefing(
         )
         response.raise_for_status()
     except requests.RequestException as exc:
-        return _empty_result(window, f"Slack 발송 실패: {exc}")
+        return _empty_result(window, f"Slack 발송 실패: {type(exc).__name__} (재발송 전 채널 확인 필요)")
 
     try:
         _append_delivery_archive(delivery_path, window, selection, message, market_errors)
     except OSError as exc:
-        print(f"⚠️ Slack 발송은 성공했지만 주간 아카이브 저장 실패: {exc}")
+        print(f"⚠️ Slack 발송 완료·기록 저장 실패: {type(exc).__name__}. 재발송하지 말고 기록을 복구하세요.")
+        try:
+            _append_delivery_archive(recovery_path, window, selection, message, market_errors)
+        except OSError as recovery_error:
+            print(f"⚠️ 복구 기록 저장 실패: {type(recovery_error).__name__}")
+        return WeeklyRunResult(False, True, "sent_archive_failed", window, selection, message, market_errors)
     print("✅ 주간 브리핑 Slack 한 메시지 발송 성공")
     if market_errors:
         print(f"⚠️ 발송 완료 · 시장지표 {len(market_errors)}개 미수집 — 실행 요약 확인 필요")

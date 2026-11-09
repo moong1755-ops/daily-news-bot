@@ -22,6 +22,7 @@ except ImportError:
         print("ℹ️ 뉴스레터/Gmail 모듈을 찾을 수 없어 수집 단계에서 제외합니다.")
 
 from .processor import agenda, editor, impact
+from .processor.ipo import collapse_ipo_stories, ipo_events_conflict, ipo_target
 from .processor.deduplicator import (
     collapse_editor_event_duplicates,
     deduplicate_and_merge,
@@ -429,61 +430,25 @@ def _article_source_key(article: dict) -> str:
     return " ".join(str(get_primary_source(article) or "").casefold().split())
 
 
-_IPO_CLUSTER_PATTERN = re.compile(
-    r"\b(?:ipo|initial public offering|go public|public listing|nasdaq|nyse)\b|"
-    r"기업공개|상장(?:지|시장|계획|추진|준비|투자)",
-    re.IGNORECASE,
-)
-_IPO_EVENT_KEY_STOPWORDS = {
-    "ipo", "initial", "public", "offering", "listing", "listed", "lists",
-    "nasdaq", "nyse", "investment", "invest", "invests", "investing",
-    "funding", "financing", "round", "series", "talks", "reported",
-    "selection", "selects", "selected", "potential", "ahead", "mega",
-    "stake", "deal", "files", "filed", "filing", "plans", "planned", "2026",
-}
-
-
 def _ipo_cluster_entities(article: dict) -> set[str]:
     """Return the IPO target company, not investors or underwriters."""
-    event_key = str(article.get("editor_event_key") or "").casefold()
-    title_text = " ".join(
-        str(article.get(field) or "")
-        for field in ("title", "title_orig")
-    )
-    if not event_key or not _IPO_CLUSTER_PATTERN.search(f"{event_key} {title_text}"):
-        return set()
-    tokens = re.findall(r"[a-z0-9]+", event_key)
-
-    # 편집 사건키는 핵심 회사명 + ipo + 세부사건 순서를 쓰도록 지시한다.
-    # ipo 바로 앞에서 거꾸로 찾으면 `nvidia_anthropic_ipo_investment`에서는
-    # 투자자 Nvidia가 아니라 상장 대상 Anthropic을 안정적으로 고를 수 있다.
-    marker_indexes = [
-        index for index, token in enumerate(tokens)
-        if token in {"ipo", "offering", "listing"}
-    ]
-    for marker_index in marker_indexes:
-        for token in reversed(tokens[:marker_index]):
-            if (
-                len(token) >= 4
-                and token not in _IPO_EVENT_KEY_STOPWORDS
-                and not token.isdigit()
-            ):
-                return {token}
-    return set()
+    target = ipo_target(article)
+    return {target} if target else set()
 
 
 def _collapse_daily_ipo_clusters(ranked: list[dict]) -> list[dict]:
-    """Keep one representative when several stories cover the same company IPO."""
-    kept: list[dict] = []
-    kept_entities: list[set[str]] = []
-    for article in ranked:
-        entities = _ipo_cluster_entities(article)
-        if entities and any(entities & previous for previous in kept_entities):
-            article["selection_dedup_reason"] = "same_company_ipo_cluster"
-            continue
-        kept.append(article)
-        kept_entities.append(entities)
-    return kept
+    """Prefer dated status updates; never guess chronology from mail dates."""
+    return collapse_ipo_stories(
+        ranked, lambda article: _selection_priority(article, article.get("category")),
+    )
+
+
+def _collapse_cross_category_ipo_clusters(articles: list[dict]) -> list[dict]:
+    # Official insight reports remain in their dedicated section.
+    candidates = [article for article in articles if article.get("category") != INSIGHTS_CATEGORY]
+    retained = {id(article) for article in _collapse_daily_ipo_clusters(candidates)}
+    return [article for article in articles
+            if article.get("category") == INSIGHTS_CATEGORY or id(article) in retained]
 
 
 def _selection_score(article: dict, category: str) -> float:
@@ -657,6 +622,8 @@ def _cross_day_funding_stage(article: dict) -> str:
 
 
 def _same_cross_day_event(current: dict, previous: dict) -> bool:
+    if ipo_events_conflict(current, previous):
+        return False
     current_family = _cross_day_event_family(current)
     previous_family = _cross_day_event_family(previous)
     if not current_family or current_family != previous_family:
@@ -718,6 +685,54 @@ def _load_recent_sent_articles(
     return recent
 
 
+def _payroll_release_identity(article: dict):
+    """Require an explicit US payroll reporting month/year, not a broad topic."""
+    text = _cross_day_event_text(article).casefold()
+    if not re.search(r"\b(?:us|u\.s\.|united states)\b|미국", text):
+        return None
+    if not re.search(r"\b(?:nonfarm|payrolls?|job growth)\b|비농업|고용", text):
+        return None
+    years = set(re.findall(r"\b20\d{2}\b", text))
+    months = set()
+    names = ("january", "february", "march", "april", "may", "june",
+             "july", "august", "september", "october", "november", "december")
+    for number, name in enumerate(names, 1):
+        if re.search(rf"\b(?:{name}|{name[:3]})\b", text):
+            months.add(number)
+    months.update(int(m) for m in re.findall(r"(?<!\d)(1[0-2]|[1-9])월", text))
+    if len(years) == len(months) == 1:
+        return next(iter(years)), next(iter(months))
+    return None
+
+
+def _superseded_payroll_forecast(current: dict, previous: dict) -> bool:
+    """Drop only an older preview of a monthly result already delivered."""
+    identity = _payroll_release_identity(current)
+    if identity is None or identity != _payroll_release_identity(previous):
+        return False
+    current_title = str(current.get("title_orig") or current.get("title") or "")
+    previous_title = str(previous.get("title_orig") or previous.get("title") or "")
+    forecast = r"\b(?:expected|forecast\w*|likely|preview)\b|예상|전망|발표\s*전"
+    result = (r"\b(?:rose|grew|added|fell|blow past|beat|beats|exceeded)\b|"
+              r"예상치\s*(?:상회|하회)|증가했|감소했|집계|기록")
+    if (not re.search(forecast, current_title, re.I)
+            or re.search(forecast, previous_title, re.I)
+            or not re.search(result, previous_title, re.I)):
+        return False
+
+    def published(article):
+        for fmt in ("%Y-%m-%d", "%y.%m.%d"):
+            try:
+                return datetime.strptime(str(article.get("date") or ""), fmt).date()
+            except ValueError:
+                pass
+        return None
+
+    current_date, previous_date = published(current), published(previous)
+    # Unknown dates and same-day updates cannot establish publication order.
+    return bool(current_date and previous_date and current_date < previous_date)
+
+
 def _filter_recent_editor_event_duplicates(
     articles: list[dict],
     *,
@@ -731,6 +746,13 @@ def _filter_recent_editor_event_duplicates(
 
     kept, dropped = [], []
     for article in articles:
+        outcome = next((sent for sent in recent
+                        if _superseded_payroll_forecast(article, sent)), None)
+        if outcome is not None:
+            article["filter_reason"] = "superseded_payroll_forecast"
+            article["duplicate_of_title"] = outcome.get("title") or outcome.get("title_orig")
+            dropped.append(article)
+            continue
         matches = [sent for sent in recent if _same_cross_day_event(article, sent)]
         if not matches:
             kept.append(article)
@@ -1419,6 +1441,7 @@ def review_final_agenda(articles: list, coverage_articles: list) -> tuple:
         [article for article in articles if _is_sendable(article)],
         EDITOR_EVENT_CATEGORY_PRIORITY,
     )
+    survivors = _collapse_cross_category_ipo_clusters(survivors)
     # Impact now has a whole-field final desk, not a second additive boost.
     other_articles = [article for article in survivors if not impact.is_impact(article)]
     other_coverage = [article for article in coverage_articles if not impact.is_impact(article)]
@@ -1462,6 +1485,8 @@ def _decision_record(article: dict, verdict: str) -> dict:
         "impact_final_event_key": article.get("impact_final_event_key"),
         "impact_final_extension_reason": article.get("impact_final_extension_reason"),
         "impact_final_model": article.get("impact_final_model"),
+        "impact_final_attempts": article.get("impact_final_attempts"),
+        "impact_final_repair_trigger": article.get("impact_final_repair_trigger"),
         "alt_subtype": article.get("alt_subtype"),
         "editor_event_key": article.get("editor_event_key"),
         "relevance_signal": article.get("relevance_signal"),
@@ -1740,6 +1765,7 @@ def send_aggregated_slack_news(articles) -> tuple:
         sendable_articles,
         EDITOR_EVENT_CATEGORY_PRIORITY,
     )
+    sendable_articles = _collapse_cross_category_ipo_clusters(sendable_articles)
     buckets = bucket_by_category(sendable_articles)
 
     sent_articles = []          # ✅ 실제 슬랙에 나간 기사만 수집(seen 처리용)
@@ -1811,7 +1837,7 @@ def send_aggregated_slack_news(articles) -> tuple:
             timeout=20,
         )
     except requests.RequestException as exc:
-        print(f"슬랙 전송 실패: {exc}")
+        print(f"슬랙 전송 실패: {type(exc).__name__} (응답 불확실 시 재발송 전 채널 확인 필요)")
         return False, []
     if resp.status_code == 200:
         # 주간 브리핑에는 실제 Slack 발송에 성공한 기사만 포함한다.
@@ -1819,10 +1845,19 @@ def send_aggregated_slack_news(articles) -> tuple:
             _append_slack_archive(selected_by_category, message_text)
         except Exception as e:
             # 아카이브 실패는 이미 성공한 Slack 발송을 실패로 바꾸지 않는다.
-            print(f"⚠️ 슬랙 아카이브 저장 실패: {e}")
+            for article in sent_articles:
+                article["delivery_archive_failed"] = True
+            print(f"⚠️ Slack 발송 완료·기록 저장 실패: {type(e).__name__}. 재발송하지 말고 기록을 복구하세요.")
+            try:
+                _append_slack_archive(
+                    selected_by_category, message_text,
+                    archive_path=SLACK_ARCHIVE_PATH.with_name("slack_archive_recovery.jsonl"),
+                )
+            except Exception as recovery_error:
+                print(f"⚠️ 복구 기록 저장 실패: {type(recovery_error).__name__}")
         print(f"슬랙 메시지 1건 통합 전송 성공! (Block Kit {len(slack_blocks)}개)")
         return True, sent_articles
-    print(f"슬랙 전송 실패: {resp.status_code}, {resp.text}")
+    print(f"슬랙 전송 실패: HTTP {resp.status_code}")
     return False, []
 
 
@@ -2031,6 +2066,8 @@ def main():
         # GitHub Actions가 실제 미발송을 성공으로 표시하지 않게 한다.
         # 검토 CSV와 의사결정 로그를 먼저 저장한 뒤 비정상 종료한다.
         raise RuntimeError("Slack 발송에 실패했습니다. 위 로그를 확인해 주세요.")
+    if any(article.get("delivery_archive_failed") for article in sent_articles):
+        raise RuntimeError("Slack 발송은 완료됐지만 기록 저장에 실패했습니다. 재발송하지 말고 복구 기록을 확인하세요.")
 
 
 if __name__ == "__main__":

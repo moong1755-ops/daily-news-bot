@@ -50,6 +50,48 @@ def _short(text: str, limit: int) -> str:
     return text[:limit]
 
 
+def section_stories(html: str, policy: dict, limit: int) -> list[dict]:
+    """Pair unlinked headings with explicit reporting links in their own section.
+
+    No guessing from arbitrary inline/background links. Missing or ambiguous
+    attribution stays linkless evidence; the mail fetcher resolves trackers.
+    """
+    headings = set(policy.get("section_heading_tags", ()))
+    if not headings:
+        return []
+    parser = _MailHTML()
+    parser.feed(html or "")
+    attributions = policy.get("section_attribution_links", {})
+    sections, current = [], None
+    for node in parser.nodes:
+        if re.fullmatch(r"h[1-6]", node.tag):
+            current = None
+            if node.tag in headings and not node.links():
+                title = node.text()
+                if len(title) >= 18:
+                    current = {"title": title, "paragraphs": [], "links": []}
+                    sections.append(current)
+        elif current is not None and node.tag == "p":
+            current["paragraphs"].append(node.text())
+        elif current is not None and node.tag == "a":
+            attribution = node.text().casefold().strip().rstrip(":.")
+            if attribution in attributions:
+                current["links"].append((node.attrs.get("href", ""), attribution))
+
+    stories = []
+    for section in sections:
+        body = " ".join(section["paragraphs"])
+        if len(body) < 180:
+            continue
+        links = list(dict.fromkeys(section["links"]))
+        url, attribution = links[0] if len(links) == 1 else ("", "")
+        stories.append({"title": section["title"], "description": _short(body, limit),
+                        "link": url, "attribution": attribution})
+        if len(stories) >= int(policy.get("section_max_articles", 4)):
+            break
+    return stories
+
+
 def primary_article_context(html: str, policy: dict, limit: int) -> str:
     """Read a known one-story body container, excluding mail chrome/footer."""
     wanted = set(policy.get("body_container_class", "").split())
