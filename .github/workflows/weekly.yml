@@ -1,4 +1,5 @@
 name: Weekly VC Briefing 📊
+run-name: "Weekly briefing — ${{ inputs.delivery_target || 'preview' }}"
 
 on:
   # cron-job.org가 Asia/Seoul 기준 월요일 08:30에 workflow_dispatch로 호출한다.
@@ -91,6 +92,7 @@ jobs:
           WEEKLY_FORCE_SEND: ${{ github.event_name == 'workflow_dispatch' && inputs.force_send && '1' || '' }}
           WEEKLY_ARCHIVE_PATH: ${{ github.event_name == 'workflow_dispatch' && inputs.delivery_target == 'test' && '/tmp/weekly_archive.jsonl' || '' }}
           PYTHONUNBUFFERED: "1"
+          QUALITY_MONITORING: "1"
           PYTHONIOENCODING: "utf-8"
         run: |
           if [[ "$DELIVERY_TARGET" == "market_check" ]]; then
@@ -102,6 +104,15 @@ jobs:
           else
             python -m src.weekly.runner
           fi
+
+      - name: Upload quality report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-${{ github.run_id }}-${{ github.run_attempt }}
+          path: data/quality_last_run.json
+          retention-days: 30
+          if-no-files-found: ignore
 
       - name: Commit weekly archive and editorial review
         if: ${{ always() && (steps.briefing.outcome == 'success' || steps.briefing.outcome == 'failure') && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.delivery_target == 'production')) }}

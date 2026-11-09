@@ -11,6 +11,7 @@ from pathlib import Path
 import requests
 
 from ..config import WEEKLY_BRIEFING_CONFIG
+from ..quality import runtime as quality
 from ..editorial_review import write_review_csv
 from ..processor.translator import translate_titles
 from .archive import KOREA_TIMEZONE, WeeklyArchiveWindow, load_weekly_archive
@@ -127,6 +128,7 @@ def _append_delivery_archive(
 
 
 def _empty_result(window: WeeklyArchiveWindow, reason: str) -> WeeklyRunResult:
+    quality.update(delivery="failed")
     print(f"❌ 주간 브리핑 중단: {reason}")
     return WeeklyRunResult(False, False, reason, window)
 
@@ -169,6 +171,7 @@ def run_weekly_briefing(
     delivery_archive_path: str | Path | None = None,
     session=requests,
 ) -> WeeklyRunResult:
+    quality.start("weekly", preview=_enabled("DRY_RUN") or os.getenv("DELIVERY_TARGET") == "test")
     run_now = now or _effective_now()
     source_path = source_archive_path or os.environ.get("SLACK_ARCHIVE_PATH") or None
     configured_delivery_path = delivery_archive_path or os.environ.get("WEEKLY_ARCHIVE_PATH")
@@ -198,6 +201,7 @@ def run_weekly_briefing(
     ) and not _enabled("WEEKLY_FORCE_SEND"):
         reason = f"{window.end_date.isoformat()} 종료 주차가 이미 발송됨"
         print(f"ℹ️ {reason} — 데이터·Gemini를 다시 호출하지 않습니다.")
+        quality.update(delivery="skipped")
         return WeeklyRunResult(True, False, reason, window)
 
     weekly_webhook_url = os.environ.get("WEEKLY_SLACK_WEBHOOK_URL", "").strip()
@@ -246,6 +250,7 @@ def run_weekly_briefing(
     translate_titles(list(selection.articles))
     for article in selection.articles:
         article["title"] = guarded_title(article, str(article.get("title") or ""))
+    quality.final_check(list(selection.articles))
 
     markets = collect_market_snapshots(
         window.start_date,
@@ -253,6 +258,7 @@ def run_weekly_briefing(
         session=session,
     )
     market_errors = report_market_health(markets)
+    quality.markets_check(markets, window.end_date)
     headlines = build_weekly_headlines(selection.articles)
     message = render_weekly_briefing(
         window.start_date,
@@ -284,12 +290,14 @@ def run_weekly_briefing(
             timeout=20,
         )
         response.raise_for_status()
+        quality.update(delivery="sent")
     except requests.RequestException as exc:
         return _empty_result(window, f"Slack 발송 실패: {type(exc).__name__} (재발송 전 채널 확인 필요)")
 
     try:
         _append_delivery_archive(delivery_path, window, selection, message, market_errors)
     except OSError as exc:
+        quality.update(issues=[quality.issue("archive_failed", "weekly")])
         print(f"⚠️ Slack 발송 완료·기록 저장 실패: {type(exc).__name__}. 재발송하지 말고 기록을 복구하세요.")
         try:
             _append_delivery_archive(recovery_path, window, selection, message, market_errors)

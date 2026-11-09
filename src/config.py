@@ -1,6 +1,23 @@
 import os
 from urllib.parse import quote_plus
 
+# Quality checks never change source credentials or delivery channels.
+QUALITY_MONITOR_CONFIG = {
+    "enabled": True,
+    "llm_enabled": True,
+    "llm_max_articles": 25,
+    "llm_excerpt_chars": 500,
+    "llm_max_input_chars": 26000,
+    "llm_timeout_seconds": 25,
+    "baseline_min_runs": 3,
+    "collection_drop_ratio": 0.35,
+    "alert_cooldown_days": 7,
+    "retention_days": 90,
+    "daily_deadline_hour_kst": 9,
+    "weekly_deadline_hour_kst": 10,
+    "market_max_age_days": 3,
+}
+
 # ---------------------------------------------------------------------------
 # 🤖 제미나이 모델명 빈칸 자동 방어 로직
 #    ✅ 2순위 반영: gemini-1.5-* 는 전부 셧다운(404). 별칭 'gemini-flash-latest'
