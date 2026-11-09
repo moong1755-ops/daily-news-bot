@@ -120,6 +120,7 @@ def _post_generate(
     api_key: str,
     instruction: str,
     timeout=None,
+    max_attempts=None,
 ) -> str:
     cached = llm_cache.lookup(model, instruction)
     if cached is not None:
@@ -137,12 +138,13 @@ def _post_generate(
         _GEMINI_READ_TIMEOUT,
     )
     last_error = None
-    for attempt in range(_GEMINI_MAX_ATTEMPTS):
+    attempts = max_attempts if max_attempts is not None else _GEMINI_MAX_ATTEMPTS
+    for attempt in range(attempts):
         try:
             resp = requests.post(url, json=payload, timeout=request_timeout)
         except (requests.Timeout, requests.ConnectionError) as exc:
             last_error = exc
-            if attempt + 1 >= _GEMINI_MAX_ATTEMPTS:
+            if attempt + 1 >= attempts:
                 raise
             wait = min(
                 _GEMINI_RETRY_BASE_SECONDS * (2 ** attempt),
@@ -157,7 +159,7 @@ def _post_generate(
 
         if resp.status_code in _TRANSIENT_CODES:
             last_error = requests.HTTPError(response=resp)
-            if attempt + 1 >= _GEMINI_MAX_ATTEMPTS:
+            if attempt + 1 >= attempts:
                 resp.raise_for_status()
             wait = min(
                 _GEMINI_RETRY_BASE_SECONDS * (2 ** attempt),
@@ -223,6 +225,21 @@ def _safe_error_summary(error: Exception) -> str:
     if isinstance(status, int) and 100 <= status <= 599:
         summary += f" HTTP {status}"
     return summary
+
+
+def generate_quality_json(instruction: str, timeout: int = 25):
+    """One bounded audit request, without model discovery or retry cascades."""
+    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if not api_key:
+        return None
+    model = _RESOLVED_MODEL or next(iter(_candidate_models()), None)
+    if not model:
+        return None
+    try:
+        return _post_generate(model, api_key, instruction, timeout=(5, timeout), max_attempts=1)
+    except Exception as error:
+        print(f"Quality model unavailable: {_safe_error_summary(error)}")
+        return None
 
 
 def _call_llm(instruction: str, api_key: str, timeout: int = 12):

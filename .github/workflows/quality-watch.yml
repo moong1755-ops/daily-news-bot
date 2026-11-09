@@ -1,0 +1,89 @@
+name: Briefing quality monitor
+on:
+  workflow_run:
+    workflows: ["News Bot 📰", "Weekly VC Briefing 📊"]
+    types: [completed]
+    branches: [main]
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+    inputs:
+      notify:
+        description: "이상 발견 시 일간 채널 알림 (기본은 미리보기)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.event == 'workflow_dispatch' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       endsWith(github.event.workflow_run.display_title, '— production'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: write
+    concurrency:
+      group: daily-news-bot-state
+      cancel-in-progress: false
+    steps:
+      # Never execute code from the triggering run or its artifact.
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install check dependencies
+        run: pip install requests python-dateutil beautifulsoup4
+      - name: Download quality metadata
+        if: github.event_name == 'workflow_run'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN: ${{ github.event.workflow_run.id }}
+          SOURCE_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+        run: |
+          mkdir -p data/quality-input
+          if ! gh run download "$SOURCE_RUN" -n "quality-$SOURCE_RUN-$SOURCE_ATTEMPT" -D data/quality-input; then
+            echo '::warning::Quality artifact unavailable; monitor will report missing telemetry.'
+          fi
+      - name: Check delivery and quality
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          QUALITY_SOURCE_RUN_ID: ${{ github.event.workflow_run.id || '' }}
+          QUALITY_SOURCE_KIND: ${{ github.event.workflow_run.name || '' }}
+          QUALITY_SOURCE_CONCLUSION: ${{ github.event.workflow_run.conclusion || '' }}
+          NOTIFY: ${{ github.event_name != 'workflow_dispatch' || inputs.notify }}
+        run: |
+          args=()
+          if [[ "$NOTIFY" == "true" ]]; then args+=(--notify); fi
+          python -m src.quality.monitor --report data/quality-input/quality_last_run.json "${args[@]}"
+      - name: Save monitoring state
+        if: github.event_name != 'workflow_dispatch' || inputs.notify
+        run: |
+          git config user.name 'GitHub Action'
+          git config user.email 'action@github.com'
+          for path in data/quality_history.jsonl data/quality_alert_state.json; do
+            if [[ -f "$path" ]]; then git add -- "$path"; fi
+          done
+          if ! git diff --cached --quiet; then
+            git commit -m 'Update briefing quality state [skip ci]'
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
+      - name: Preserve monitoring state
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-state-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            data/quality_history.jsonl
+            data/quality_alert_state.json
+          if-no-files-found: ignore
+          retention-days: 30

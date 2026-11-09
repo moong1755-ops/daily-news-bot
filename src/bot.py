@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 
 from .fetchers import hackernews, rss_feeds
+from .quality import runtime as quality
 from .fetchers.rss_feeds import as_of_date
 try:
     from .fetchers import newsletters
@@ -1788,6 +1789,7 @@ def send_aggregated_slack_news(articles) -> tuple:
         f"대상 {len(sent_articles)}건"
     )
     translate_titles(sent_articles)
+    quality.final_check(sent_articles)
 
     message_text = render_digest(selected_by_category)
     print(f"ℹ️ Slack 메시지 {len(message_text):,}자, 선택 기사 {len(sent_articles)}건 전부 발송")
@@ -1838,12 +1840,15 @@ def send_aggregated_slack_news(articles) -> tuple:
         )
     except requests.RequestException as exc:
         print(f"슬랙 전송 실패: {type(exc).__name__} (응답 불확실 시 재발송 전 채널 확인 필요)")
+        quality.update(delivery="failed")
         return False, []
     if resp.status_code == 200:
+        quality.update(delivery="sent")
         # 주간 브리핑에는 실제 Slack 발송에 성공한 기사만 포함한다.
         try:
             _append_slack_archive(selected_by_category, message_text)
         except Exception as e:
+            quality.update(issues=[quality.issue("archive_failed", "daily")])
             # 아카이브 실패는 이미 성공한 Slack 발송을 실패로 바꾸지 않는다.
             for article in sent_articles:
                 article["delivery_archive_failed"] = True
@@ -1858,6 +1863,7 @@ def send_aggregated_slack_news(articles) -> tuple:
         print(f"슬랙 메시지 1건 통합 전송 성공! (Block Kit {len(slack_blocks)}개)")
         return True, sent_articles
     print(f"슬랙 전송 실패: HTTP {resp.status_code}")
+    quality.update(delivery="failed")
     return False, []
 
 
@@ -1881,6 +1887,7 @@ def _save_daily_review(candidates: list[dict], selected: list[dict]) -> bool:
 
 
 def main():
+    quality.start("daily", preview=is_dry_run())
     seen_links = {normalize_url(link) for link in load_lines(SEEN_FILE)}
     seen_titles = load_lines(SEEN_TITLES_FILE)
     all_errors, all_articles = [], []
@@ -1907,6 +1914,8 @@ def main():
     all_articles.extend(rss_articles)
 
     all_articles = filter_to_as_of_date(all_articles)
+    quality.collection(all_articles, len(all_errors), newsletter_enabled=bool(
+        HAS_NEWSLETTERS and os.getenv("GMAIL_USER") and os.getenv("GMAIL_APP_PASSWORD")))
     body_notes = [article for article in all_articles if article.get("newsletter_body_only")]
     filtered = []
     rejected = []          # 탈락 사유와 함께 판정 로그에 남긴다
