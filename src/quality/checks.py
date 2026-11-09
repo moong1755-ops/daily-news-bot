@@ -16,6 +16,7 @@ LABELS = {
     "translation_missing": "한국어 번역 누락",
     "translation_qualifier": "번역의 전망·전언 표현 누락",
     "llm_region": "AI 점검: 지역 분류 재확인 필요",
+    "llm_category": "AI 점검: 분야 분류 재확인 필요",
     "llm_noise": "AI 점검: 홍보·실무 공지 가능성",
     "llm_duplicate": "AI 점검: 동일 사건 중복 가능성",
     "llm_claim": "AI 점검: 원문 대비 과장·확정 표현 가능성",
@@ -80,6 +81,7 @@ def semantic_audit(articles, generate):
     cards = [{"id": str(i), "title": str(a.get("title") or ""),
               "original": str(a.get("title_orig") or a.get("title") or ""),
               "category": str(a.get("category") or ""), "region": str(a.get("region") or ""),
+              "source": str(a.get("source") or a.get("feed") or "")[:150],
               "evidence": str(a.get("description") or a.get("summary") or "")[:CONFIG["llm_excerpt_chars"]]}
              for i, a in enumerate(articles)]
     prompt = (
@@ -87,10 +89,13 @@ def semantic_audit(articles, generate):
         "새 기사를 추천하거나 외부 사실을 추측하지 말고 명백한 문제만 표시한다. "
         "중요도 순위 자체는 다시 매기지 않는다. 해외 원문 우선, 임팩트 우선, "
         "공식 MBB/Big4 연구는 주제와 관계없이 인사이트 분류를 유지한다. "
+        "MBB/Big4 회사 이름만 언급된 제3자 기사는 공식 인사이트가 아니다. "
+        "임팩트 금융·기후펀드는 임팩트, AI 데이터센터 광섬유 투자는 AI 허용, "
+        "VC/PE 투자시장 동향도 허용한다. 단일 기업 방산계약만으로 거시경제로 분류하지 않는다. "
         "기업 홍보/제품 광고/실무 공지와 연구 보고서를 구별한다. 루머·전망은 허용하되 확정으로 번역하지 않는다. "
         "수수료/투자총액, AUM/순유입을 혼동하지 않는다. 근거가 부족한 것은 오류 확정이 아니다. "
         "응답 JSON: {\"issues\":[{\"id\":\"0\",\"code\":\"llm_claim\",\"quote\":\"원문 연속 8자 이상\",\"other_id\":null}]}. "
-        "code는 llm_region,llm_noise,llm_duplicate,llm_claim 중 하나. 중복은 other_id에 다른 후보 ID가 필수. "
+        "code는 llm_region,llm_category,llm_noise,llm_duplicate,llm_claim 중 하나. 중복은 other_id에 다른 후보 ID가 필수. "
         "quote는 해당 후보 original 또는 evidence의 정확한 인용. 정상은 issues 빈 배열.\n"
         + json.dumps(cards, ensure_ascii=False)
     )
@@ -109,7 +114,7 @@ def semantic_audit(articles, generate):
         for row in rows:
             card = lookup[row["id"]]
             code, quote = row["code"], row["quote"]
-            if code not in {"llm_region", "llm_noise", "llm_duplicate", "llm_claim"}:
+            if code not in {"llm_region", "llm_category", "llm_noise", "llm_duplicate", "llm_claim"}:
                 raise ValueError("unknown issue")
             if not isinstance(quote, str) or len(quote) < 8 or not any(quote in card[k] for k in ("original", "evidence")):
                 raise ValueError("un grounded finding")

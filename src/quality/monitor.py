@@ -157,6 +157,9 @@ def notify(findings, ledger, now, webhook, run_id="", session=requests):
 
 
 def main():
+    if not CONFIG["enabled"]:
+        print("Quality monitoring disabled in config")
+        return
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-dir", type=Path, default=Path("data"))
     parser.add_argument("--report", type=Path)
