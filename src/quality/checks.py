@@ -9,6 +9,7 @@ from ..processor.translator import _preserves_qualifiers
 
 
 LABELS = {
+    "table_fallback": "슬랙이 표를 거부해 기존 목록으로 발송함",
     "empty_selection": "최종 선정 기사 없음",
     "content_noise": "홍보·실무 공지·인사 등 제외 대상 발견",
     "exact_duplicate": "같은 원문 링크가 중복 선정됨",

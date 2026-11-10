@@ -57,9 +57,12 @@ jobs:
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           QUALITY_SOURCE_RUN_ID: ${{ github.event.workflow_run.id || '' }}
+          QUALITY_SOURCE_ATTEMPT: ${{ github.event.workflow_run.run_attempt || '1' }}
           QUALITY_SOURCE_KIND: ${{ github.event.workflow_run.name || '' }}
           QUALITY_SOURCE_CONCLUSION: ${{ github.event.workflow_run.conclusion || '' }}
           NOTIFY: ${{ github.event_name != 'workflow_dispatch' || inputs.notify }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ vars.SLACK_CHANNEL_ID }}
         run: |
           args=()
           if [[ "$NOTIFY" == "true" ]]; then args+=(--notify); fi
