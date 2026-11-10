@@ -145,6 +145,8 @@ jobs:
           AS_OF_DATE: ${{ inputs.as_of_date }}
           PYTHONUNBUFFERED: "1"
           QUALITY_MONITORING: "1"
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ vars.SLACK_CHANNEL_ID }}
           PYTHONIOENCODING: "utf-8"
         run: python -m src.bot
 

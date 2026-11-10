@@ -12,6 +12,7 @@ import requests
 
 from ..config import WEEKLY_BRIEFING_CONFIG
 from ..quality import runtime as quality
+from ..slack_delivery import post_message
 from ..editorial_review import write_review_csv
 from ..processor.translator import translate_titles
 from .archive import KOREA_TIMEZONE, WeeklyArchiveWindow, load_weekly_archive
@@ -88,6 +89,8 @@ def _append_delivery_archive(
         "end_date": window.end_date.isoformat(),
         "candidate_count": selection.candidate_count,
         "article_count": len(selection.articles),
+        "slack_reference": next((a.get("_slack_reference") for a in selection.articles
+                                  if a.get("_slack_reference")), None),
         "market_health": {"complete": not market_errors, "errors": list(market_errors)},
         "github": {
             "repository": os.environ.get("GITHUB_REPOSITORY", ""),
@@ -279,18 +282,20 @@ def run_weekly_briefing(
         return WeeklyRunResult(True, False, "dry_run", window, selection, message, market_errors)
 
     try:
-        response = session.post(
+        response, reference, used_fallback = post_message(
             weekly_webhook_url,
-            json={
+            {
                 "text": message.notification_text,
                 "blocks": list(message.blocks),
                 "unfurl_links": False,
                 "unfurl_media": False,
             },
-            timeout=20,
+            session=session,
         )
         response.raise_for_status()
         quality.update(delivery="sent")
+        if used_fallback:
+            quality.update(issues=[quality.issue("table_fallback", "weekly")])
     except requests.RequestException as exc:
         return _empty_result(window, f"Slack 발송 실패: {type(exc).__name__} (재발송 전 채널 확인 필요)")
 

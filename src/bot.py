@@ -9,6 +9,7 @@ from pathlib import Path
 
 from .fetchers import hackernews, rss_feeds
 from .quality import runtime as quality
+from .slack_delivery import post_message
 from .fetchers.rss_feeds import as_of_date
 try:
     from .fetchers import newsletters
@@ -1746,6 +1747,8 @@ def _append_slack_archive(
             "head_sha": os.environ.get("GITHUB_SHA", ""),
         },
         "article_count": len(articles),
+        "slack_reference": next((a.get("_slack_reference") for group in selected_by_category.values()
+                                  for a in group if a.get("_slack_reference")), None),
         "articles": articles,
         # 기존 기록을 읽는 도구와 사람이 그대로 확인할 수 있도록 본문도 유지한다.
         "text": message_text,
@@ -1827,23 +1830,28 @@ def send_aggregated_slack_news(articles) -> tuple:
 
     # ✅ 링크 미리보기(unfurl) 끄기: 카드/썸네일이 딸려 나오지 않게 함
     try:
-        resp = requests.post(
+        resp, reference, _ = post_message(
             slack_webhook_url,
-            json={
+            {
                 # text는 알림용이고, 전체 뉴스는 blocks 한 메시지에 자르지 않고 담는다.
                 "text": notification_text,
                 "blocks": slack_blocks,
                 "unfurl_links": False,
                 "unfurl_media": False,
             },
-            timeout=20,
+            session=requests,
+            token=os.getenv("SLACK_BOT_TOKEN", ""),
+            channel=os.getenv("SLACK_CHANNEL_ID", ""),
         )
     except requests.RequestException as exc:
         print(f"슬랙 전송 실패: {type(exc).__name__} (응답 불확실 시 재발송 전 채널 확인 필요)")
         quality.update(delivery="failed")
         return False, []
     if resp.status_code == 200:
-        quality.update(delivery="sent")
+        quality.update(delivery="sent", slack_reference=reference)
+        for article in sent_articles:
+            if reference:
+                article["_slack_reference"] = reference
         # 주간 브리핑에는 실제 Slack 발송에 성공한 기사만 포함한다.
         try:
             _append_slack_archive(selected_by_category, message_text)

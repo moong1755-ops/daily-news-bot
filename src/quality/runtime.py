@@ -46,6 +46,7 @@ def start(kind, preview=False):
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(json.dumps({"run_id": os.getenv("GITHUB_RUN_ID", "local"),
+                "run_attempt": os.getenv("GITHUB_RUN_ATTEMPT", "1"),
                 "kind": kind, "preview": preview, "date": datetime.now(KST).date().isoformat(),
                 "issues": [], "delivery": "not_attempted"}), encoding="utf-8")
         except OSError:
