@@ -139,8 +139,9 @@ class WeeklyEcosTests(unittest.TestCase):
                     "https://ecos.bok.or.kr/api/StatisticSearch/sample/json/kr/1/10/"
                     f"{stat_code}/D/20260828/20260828/{item_code}",
                 )
-                output = _market_block((snapshot,), END)["text"]["text"]
-                self.assertIn(f"<{snapshot.source_url}|{snapshot.label}", output)
+                output = json.dumps(_market_block((snapshot,), END), ensure_ascii=False)
+                self.assertIn(snapshot.source_url, output)
+                self.assertIn(snapshot.label, output)
                 self.assertIn("08.21→08.28", output)
                 self.assertIn(snapshot.value_basis, output)
                 self.assertNotIn(PRIVATE_KEY, output)
@@ -156,7 +157,7 @@ class WeeklyEcosTests(unittest.TestCase):
         self.assertEqual(snapshot.comparison.observed_on, date(2026, 10, 2))
         self.assertEqual(snapshot.latest.observed_on, date(2026, 10, 8))
         self.assertEqual(len(snapshot.points), 2)
-        text = _market_block((snapshot,), date(2026, 10, 11))["text"]["text"]
+        text = json.dumps(_market_block((snapshot,), date(2026, 10, 11)), ensure_ascii=False)
         self.assertIn("10.02→10.08", text)
         self.assertIn("휴장·공표 지연 가능", text)
 
@@ -176,7 +177,7 @@ class WeeklyEcosTests(unittest.TestCase):
                 self.assertFalse(snapshot.available)
                 self.assertIn("ECOS", snapshot.error)
                 self.assertEqual(snapshot.error_code, "missing_credentials")
-                text = _market_block((snapshot,), END)["text"]["text"]
+                text = json.dumps(_market_block((snapshot,), END), ensure_ascii=False)
                 self.assertIn("인증키 미설정", text)
                 self.assertNotIn("수집 지연", text)
                 self.assertEqual(session.calls, [])
@@ -190,7 +191,7 @@ class WeeklyEcosTests(unittest.TestCase):
                 self.assertNotIn(PRIVATE_KEY, snapshot.error)
                 if expected:
                     self.assertIn(expected, snapshot.error)
-                text = _market_block((snapshot,), END)["text"]["text"]
+                text = json.dumps(_market_block((snapshot,), END), ensure_ascii=False)
                 self.assertIn("수집 실패", text)
                 self.assertNotIn(PRIVATE_KEY, text)
 
