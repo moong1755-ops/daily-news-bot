@@ -447,7 +447,9 @@ class WeeklyMarketTests(unittest.TestCase):
             WeeklySelection({category: () for category in CATEGORIES}, (), 0), (snapshot,),
         )
         encoded = json.dumps(message.blocks, ensure_ascii=False)
-        self.assertIn(f"<{indicator['source_url']}|USD/KRW 1,344.0 ▲0.1%>", encoded)
+        self.assertIn(indicator['source_url'], encoded)
+        self.assertIn("1,344.0", encoded)
+        self.assertIn("▲0.1%", encoded)
         self.assertIn("10.02→10.08 · 하나은행 매매기준율", encoded)
 
     def test_fx_malformed_response_and_http_failure_are_unavailable(self):

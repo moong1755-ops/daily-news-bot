@@ -167,20 +167,37 @@ def _market_reference_date(end_date: date) -> date:
 
 
 def _market_block(markets: tuple[MarketSnapshot, ...], end_date: date) -> dict:
-    lines = []
+    if not markets:
+        return {"type": "section", "text": {"type": "mrkdwn", "text": "시장지표 수집 결과 없음"}}
+    rows = [[{"type": "raw_text", "text": label} for label in (
+        "지표", "마지막 수치", "전주 대비", "비교 기준일·산출기준",
+    )]]
     freshest_observation = _market_reference_date(end_date)
     for snapshot in markets:
-        value = _format_number(snapshot)
-        change = _format_change(snapshot)
-        linked_text = " ".join(
-            part for part in (snapshot.label, value, change) if part
-        )
+        label = {"type": "text", "text": snapshot.label}
         if snapshot.source_url:
-            linked_text = f"<{snapshot.source_url}|{linked_text}>"
-        comparison = _comparison_label(snapshot, freshest_observation)
-        lines.append(" ".join(part for part in (linked_text, comparison) if part))
-    text = "\n".join(lines) if lines else "시장지표 수집 결과 없음"
-    return {"type": "section", "text": {"type": "mrkdwn", "text": text}}
+            label = {"type": "link", "text": snapshot.label, "url": snapshot.source_url}
+        value = {"type": "text", "text": _format_number(snapshot)}
+        if snapshot.source_url and snapshot.available:
+            value["type"] = "link"
+            value["url"] = snapshot.source_url
+        comparison = _comparison_label(snapshot, freshest_observation).removeprefix("· ")
+        rows.append([
+            {"type": "rich_text", "elements": [{"type": "rich_text_section", "elements": [label]}]},
+            {"type": "rich_text", "elements": [{"type": "rich_text_section", "elements": [value]}]},
+            {"type": "raw_text", "text": _format_change(snapshot) or "—"},
+            {"type": "raw_text", "text": comparison or "—"},
+        ])
+    return {
+        "type": "table",
+        "column_settings": [
+            {"align": "left", "is_wrapped": True},
+            {"align": "right"},
+            {"align": "right"},
+            {"align": "left", "is_wrapped": True},
+        ],
+        "rows": rows,
+    }
 
 
 def _heading(text: str) -> dict:
