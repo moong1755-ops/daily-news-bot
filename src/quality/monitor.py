@@ -28,7 +28,7 @@ def article_context(finding, articles):
     if isinstance(index, int) and not isinstance(index, bool) and 0 <= index < len(articles):
         article = articles[index]
         finding = {**finding, "article_title": str(article.get("title") or ""),
-                   "article_url": str(article.get("normalized_url") or article.get("url") or "")}
+                   "article_url": _public_url(str(article.get("normalized_url") or article.get("url") or ""))}
     return finding
 
 

@@ -133,6 +133,8 @@ class AlertSafetyTests(unittest.TestCase):
         archive = [{"github": {"run_id": "1"}, "articles": [{"title": "실제 발송 기사 <@here>",
                     "url": "https://www.impacton.net/news/articleView.html?idxno=1&utm_source=mail&token=secret"}]}]
         finding = monitor.delivery_findings(report, archive, "success")[0]
+        self.assertNotIn("token", finding["article_url"])
+        self.assertNotIn("utm_source", finding["article_url"])
         text = monitor.describe(finding)
         self.assertIn("idxno=1", text)
         self.assertNotIn("secret", text)
