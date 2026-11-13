@@ -52,17 +52,24 @@ jobs:
 
       - name: Validate weekly configuration
         env:
+          SLACK_BOT_TOKEN: ${{ vars.SLACK_DELIVERY_VERSION == 'v2' && secrets.SLACK_BOT_TOKEN_NEXT || '' }}
+          SLACK_DELIVERY_VERSION: ${{ vars.SLACK_DELIVERY_VERSION }}
+          TARGET_CHANNEL_ID: ${{ inputs.delivery_target == 'test' && vars.SLACK_CHANNEL_ID || vars.WEEKLY_SLACK_CHANNEL_ID }}
           WEEKLY_SLACK_WEBHOOK_URL: ${{ secrets.WEEKLY_SLACK_WEBHOOK_URL }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
           DELIVERY_TARGET: ${{ github.event_name == 'workflow_dispatch' && inputs.delivery_target || 'production' }}
         run: |
-          if [[ "$DELIVERY_TARGET" == "test" && -z "$SLACK_WEBHOOK_URL" ]]; then
+          if [[ "$SLACK_DELIVERY_VERSION" == "v2" && ( "$DELIVERY_TARGET" == "test" || "$DELIVERY_TARGET" == "production" ) ]]; then
+            if [[ -z "$SLACK_BOT_TOKEN" || -z "$TARGET_CHANNEL_ID" ]]; then
+              echo "::error::New Slack bot token or target channel is missing."
+              exit 1
+            fi
+          elif [[ "$DELIVERY_TARGET" == "test" && -z "$SLACK_WEBHOOK_URL" ]]; then
             echo "::error::SLACK_WEBHOOK_URL is missing for test delivery."
             exit 1
-          fi
-          if [[ "$DELIVERY_TARGET" == "production" && -z "$WEEKLY_SLACK_WEBHOOK_URL" ]]; then
+          elif [[ "$DELIVERY_TARGET" == "production" && -z "$WEEKLY_SLACK_WEBHOOK_URL" ]]; then
             echo "::error::WEEKLY_SLACK_WEBHOOK_URL is missing for production delivery."
             exit 1
           fi

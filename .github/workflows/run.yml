@@ -91,6 +91,9 @@ jobs:
       - name: Validate required configuration
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_BOT_TOKEN: ${{ secrets[vars.SLACK_DELIVERY_VERSION == 'v2' && 'SLACK_BOT_TOKEN_NEXT' || 'SLACK_BOT_TOKEN'] }}
+          SLACK_CHANNEL_ID: ${{ vars.SLACK_CHANNEL_ID }}
+          SLACK_DELIVERY_VERSION: ${{ vars.SLACK_DELIVERY_VERSION }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
@@ -103,9 +106,16 @@ jobs:
             failed=1
           fi
 
-          if [[ "$DRY_RUN_REQUESTED" != "true" && -z "$SLACK_WEBHOOK_URL" ]]; then
-            echo "::error::SLACK_WEBHOOK_URL이 없습니다. 실제 뉴스 발송을 할 수 없습니다."
-            failed=1
+          if [[ "$DRY_RUN_REQUESTED" != "true" ]]; then
+            if [[ "$SLACK_DELIVERY_VERSION" == "v2" ]]; then
+              if [[ -z "$SLACK_BOT_TOKEN" || -z "$SLACK_CHANNEL_ID" ]]; then
+                echo "::error::새 Slack 봇 인증키 또는 일간 채널 번호가 없습니다."
+                failed=1
+              fi
+            elif [[ -z "$SLACK_WEBHOOK_URL" ]]; then
+              echo "::error::SLACK_WEBHOOK_URL이 없습니다. 실제 뉴스 발송을 할 수 없습니다."
+              failed=1
+            fi
           fi
 
           if [[ -z "$GMAIL_USER" && -z "$GMAIL_APP_PASSWORD" ]]; then
