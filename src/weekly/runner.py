@@ -12,7 +12,7 @@ import requests
 
 from ..config import WEEKLY_BRIEFING_CONFIG
 from ..quality import runtime as quality
-from ..slack_delivery import post_message
+from ..slack_delivery import post_message, delivery_configured
 from ..editorial_review import write_review_csv
 from ..processor.translator import translate_titles
 from .archive import KOREA_TIMEZONE, WeeklyArchiveWindow, load_weekly_archive
@@ -208,8 +208,11 @@ def run_weekly_briefing(
         return WeeklyRunResult(True, False, reason, window)
 
     weekly_webhook_url = os.environ.get("WEEKLY_SLACK_WEBHOOK_URL", "").strip()
-    if not dry_run and not weekly_webhook_url:
-        return _empty_result(window, "WEEKLY_SLACK_WEBHOOK_URL이 설정되지 않음")
+    if not dry_run and not delivery_configured(weekly_webhook_url, os.getenv("SLACK_BOT_TOKEN", ""), os.getenv("WEEKLY_SLACK_CHANNEL_ID", "")):
+        reason = ("Slack v2 봇 인증키 또는 주간 채널 번호가 설정되지 않음"
+                  if os.getenv("SLACK_DELIVERY_VERSION") == "v2"
+                  else "WEEKLY_SLACK_WEBHOOK_URL이 설정되지 않음")
+        return _empty_result(window, reason)
 
     reviewed = revalidate_weekly_articles(list(window.articles))
     rejected = [article for article in reviewed if article.get("weekly_exclusion_reason")]

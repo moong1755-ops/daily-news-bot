@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch
 import requests
 
 from src import check_slack_connection as check
-from src.slack_delivery import post_message, API_URL
+from src.slack_delivery import post_message, API_URL, delivery_configured
 from src.quality.monitor import notify
 from src.quality.checks import issue
 from src.quality.runtime import KST
@@ -25,6 +25,17 @@ def reply(**data):
 class SlackMigrationTests(unittest.TestCase):
     env = {"SLACK_BOT_TOKEN_NEXT": "test-secret-never-output", "SLACK_WORKSPACE_ID": "TWORK",
            "SLACK_CHANNEL_ID": "CDAILY", "WEEKLY_SLACK_CHANNEL_ID": "CWEEKLY"}
+
+    def test_v2_configuration_does_not_require_old_webhook(self):
+        with patch.dict(os.environ, {"SLACK_DELIVERY_VERSION": "v2"}):
+            self.assertTrue(delivery_configured("", "new-token", "CDAILY"))
+            self.assertFalse(delivery_configured("old-webhook", "", "CDAILY"))
+            self.assertFalse(delivery_configured("old-webhook", "new-token", ""))
+
+    def test_legacy_configuration_still_supported(self):
+        with patch.dict(os.environ, {"SLACK_DELIVERY_VERSION": ""}):
+            self.assertTrue(delivery_configured("old-webhook"))
+            self.assertFalse(delivery_configured(""))
 
     def test_auth_only_never_posts_messages_or_exposes_key(self):
         session = Mock()

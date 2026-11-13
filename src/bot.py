@@ -9,7 +9,7 @@ from pathlib import Path
 
 from .fetchers import hackernews, rss_feeds
 from .quality import runtime as quality
-from .slack_delivery import post_message
+from .slack_delivery import post_message, delivery_configured
 from .fetchers.rss_feeds import as_of_date
 try:
     from .fetchers import newsletters
@@ -1760,8 +1760,8 @@ def _append_slack_archive(
 
 def send_aggregated_slack_news(articles) -> tuple:
     slack_webhook_url = os.environ.get("SLACK_WEBHOOK_URL")
-    if not slack_webhook_url and not is_dry_run():
-        print("SLACK_WEBHOOK_URL 이 설정되지 않았습니다.")
+    if not is_dry_run() and not delivery_configured(slack_webhook_url, os.getenv("SLACK_BOT_TOKEN", ""), os.getenv("SLACK_CHANNEL_ID", "")):
+        print("Slack 발송 인증키 또는 대상 채널이 설정되지 않았습니다.")
         return False, []
 
     sendable_articles = [article for article in articles if _is_sendable(article)]

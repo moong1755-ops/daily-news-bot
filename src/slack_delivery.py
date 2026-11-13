@@ -7,6 +7,12 @@ import requests
 API_URL = "https://slack.com/api/chat.postMessage"
 
 
+def delivery_configured(webhook, token="", channel=""):
+    if os.getenv("SLACK_DELIVERY_VERSION") == "v2":
+        return bool(token and channel)
+    return bool(webhook or (token and channel))
+
+
 def valid_reference(reference):
     return (isinstance(reference, dict)
             and isinstance(reference.get("channel"), str)
