@@ -114,9 +114,11 @@ class AlertSafetyTests(unittest.TestCase):
                                     ([issue("llm_noise")], {"channel": "CWRONG", "ts": "123.4"}),
                                     ([issue("llm_noise")], None)):
             session = Mock()
+            session.post.return_value = response(ok=True)
             with patch.dict(os.environ, {"SLACK_BOT_TOKEN": "secret", "SLACK_CHANNEL_ID": "C123ABC"}):
                 monitor.notify(findings, {}, self.now, "webhook", session=session, reference=reference)
-            self.assertEqual(session.post.call_args.args[0], "webhook")
+            self.assertEqual(session.post.call_args.args[0], slack.API_URL)
+            self.assertEqual(session.post.call_args.kwargs["json"]["channel"], "C123ABC")
             self.assertNotIn("thread_ts", session.post.call_args.kwargs["json"])
 
     def test_thread_error_does_not_retry_or_advance_ledger(self):

@@ -1,0 +1,41 @@
+name: Slack connection migration check
+on:
+  workflow_dispatch:
+    inputs:
+      send_test:
+        description: "각 기존 채널에 연결 시험 메시지 1개, 일간에 시험 댓글 1개 (실제 뉴스 아님)"
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    concurrency:
+      group: slack-connection-migration-check
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - run: pip install requests
+      - name: Validate candidate credentials and optional delivery
+        env:
+          SLACK_BOT_TOKEN_NEXT: ${{ secrets.SLACK_BOT_TOKEN_NEXT }}
+          SLACK_WORKSPACE_ID: ${{ vars.SLACK_WORKSPACE_ID }}
+          SLACK_CHANNEL_ID: ${{ vars.SLACK_CHANNEL_ID }}
+          WEEKLY_SLACK_CHANNEL_ID: ${{ vars.WEEKLY_SLACK_CHANNEL_ID }}
+          SEND_TEST: ${{ inputs.send_test }}
+        run: |
+          args=()
+          if [[ "$SEND_TEST" == 'true' ]]; then args+=(--send-test); fi
+          python -m src.check_slack_connection "${args[@]}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: slack-connection-${{ github.run_id }}
+          path: data/slack_connection_check.json
+          if-no-files-found: ignore
+          retention-days: 7

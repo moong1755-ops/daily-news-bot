@@ -291,9 +291,14 @@ def run_weekly_briefing(
                 "unfurl_media": False,
             },
             session=session,
+            token=os.getenv("SLACK_BOT_TOKEN", ""),
+            channel=os.getenv("WEEKLY_SLACK_CHANNEL_ID", ""),
         )
         response.raise_for_status()
-        quality.update(delivery="sent")
+        quality.update(delivery="sent", slack_reference=reference)
+        if reference:
+            for article in selection.articles:
+                article["_slack_reference"] = reference
         if used_fallback:
             quality.update(issues=[quality.issue("table_fallback", "weekly")])
     except requests.RequestException as exc:

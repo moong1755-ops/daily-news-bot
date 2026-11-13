@@ -198,10 +198,14 @@ def notify(findings, ledger, now, webhook, run_id="", session=requests, referenc
     if not pending:
         return False
     token = os.getenv("SLACK_BOT_TOKEN", "")
+    channel = os.getenv("SLACK_CHANNEL_ID", "")
+    use_bot = bool(token and channel)
+    if os.getenv("SLACK_DELIVERY_VERSION") == "v2" and not use_bot:
+        raise RuntimeError("Slack v2 alert credentials/channel missing; legacy delivery is disabled")
     use_thread = bool(token and valid_reference(reference)
                       and reference["channel"] == os.getenv("SLACK_CHANNEL_ID")
                       and not any(f["code"] in CRITICAL_CODES for _, f in pending))
-    if not webhook and not use_thread:
+    if not webhook and not use_bot:
         raise RuntimeError("Daily Slack alert webhook is not configured")
     # Details come only from persisted delivered articles, never model free text.
     text = "⚠️ 뉴스브리핑 자동 점검\n" + "\n".join(describe(f) for _, f in pending)
@@ -214,10 +218,12 @@ def notify(findings, ledger, now, webhook, run_id="", session=requests, referenc
         kwargs = {"timeout": 20}
         if use_thread:
             payload.update(channel=reference["channel"], thread_ts=reference["ts"], reply_broadcast=False)
+        if use_bot:
+            payload["channel"] = channel
             kwargs["headers"] = {"Authorization": "Bearer " + token}
-        response = session.post(API_URL if use_thread else webhook, json=payload, **kwargs)
+        response = session.post(API_URL if use_bot else webhook, json=payload, **kwargs)
         response.raise_for_status()
-        if use_thread and response.json().get("ok") is not True:
+        if use_bot and response.json().get("ok") is not True:
             raise requests.RequestException("Slack did not confirm reply")
     except requests.RequestException:
         raise RuntimeError("Quality alert delivery failed; check channel before retry") from None
