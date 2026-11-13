@@ -81,6 +81,9 @@ jobs:
       - name: Run weekly briefing
         id: briefing
         env:
+          SLACK_BOT_TOKEN: ${{ vars.SLACK_DELIVERY_VERSION == 'v2' && secrets.SLACK_BOT_TOKEN_NEXT || '' }}
+          SLACK_DELIVERY_VERSION: ${{ vars.SLACK_DELIVERY_VERSION }}
+          WEEKLY_SLACK_CHANNEL_ID: ${{ inputs.delivery_target == 'test' && vars.SLACK_CHANNEL_ID || vars.WEEKLY_SLACK_CHANNEL_ID }}
           WEEKLY_SLACK_WEBHOOK_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.delivery_target == 'test' && secrets.SLACK_WEBHOOK_URL || secrets.WEEKLY_SLACK_WEBHOOK_URL }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}

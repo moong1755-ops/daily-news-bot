@@ -1,5 +1,6 @@
 """Slack delivery with one explicit table-rejection fallback; never retry ambiguity."""
 import re
+import os
 
 import requests
 
@@ -41,6 +42,8 @@ def without_tables(payload):
 
 
 def post_message(webhook, payload, *, session=requests, token="", channel=""):
+    if os.getenv("SLACK_DELIVERY_VERSION") == "v2" and not (token and channel):
+        raise requests.RequestException("Slack v2 credentials/channel missing; legacy delivery is disabled")
     use_bot = bool(token and channel)
     kwargs = {"timeout": 20}
     url = webhook
