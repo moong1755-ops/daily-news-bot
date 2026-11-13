@@ -1,41 +1,35 @@
-name: Slack connection migration check
+name: Delete requested weekly test message
 on:
   workflow_dispatch:
-    inputs:
-      send_test:
-        description: "각 기존 채널에 연결 시험 메시지 1개, 일간에 시험 댓글 1개 (실제 뉴스 아님)"
-        type: boolean
-        default: false
 permissions:
   contents: read
 jobs:
-  check:
+  delete-exact-request:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    concurrency:
-      group: slack-connection-migration-check
-      cancel-in-progress: false
+    timeout-minutes: 3
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
-        with:
-          python-version: '3.11'
-      - run: pip install requests
-      - name: Validate candidate credentials and optional delivery
+      - name: Delete only the user-requested bot test message
         env:
           SLACK_BOT_TOKEN_NEXT: ${{ secrets.SLACK_BOT_TOKEN_NEXT }}
-          SLACK_WORKSPACE_ID: ${{ vars.SLACK_WORKSPACE_ID }}
-          SLACK_CHANNEL_ID: ${{ vars.SLACK_CHANNEL_ID }}
-          WEEKLY_SLACK_CHANNEL_ID: ${{ vars.WEEKLY_SLACK_CHANNEL_ID }}
-          SEND_TEST: ${{ inputs.send_test }}
         run: |
-          args=()
-          if [[ "$SEND_TEST" == 'true' ]]; then args+=(--send-test); fi
-          python -m src.check_slack_connection "${args[@]}"
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: slack-connection-${{ github.run_id }}
-          path: data/slack_connection_check.json
-          if-no-files-found: ignore
-          retention-days: 7
+          python3 - <<'PY'
+          import json, os, urllib.request
+          token = os.environ['SLACK_BOT_TOKEN_NEXT']
+          def call(method, payload):
+              request = urllib.request.Request('https://slack.com/api/' + method,
+                  data=json.dumps(payload).encode(), headers={
+                      'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json'})
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  return json.load(response)
+          try:
+              identity = call('auth.test', {})
+              if identity.get('ok') is not True or identity.get('team_id') != 'T0908FGHH' or identity.get('user_id') != 'U0CH3UYEURX':
+                  raise ValueError('identity mismatch')
+              result = call('chat.delete', {'channel':'C62PHQ9MY', 'ts':'1794539452.310549'})
+              if result.get('ok') is not True:
+                  raise ValueError('delete not confirmed')
+              print('Deleted requested message: C62PHQ9MY / 1794539452.310549')
+          except Exception:
+              print('Deletion not confirmed. No automatic retry; inspect exact message.')
+              raise SystemExit(1)
+          PY
