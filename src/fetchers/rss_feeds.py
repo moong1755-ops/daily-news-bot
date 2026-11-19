@@ -240,11 +240,18 @@ def rewrite_for_as_of(url: str, target) -> str:
 def _get_feed(url: str):
     """요청 + 파싱. bozo+기사0 이면 불법 XML 문자 정화 후 1회 재시도. 실패 시 예외."""
     resp = requests.get(url, headers=_HEADERS, timeout=15)
+    resp.raise_for_status()
+    # HTTP 200이어도 회원가입/로그인 HTML이면 뉴스 피드가 아니다.
+    # Content-Type만으로 거부하지 않는다: 일부 정상 XML은 잘못된 MIME으로 온다.
+    if re.match(br"\s*(?:<!doctype\s+html\b|<html\b)", resp.content, re.IGNORECASE):
+        raise ValueError("non_feed_response: HTML page returned instead of RSS/Atom")
     feed = feedparser.parse(resp.content)
     if feed.bozo and not feed.entries:
         cleaned = resp.content.decode("utf-8", errors="ignore")
         cleaned = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", cleaned)
         feed = feedparser.parse(cleaned)
+    if not str(feed.get("version", "")).startswith(("rss", "atom")):
+        raise ValueError("non_feed_response: RSS/Atom format not recognized")
     if feed.bozo and not feed.entries:
         raise ValueError(f"parse fail: {feed.bozo_exception}")
     if feed.bozo:

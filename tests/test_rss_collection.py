@@ -158,6 +158,104 @@ class RSSCollectionTestCase(unittest.TestCase):
         self.assertEqual(len(notices), 1)
 
 
+class RSSResponseValidationTests(unittest.TestCase):
+    rss = (
+        b'<?xml version="1.0"?><rss version="2.0"><channel><title>Test</title>'
+        b'<link>https://publisher.example</link><description>News</description>'
+        b'<item><title>New investment</title>'
+        b'<link>https://publisher.example/article</link></item></channel></rss>'
+    )
+    atom = (
+        b'<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom">'
+        b'<title>Test</title><id>https://publisher.example</id>'
+        b'<updated>2026-11-18T00:00:00Z</updated></feed>'
+    )
+
+    def response(self, body, status=200, content_type="application/rss+xml"):
+        response = rss_feeds.requests.Response()
+        response.status_code = status
+        response._content = body
+        response.url = "https://publisher.example/feed"
+        response.headers["Content-Type"] = content_type
+        return response
+
+    def test_valid_rss_is_not_rejected_for_incorrect_html_mime(self):
+        response = self.response(self.rss, content_type="text/html")
+        with mock.patch.object(rss_feeds.requests, "get", return_value=response) as get:
+            feed = rss_feeds._get_feed(response.url)
+        self.assertEqual(feed.entries[0].title, "New investment")
+        get.assert_called_once_with(response.url, headers=rss_feeds._HEADERS, timeout=15)
+
+    def test_valid_empty_rss_and_atom_are_not_collection_errors(self):
+        empty_rss = self.rss[:self.rss.index(b"<item>")] + b"</channel></rss>"
+        for body in (empty_rss, self.atom):
+            with self.subTest(body=body), mock.patch.object(
+                rss_feeds.requests, "get", return_value=self.response(body)
+            ):
+                self.assertEqual(rss_feeds._get_feed("https://publisher.example/feed").entries, [])
+
+    def test_login_html_is_rejected_before_xml_parsing(self):
+        for body in (b"<!DOCTYPE html><html>Register</html>", b" \n<HTML>Sign in</HTML>"):
+            with self.subTest(body=body), mock.patch.object(
+                rss_feeds.requests, "get", return_value=self.response(body)
+            ), mock.patch.object(rss_feeds.feedparser, "parse") as parse:
+                with self.assertRaisesRegex(ValueError, "non_feed_response"):
+                    rss_feeds._get_feed("https://publisher.example/feed")
+                parse.assert_not_called()
+
+    def test_http_error_is_not_misreported_as_xml_error(self):
+        for status in (403, 404, 429, 503):
+            with self.subTest(status=status), mock.patch.object(
+                rss_feeds.requests, "get", return_value=self.response(b"Forbidden", status=status)
+            ), mock.patch.object(rss_feeds.feedparser, "parse") as parse:
+                with self.assertRaises(rss_feeds.requests.HTTPError) as error:
+                    rss_feeds._get_feed("https://publisher.example/feed")
+                self.assertEqual(error.exception.response.status_code, status)
+                parse.assert_not_called()
+
+    def test_empty_and_non_feed_responses_are_not_accepted(self):
+        for body in (b"", b"{}", b"<document>Not a feed</document>"):
+            with self.subTest(body=body), mock.patch.object(
+                rss_feeds.requests, "get", return_value=self.response(body)
+            ):
+                with self.assertRaisesRegex(ValueError, "non_feed_response"):
+                    rss_feeds._get_feed("https://publisher.example/feed")
+
+    def test_illegal_xml_character_recovery_is_preserved(self):
+        damaged = self.rss.replace(b"<title>New", b"<title>\x01New")
+        with mock.patch.object(rss_feeds.requests, "get", return_value=self.response(damaged)):
+            feed = rss_feeds._get_feed("https://publisher.example/feed")
+        self.assertEqual(len(feed.entries), 1)
+        self.assertIn("New investment", feed.entries[0].title)
+
+    def test_html_response_still_uses_google_news_fallback(self):
+        responses = [self.response(b"<html>Register</html>"), self.response(self.rss)]
+        with mock.patch.object(rss_feeds.requests, "get", side_effect=responses) as get, \
+             mock.patch.object(rss_feeds, "_article_date", return_value=("2026-11-18", True)), \
+             mock.patch.object(rss_feeds, "resolve_gnews_url", side_effect=lambda url: url):
+            articles, errors, notices = rss_feeds._fetch_feed_source(
+                "Publisher", "https://publisher.example/feed",
+                rss_feeds.datetime.now(rss_feeds.timezone.utc), None)
+        self.assertEqual(errors, [])
+        self.assertEqual(len(articles), 1)
+        self.assertEqual(get.call_count, 2)
+        self.assertIn("news.google.com/rss/search", get.call_args_list[1].args[0])
+        self.assertEqual(len(notices), 1)
+
+    def test_html_and_empty_fallback_remain_visible_as_collection_error(self):
+        responses = [self.response(b"<html>Register</html>"), self.response(self.atom)]
+        with mock.patch.object(rss_feeds.requests, "get", side_effect=responses) as get:
+            articles, errors, notices = rss_feeds._fetch_feed_source(
+                "Publisher", "https://publisher.example/feed",
+                rss_feeds.datetime.now(rss_feeds.timezone.utc), None)
+        self.assertEqual(articles, [])
+        self.assertEqual(notices, [])
+        self.assertEqual(len(errors), 1)
+        self.assertIn("non_feed_response", errors[0])
+        self.assertIn("fallback empty", errors[0])
+        self.assertEqual(get.call_count, 2)
+
+
 class GoogleNewsRequestReuseTests(unittest.TestCase):
     def setUp(self):
         # Isolate the process caches without replacing the production lock.

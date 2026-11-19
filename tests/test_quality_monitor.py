@@ -53,6 +53,83 @@ class QualityChecksTest(unittest.TestCase):
         result = checks.semantic_audit([self.article()], Mock(side_effect=RuntimeError("private URL")))
         self.assertEqual(result, [checks.issue("audit_invalid", "provider")])
 
+    def test_malformed_finding_does_not_discard_valid_findings(self):
+        valid = {"id": "0", "code": "llm_claim", "quote": "Climate fund"}
+        invalid = [
+            (None, "invalid_finding"),
+            ([], "invalid_finding"),
+            ({}, "invalid_id"),
+            ({**valid, "id": []}, "invalid_id"),
+            ({**valid, "id": True}, "invalid_id"),
+            ({**valid, "id": "99"}, "invalid_id"),
+            ({**valid, "code": []}, "invalid_code"),
+            ({**valid, "code": "send_secret"}, "invalid_code"),
+            ({**valid, "quote": "invented private URL"}, "ungrounded_quote"),
+            ({**valid, "code": "llm_duplicate", "other_id": []}, "invalid_duplicate"),
+            ({**valid, "code": "llm_duplicate", "other_id": "0"}, "invalid_duplicate"),
+        ]
+        for bad, reason in invalid:
+            for rows in ([bad, valid], [valid, bad]):
+                with self.subTest(bad=bad, invalid_first=rows[0] is bad):
+                    article = self.article()
+                    before = json.loads(json.dumps(article))
+                    generate = Mock(return_value=json.dumps({"issues": rows}))
+                    result = checks.semantic_audit([article], generate)
+                    self.assertEqual(result, [
+                        checks.issue("llm_claim", article["category"], article=0, advisory=True),
+                        checks.issue("audit_invalid", "response_items", count=1,
+                                     accepted_count=1, reasons={reason: 1}),
+                    ])
+                    self.assertEqual(article, before)
+                    self.assertNotIn("invented private URL", json.dumps(result))
+                    generate.assert_called_once()
+
+    def test_rejected_finding_counts_are_aggregated_without_model_text(self):
+        rows = [None, [], {"id": "99", "quote": "private mail body"}]
+        result = checks.semantic_audit(
+            [self.article()], Mock(return_value=json.dumps({"issues": rows})))
+        self.assertEqual(result, [checks.issue(
+            "audit_invalid", "response_items", count=3, accepted_count=0,
+            reasons={"invalid_finding": 2, "invalid_id": 1})])
+        self.assertNotIn("private mail body", json.dumps(result))
+
+    def test_multiple_valid_findings_survive_a_rejected_item(self):
+        article = self.article()
+        rows = [
+            {"id": "0", "code": "llm_claim", "quote": "Climate fund"},
+            None,
+            {"id": "0", "code": "llm_category", "quote": "raises new capital"},
+        ]
+        result = checks.semantic_audit([article], Mock(return_value=json.dumps({"issues": rows})))
+        self.assertEqual([item["code"] for item in result],
+                         ["llm_claim", "llm_category", "audit_invalid"])
+        self.assertEqual(result[-1]["accepted_count"], 2)
+        self.assertEqual(result[-1]["count"], 1)
+
+    def test_duplicate_finding_preserves_other_article_index(self):
+        rows = [{"id": "0", "code": "llm_duplicate", "quote": "Climate fund", "other_id": "1"}]
+        result = checks.semantic_audit(
+            [self.article(), self.article(url="https://example.org/news/2")],
+            Mock(return_value=json.dumps({"issues": rows})))
+        self.assertEqual(result, [checks.issue(
+            "llm_duplicate", "🌱 임팩트", article=0, other_article=1, advisory=True)])
+
+    def test_invalid_response_envelope_never_salvaged_or_retried(self):
+        valid = {"id": "0", "code": "llm_claim", "quote": "Climate fund"}
+        for raw in ("{bad", "null", "[]", '{"issues": {}}',
+                    json.dumps({"issues": [valid] * 5})):
+            with self.subTest(raw=raw):
+                generate = Mock(return_value=raw)
+                self.assertEqual(checks.semantic_audit([self.article()], generate),
+                                 [checks.issue("audit_invalid", "provider")])
+                generate.assert_called_once()
+
+    def test_unavailable_provider_is_not_reported_as_clean_audit(self):
+        generate = Mock(return_value=None)
+        self.assertEqual(checks.semantic_audit([self.article()], generate),
+                         [checks.issue("audit_unavailable", "provider")])
+        generate.assert_called_once()
+
     def test_market_nan_and_missing_credentials(self):
         bad = MarketSnapshot("kospi", "KOSPI", "ecos", "percent",
                              points=(MarketPoint(date(2026, 11, 6), float("nan")),),
