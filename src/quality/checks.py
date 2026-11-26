@@ -73,6 +73,31 @@ def inspect_articles(articles, *, translated=True):
     return issues, blocked
 
 
+def _audit_finding(row, lookup):
+    """Validate one model finding without trusting its IDs, codes or evidence."""
+    if not isinstance(row, dict):
+        raise ValueError("invalid_finding")
+    identity, code, quote = row.get("id"), row.get("code"), row.get("quote")
+    if not isinstance(identity, str) or identity not in lookup:
+        raise ValueError("invalid_id")
+    if not isinstance(code, str) or code not in {
+        "llm_region", "llm_category", "llm_noise", "llm_duplicate", "llm_claim"
+    }:
+        raise ValueError("invalid_code")
+    card = lookup[identity]
+    if not isinstance(quote, str) or len(quote) < 8 or not any(
+        quote in card[key] for key in ("original", "evidence")
+    ):
+        raise ValueError("ungrounded_quote")
+    extra = {}
+    if code == "llm_duplicate":
+        other = row.get("other_id")
+        if not isinstance(other, str) or other not in lookup or other == identity:
+            raise ValueError("invalid_duplicate")
+        extra["other_article"] = int(other)
+    return issue(code, card["category"], article=int(identity), advisory=True, **extra)
+
+
 def semantic_audit(articles, generate):
     """One call, bounded input, no URLs/email headers; no automatic AI deletion."""
     if not articles or not CONFIG["llm_enabled"]:
@@ -110,21 +135,21 @@ def semantic_audit(articles, generate):
         rows = payload["issues"]
         if not isinstance(rows, list) or len(rows) > len(cards) * 4:
             raise ValueError("invalid audit")
-        lookup = {card["id"]: card for card in cards}
-        result = []
-        for row in rows:
-            card = lookup[row["id"]]
-            code, quote = row["code"], row["quote"]
-            if code not in {"llm_region", "llm_category", "llm_noise", "llm_duplicate", "llm_claim"}:
-                raise ValueError("unknown issue")
-            if not isinstance(quote, str) or len(quote) < 8 or not any(quote in card[k] for k in ("original", "evidence")):
-                raise ValueError("un grounded finding")
-            if code == "llm_duplicate" and (row.get("other_id") not in lookup or row["other_id"] == row["id"]):
-                raise ValueError("invalid duplicate")
-            result.append(issue(code, card["category"], article=int(card["id"]), advisory=True))
-        return result
     except Exception:
         return [issue("audit_invalid", "provider")]
+    lookup = {card["id"]: card for card in cards}
+    result, rejected = [], {}
+    for row in rows:
+        try:
+            result.append(_audit_finding(row, lookup))
+        except ValueError as error:
+            # Static reason codes only: never persist raw model text or mail bodies.
+            reason = str(error)
+            rejected[reason] = rejected.get(reason, 0) + 1
+    if rejected:
+        result.append(issue("audit_invalid", "response_items", count=sum(rejected.values()),
+                            accepted_count=len(result), reasons=rejected))
+    return result
 
 
 def inspect_markets(markets, end_date):
