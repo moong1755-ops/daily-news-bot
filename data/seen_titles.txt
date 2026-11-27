@@ -1,12 +1,3 @@
-7월 5주차 국내 ESG 핫클립
-【ESG Deal】엑손모빌, 윌리엄스와 CCS 계약·프론티어, 최대 에탄올 BECCS 계약·젤레스트라, 美 태양광 금융 조달
-EUDR 대응비용은 커피 100kg당 1달러…진짜 부담은 '데이터 종속'
-Microsoft is openly competing with OpenAI, Anthropic more than ever
-Microsoft logs $3.2B from Anthropic investment, but OpenAI was a mixed bag
-Microsoft confirms Copilot ‘super app’ coming this year
-AIP completes take-private buyout of medical tech firm Avanos Medical
-Inforcer raises $50M to help prepare smaller businesses for a new world of AI and security risks
-Blackstone scoops up ultrasonic inspections company DarkVision; Macquarie to shop Win Waste, sources say
 The US Federal Reserve has kept its key interest rate unchanged
 Federal Reserve holds interest rates steady, but 3 officials vote for hike
 The Federal Reserve just froze interest rates yet again. Here's what that could mean for mortgage rates.
@@ -1987,3 +1978,23 @@ Omdia: African Smartphone Market Plummets 40%... Samsung's Market Share Rises to
 PwC One Assistant introduces Intelligent Agent capabilities
 SEC landscape, audit quality report, GHG standards, SOC 2 criteria, revenue guide, and more
 How EV charging infrastructure in India can scale sustainably
+French regulator backs creation of European proxy challenger
+News in brief: European Commission adopts revised taxonomy criteria
+Exclusive: Starforge raises €6.6m to build nuclear fusion reactors at scale
+폐배터리 부족한데 재활용 설비는 과잉…BASF도 사업 매각
+Renaissance Philanthropy launches fund strategy for rare disease treatments
+OpenAI countersues Apple for stealing trade secrets
+서울 민간 데이터센터에 54큐비트 양자컴퓨터 들어선다, QAI·IQM 공급 계약
+After Trump snub claims and failed attempt to meet Elon Musk, Ramaphosa unveils $5.7 million AI fund proposal to challenge US and China
+韓 중징계 위기 MBK…日 6조원대 바이아웃 질주
+Anthropic Shares Jump After Volatile First Week Since IPO
+[AI서머리] DHP, 지원 4개사 139억원 투자 유치‧QAI, IQM 54큐비트 양자컴퓨터 도입
+홈플러스 인수의향서 접수…M&A 성사 '기로'
+[VC 리포트] 연초 2000억 3호 세컨더리 출격…LB 대펀은 오승윤
+中 겨냥한 EU 하이브리드 수입 규제…현대차·기아도 발목
+Norse Atlantic files for bankruptcy, halts flights as Iran war drives up fuel costs
+Dutch PM to discuss MATCH Act chipmaking export controls with Trump at G20
+Bank of Korea Hikes Rate as AI Boom Powers Growth, Inflation
+Advancing US economic mobility in the age of AI
+CEO Outlook Technology, Media & Telecommunications
+2026 Consumer & Retail CEO Outlook
